@@ -1,0 +1,12 @@
+{
+  "derived_from": "valid-basic",
+  "description": "header_len exceeds 1 MiB.",
+  "expected_result": "reject",
+  "file": "invalid-header-len-huge.svx",
+  "file_sha256": "b4b81f58f14604e8bdb4e1280bdc39b19d35641d3abcba14fd33af8e4dd64fc5",
+  "name": "invalid-header-len-huge",
+  "reject_stage": "parse",
+  "trusted_senders": [
+    "acme-security"
+  ]
+}

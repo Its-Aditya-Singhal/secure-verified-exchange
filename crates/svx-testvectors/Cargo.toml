@@ -1,0 +1,20 @@
+[package]
+name = "svx-testvectors"
+description = "Deterministic generator and checker for SVX 1.0 test vectors"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+svx-core = { path = "../svx-core" }
+chacha20 = { version = "0.10", features = ["rng"] }
+hex = "0.4"
+rand_core = "0.10"
+serde_json = "1"
+sha2 = "0.11"
+
+[lints]
+workspace = true

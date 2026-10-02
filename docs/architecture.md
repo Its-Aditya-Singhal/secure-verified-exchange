@@ -1,0 +1,204 @@
+# SVX Security Architecture
+
+Status: Phase 1 design. The Phase 1 components are implemented. Components marked *(Phase N)* are design only and will be built in later phases.
+
+## 1. Components
+
+```text
+            Company A (sender)                               Company B (recipient)
+   +----------------------------------+            +-------------------------------------+
+   | SVX client / CLI / SDK           |            | SVX client (desktop / CLI)          |
+   |  - signing key (KMS/HSM in prod) |            |  - no long-term secrets             |
+   +----------------+-----------------+            +----+--------------+-----------------+
+                    |                                   |              |
+                    | incident.svx over untrusted       | OIDC         | release requests
+                    | transport (email, cloud, USB)     | (PKCE)       | (TLS 1.3)
+                    +---------------------------------->|              |
+                                                        v              |
+                                       +-----------------------+       |
+                                       | Company B IdP         |       |
+                                       | (Entra / Okta / ...)  |       |
+                                       +-----------------------+       |
+                                                                       v
+   +--------------------------------------------+     +--------------------------------------+
+   | SVX Managed Service (svx.example) (Phase 2) |     | Company B Key Agent (Phase 2)        |
+   |  - org registry and trust (signed records) |     |  - Company B X25519 KEM key in KMS   |
+   |  - policy engine, expiry, revocation       |     |  - unwraps RecipientOrg share        |
+   |  - service X25519 KEM key in KMS/HSM       |     |  - requires service grant + user     |
+   |  - unwraps Service share only              |     |    token bound to client key         |
+   |  - audit log                               |     |  - local audit log                   |
+   +--------------------------------------------+     +--------------------------------------+
+```
+
+| Component | Holds | Never holds |
+|-----------|-------|-------------|
+| Sender client | Sender signing key; plaintext before packing | Recipient or service secret keys |
+| `.svx` file | Ciphertext, sealed shares, public header, signature | Any usable key |
+| Managed service | Service KEM key; policies; registry; audit | Recipient-org share; payload; plaintext manifest |
+| Recipient key agent | Recipient-org KEM key | Service share; payload |
+| Recipient client | Both shares, briefly, after authorization | Long-term secret keys |
+
+## 2. Split-key envelope model
+
+Every artifact has a fresh pair of 256-bit shares:
+
+```text
+share_svc  --HPKE-->  sealed to the managed service's KEM key         (envelope role 0x01)
+share_org  --HPKE-->  sealed to the recipient organization's KEM key  (envelope role 0x02)
+
+artifact keys = HKDF(salt = "SVX-1 artifact\0" || artifact_id, ikm = share_svc || share_org)
+```
+
+Neither party can decrypt alone. That gives three properties:
+
+- **Server cannot decrypt.** A compromised or curious managed service has only `share_svc` (threat model T11).
+- **Leaked org key is not enough.** Someone with the org KEM key still needs the service, which enforces policy, expiry and revocation (T12).
+- **Recipient binding.** Only the named recipient org's key agent can contribute the second share (G4).
+
+Deployments where the managed service also operates the recipient's key agent lose the "server cannot decrypt" property. The admin portal must show this clearly.
+
+## 3. Packing flow (implemented)
+
+1. Validate the request. Generate `artifact_id` (16 random bytes), a STREAM `nonce_prefix` (7 random bytes), and `share_svc` and `share_org` (32 random bytes each).
+2. Derive `payload_key`, `manifest_key` and `key_commitment` with HKDF.
+3. HPKE-seal each share to its holder's KEM key. `info` binds role, artifact ID, sender org and key ID, recipient org, and service ID.
+4. Encrypt the manifest (file name, size, classification, description).
+5. Write the prelude and header. Compute `header_hash`.
+6. Stream the payload: STREAM-encrypt each chunk with `aad = header_hash`, and accumulate the payload commitment.
+7. Sign `header_hash ‖ chunk_count ‖ payload_commitment` with Ed25519. Write the trailer.
+
+Memory use is O(chunk size). The CLI writes to a temporary file and renames it only on success.
+
+## 4. Opening flow (Managed Mode)
+
+Steps marked ✅ are implemented in `svx-core`. The other steps are Phase 2 and 3.
+
+```text
+ 1. ✅ Parse prelude and header (strict, bounded)
+ 2. ✅ Check format version and suite (reject unknown; no downgrade)
+ 3. ✅ Hash pass: recompute payload commitment over every chunk
+ 4. ✅ Verify sender signature against the trust store or registry
+ 5. ✅ Identify recipient org and service from the verified header
+ 6.    Require connectivity (no offline mode in Managed Mode)
+ 7.    Authenticate the user with the recipient org's IdP (OIDC + PKCE)
+ 8.    Verify the org identity via the signed registry record
+ 9.    Release request to the managed service -> policy, expiry, revocation, device/session checks
+10.    Release request to the recipient key agent with the service grant
+11.    Receive both shares, HPKE-sealed to a per-request ephemeral client key
+12. ✅ Derive keys; check key commitment (constant time)
+13. ✅ Decrypt the manifest; validate file names
+14. ✅ Decrypt the payload, re-checking header hash and commitment (TOCTOU)
+15.    Write plaintext to a private temp location, then hand it to the viewer
+16.    Audit: artifact_opened (client-reported) and decryption_authorized (server)
+```
+
+Any failure at any step means **no plaintext**. There is no "continue anyway" path in the client, the CLI or the SDK.
+
+## 5. Organization identity and trust (Phase 2)
+
+An organization record:
+
+```text
+org_id                 opaque identifier (e.g. "example-corp")
+display_name
+verified_domains[]     proven via DNS TXT  _svx-challenge.<domain> = <token>
+idp                    { issuer, jwks_uri, client_id, allowed_algs, group_claim }
+signing_keys[]         { key_id, ed25519_public, status, not_before, not_after }
+kem_keys[]             { key_id, x25519_public, status, not_before, not_after }
+key_agent_endpoint
+admins[]               subject IDs from the org's own IdP
+policies[]             (see section 7)
+```
+
+Trust model:
+
+1. **Registration.** An admin proves control of a domain (DNS TXT challenge) and sets up the org's IdP. The first admin login through that IdP binds the admin.
+2. **Registry signing.** The service signs each org record with a registry key. Clients pin the registry public key, which ships with the client and is rotated through signed update manifests. A client accepts sender keys only from a signed record. A plain org name is never treated as identity.
+3. **Key status.** Keys move from `active` to `retired` to `revoked`. Verification checks that the key was valid at `created_at` and is not revoked.
+4. **Later: federation.** Org-to-org trust that does not depend on the managed registry (signed cross-certification). Listed in Future features.
+
+## 6. Key-release protocol (Phase 2)
+
+Goal: release the two shares only to an authenticated, authorized user's client, and make sure no intermediary sees them.
+
+```text
+Client                                 Managed Service                  Recipient Key Agent
+  | generate ephemeral X25519 (e_pk, e_sk); txn = random 128-bit
+  | OIDC auth with nonce = H("SVX-1 oidc" || e_pk || txn)
+  |---- POST /v1/release ----------------->|
+  |   header_region, trailer, id_token,    |
+  |   e_pk, txn                            |
+  |                                        | verify artifact signature (registry key)
+  |                                        | validate id_token: iss, aud, sig, exp, nonce==H(e_pk||txn)
+  |                                        | user in recipient_org; policy(policy_ref, user, groups, acr, device)
+  |                                        | not expired (server clock), not revoked, txn unused
+  |                                        | unwrap share_svc; reseal HPKE to e_pk (info binds txn, artifact_id)
+  |                                        | grant = Sign_svc(artifact_id, sub, e_pk, txn, exp = now + 60s)
+  |                                        | audit decryption_authorized
+  |<--- sealed share_svc, grant -----------|
+  |---- POST /v1/agent/release -------------------------------------------->|
+  |   header_region, id_token, grant, e_pk, txn                              |
+  |                                                                          | verify grant (service key)
+  |                                                                          | validate id_token itself (own IdP)
+  |                                                                          | nonce binding, txn single use
+  |                                                                          | unwrap share_org; reseal to e_pk
+  |<--- sealed share_org ---------------------------------------------------|
+  | open both with e_sk; derive keys; decrypt locally; zeroize e_sk and shares
+```
+
+Why it is shaped this way:
+
+- **Nonce binding.** The OIDC nonce is bound to the client's ephemeral key, so a malicious service cannot replay the user's ID token to the key agent with a key of its own choosing.
+- **Independent check by the agent.** The key agent validates the user token against its own org's IdP, so it does not rely on the service alone.
+- **Single-use transactions.** `txn` values are single use, with a short TTL, and are stored server-side. This prevents replay and gives audit records a correlation ID.
+- **Coarse denial reasons.** Responses use only "not authorized", "expired or revoked" and "service unavailable", so they do not leak policy details to an attacker. The audit log holds the precise reason.
+
+## 7. Authorization model (Phase 2)
+
+- **Default deny.** Being a member of the recipient org grants nothing.
+- **Policy reference.** `policy_ref` in the signed header names a policy that the *recipient* org defines. The sender picks from policies the recipient has published, for example `incident-response`.
+- **Policy terms.** A policy is a set of allow rules over:
+  - subject (user IDs)
+  - groups and roles (from verified IdP claims)
+  - required authentication assurance (`acr`/`amr`, such as MFA or phishing-resistant)
+  - time window
+  - classification ceiling
+  - device requirement (later phase)
+  - optional admin approval
+- **Expiry.** `min(signed expires_at, policy max-age)` applies. The service can shorten expiry but never extend it.
+- **Revocation.** Revocation is per artifact, per sender key, per user, or for a whole org (offboarding).
+
+## 8. Audit (Phase 2)
+
+Events: `artifact_registered`, `access_attempted`, `authentication_success/failure`, `authorization_success/failure`, `decryption_authorized`, `artifact_opened`, `artifact_revoked`, `artifact_expired`, `signature_failure`, `integrity_failure`, `policy_violation`.
+
+Each record contains:
+
+- timestamp
+- org
+- pseudonymous subject
+- artifact ID
+- transaction ID
+- event
+- coarse reason
+- client version
+
+Records never contain payloads, keys, shares, tokens or file names. Audit logs are append-only and hash-chained per tenant. Admins see only their own org's records.
+
+## 9. Tenant isolation (Phase 2)
+
+Every table and query is scoped by `org_id`, which comes from the authenticated principal and never from request parameters. Per-tenant KMS keys are used where the provider supports them. Authorization is always checked server-side.
+
+## 10. What is public in a `.svx` file
+
+| Field | Visible to anyone with the file? | Why |
+|-------|----------------------------------|-----|
+| Format version, suite | yes | needed to parse |
+| Artifact ID | yes | random, opaque; needed for release and revocation |
+| Created and expires timestamps | yes | needed for release requests; advisory |
+| Sender, recipient and service IDs | yes | routing; opaque identifiers, not display names |
+| Policy reference | yes | routing to the right policy; must be an opaque ID |
+| Key IDs | yes | key lookup |
+| Approximate payload size | yes (chunk count × chunk size) | inherent; senders can pad if this matters |
+| File name, exact size, classification, description | **no** | in the encrypted manifest |
+| Payload | **no** | encrypted |

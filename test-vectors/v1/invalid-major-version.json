@@ -1,0 +1,12 @@
+{
+  "derived_from": "valid-basic",
+  "description": "Format major version 2.",
+  "expected_result": "reject",
+  "file": "invalid-major-version.svx",
+  "file_sha256": "61096cabf27d6d0cecea681073cab50bc11577d342c5689d78f8069a29f9e4e6",
+  "name": "invalid-major-version",
+  "reject_stage": "parse",
+  "trusted_senders": [
+    "acme-security"
+  ]
+}

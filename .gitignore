@@ -1,0 +1,6 @@
+fuzz/target
+fuzz/artifacts
+fuzz/coverage
+fuzz/Cargo.lock
+/target
+fuzz/corpus

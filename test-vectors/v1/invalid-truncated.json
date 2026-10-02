@@ -1,0 +1,12 @@
+{
+  "derived_from": "valid-basic",
+  "description": "Final chunk and trailer removed.",
+  "expected_result": "reject",
+  "file": "invalid-truncated.svx",
+  "file_sha256": "19a8a5d6737c09579730633790c5abaa8806ef4550fed01c0e94622b76eb54d8",
+  "name": "invalid-truncated",
+  "reject_stage": "parse",
+  "trusted_senders": [
+    "acme-security"
+  ]
+}

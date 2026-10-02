@@ -1,0 +1,12 @@
+{
+  "derived_from": "valid-basic",
+  "description": "First two chunks swapped.",
+  "expected_result": "reject",
+  "file": "invalid-chunks-reordered.svx",
+  "file_sha256": "4f79a378f0508a48925c96a09789aa3290550fee57fe9073cdfd07af07d1140b",
+  "name": "invalid-chunks-reordered",
+  "reject_stage": "verify",
+  "trusted_senders": [
+    "acme-security"
+  ]
+}

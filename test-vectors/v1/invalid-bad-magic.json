@@ -1,0 +1,12 @@
+{
+  "derived_from": "valid-basic",
+  "description": "First magic byte changed.",
+  "expected_result": "reject",
+  "file": "invalid-bad-magic.svx",
+  "file_sha256": "c1e730dd4944a9fac5439544d52c4b67bb54a2c8e7750e700d40b57401c71389",
+  "name": "invalid-bad-magic",
+  "reject_stage": "parse",
+  "trusted_senders": [
+    "acme-security"
+  ]
+}

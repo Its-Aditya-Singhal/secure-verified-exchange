@@ -1,0 +1,22 @@
+{
+  "WARNING": "TEST ONLY. These keys are public. Never use them for real data.",
+  "acme-security": {
+    "ed25519_public": "00bdc050f9d2a3fb224a92bee249357b5e422d976fa3c6624480033643226cc6",
+    "ed25519_secret": "90887ae7a7ac6cec893124d245a9567c89a1c331bd6f7592dd9d0f30fc59bb7e",
+    "key_id": "13ca392e86b2d923fcafae51f0c0ce39"
+  },
+  "example-corp": {
+    "key_id": "f6eeffc09087504d0dbecdcb5a573e1a",
+    "x25519_public": "1b1ff4d2cf68414f65528a727f3d06b280e4697fc1b4b2f1c3cad1117f613547",
+    "x25519_secret": "560803d45be78f99c7993768c5f33f3f7112ac5a835030e593be01913cfaa7a8"
+  },
+  "mallory (untrusted)": {
+    "ed25519_public": "94cc4024d647c013e9579e11899ea287795e02f636849a5dffae41b1c5b5113d",
+    "key_id": "82d7b6fdd44f77d4a0f7538df6e16838"
+  },
+  "svx.example": {
+    "key_id": "7859b4241d9b2c7742b192196d9caf14",
+    "x25519_public": "9f2638a202d54caa02ffebe16a9d0754560b99a078d895fcd2e0440e02b40338",
+    "x25519_secret": "09071cff90ae7e0d99840b1bfc45e94c62d89a1d4341a5d507cae79b374d411e"
+  }
+}

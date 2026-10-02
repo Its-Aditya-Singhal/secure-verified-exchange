@@ -1,0 +1,12 @@
+{
+  "derived_from": "valid-basic",
+  "description": "ARTIFACT_ID tag replaced by unknown critical tag 0x80ff.",
+  "expected_result": "reject",
+  "file": "invalid-unknown-critical-field.svx",
+  "file_sha256": "f51e44d0a2a82aa8a321db46f06a62d0cc4816281e32eeae00848ecb5597ec30",
+  "name": "invalid-unknown-critical-field",
+  "reject_stage": "parse",
+  "trusted_senders": [
+    "acme-security"
+  ]
+}

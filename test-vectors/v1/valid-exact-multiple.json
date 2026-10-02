@@ -1,0 +1,47 @@
+{
+  "chunk_count": 2,
+  "description": "Payload length is an exact multiple of the chunk size: no empty trailing chunk.",
+  "expected_result": "accept",
+  "file": "valid-exact-multiple.svx",
+  "file_sha256": "13e8c517d66252213225464da9e9f3f471a0c42b11e73e1bf97239dec075b6d3",
+  "header": {
+    "artifact_id": "733183d2d02f046dc631c0db46990f3a",
+    "chunk_size": 64,
+    "created_at": 1790000000,
+    "expires_at": 1790604800,
+    "format_version": "1.0",
+    "key_commitment": "853bfbb5ddb63d7e223c52d3e1d2dd298b84516ac27fc6bf144a5122dde82c65",
+    "nonce_prefix": "740a0fcfc925e3",
+    "policy_ref": "incident-response",
+    "recipient_org": "example-corp",
+    "sender_key_id": "13ca392e86b2d923fcafae51f0c0ce39",
+    "sender_org": "acme-security",
+    "service_id": "svx.example",
+    "suite_id": 1
+  },
+  "header_hash": "19eb7827304f0a2fcf0f330d13b5f413dc067cac09e8920e96ccdfa6e2975f10",
+  "header_region_len": 585,
+  "manifest": {
+    "classification": "TLP:AMBER",
+    "description": "Fictional SVX test vector",
+    "files": [
+      {
+        "name": "secret.txt",
+        "size": 128
+      }
+    ],
+    "svx_manifest": 1
+  },
+  "name": "valid-exact-multiple",
+  "payload_commitment": "8bba48d629cb947f270cdbad225d64ab20870b13758cc814aafda4a3e0643ad3",
+  "plaintext_hex": "5353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353535353",
+  "rng_seed": "SHA-256(\"valid-exact-multiple\")",
+  "shares_test_only": {
+    "recipient_org": "1ec4c14e6edf4f61c01936b8564be52c516f1ebc8eaa45e50ab47214b88b87f3",
+    "service": "dc88405c5f64acc467a6202cb2b63592242cde4ab9a198fd886dad64b70a8884"
+  },
+  "signature": "3e035c472c88f0e8196a443c03c7ad71baf24890119a304c78658b9bb105d1a37f9e32a5a9d7c85f001ebe1934ed03ca367d44640652e5ffa9bbcd0e0541ab03",
+  "trusted_senders": [
+    "acme-security"
+  ]
+}

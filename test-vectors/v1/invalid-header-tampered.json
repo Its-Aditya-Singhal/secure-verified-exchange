@@ -1,0 +1,12 @@
+{
+  "derived_from": "valid-basic",
+  "description": "One bit flipped in the recipient organization ID.",
+  "expected_result": "reject",
+  "file": "invalid-header-tampered.svx",
+  "file_sha256": "f6b1bb5a30bf2639b378d7a2d81c8890df5e776542ffb8c94e75d50e05ef4914",
+  "name": "invalid-header-tampered",
+  "reject_stage": "verify",
+  "trusted_senders": [
+    "acme-security"
+  ]
+}

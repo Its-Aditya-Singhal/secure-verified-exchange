@@ -1,0 +1,12 @@
+{
+  "derived_from": "valid-basic",
+  "description": "policy_ref changed from incident-response to incident-responsf.",
+  "expected_result": "reject",
+  "file": "invalid-policy-tampered.svx",
+  "file_sha256": "b749befc27a44e587777c413405a01ca6593b9d96b1fef27a41ea5e129fc468e",
+  "name": "invalid-policy-tampered",
+  "reject_stage": "verify",
+  "trusted_senders": [
+    "acme-security"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "derived_from": "valid-basic",
+  "description": "Extra byte after the trailer.",
+  "expected_result": "reject",
+  "file": "invalid-trailing-data.svx",
+  "file_sha256": "4bd517be9c3199f730174a324eb640fe966cc00899e26ab7e03611505df95b30",
+  "name": "invalid-trailing-data",
+  "reject_stage": "parse",
+  "trusted_senders": [
+    "acme-security"
+  ]
+}

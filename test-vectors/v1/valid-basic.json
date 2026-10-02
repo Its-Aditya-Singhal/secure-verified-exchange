@@ -1,0 +1,47 @@
+{
+  "chunk_count": 3,
+  "description": "Multi-chunk payload with a short final chunk.",
+  "expected_result": "accept",
+  "file": "valid-basic.svx",
+  "file_sha256": "20e626a2d98be1b32b06be2ef220d16c4763c39b0871a5604907da4aeea6b231",
+  "header": {
+    "artifact_id": "3a167c54ea43dca97f767134638bec0b",
+    "chunk_size": 64,
+    "created_at": 1790000000,
+    "expires_at": 1790604800,
+    "format_version": "1.0",
+    "key_commitment": "be3ce8ebbbb9ba1fb114213e54d385543791f02670ccee74586e037b6ff4c643",
+    "nonce_prefix": "617554828465c3",
+    "policy_ref": "incident-response",
+    "recipient_org": "example-corp",
+    "sender_key_id": "13ca392e86b2d923fcafae51f0c0ce39",
+    "sender_org": "acme-security",
+    "service_id": "svx.example",
+    "suite_id": 1
+  },
+  "header_hash": "4e746e3241fa0e0cf68d77d8f4348aed418c91d60240903e581498ec4c608306",
+  "header_region_len": 585,
+  "manifest": {
+    "classification": "TLP:AMBER",
+    "description": "Fictional SVX test vector",
+    "files": [
+      {
+        "name": "secret.txt",
+        "size": 149
+      }
+    ],
+    "svx_manifest": 1
+  },
+  "name": "valid-basic",
+  "payload_commitment": "939f760786000838302fbb4cbe80e18e63fcb55049135344408427cc982d0cbc",
+  "plaintext_hex": "46494354494f4e414c20544553542044415441202d20696e64696361746f72203230332e302e3131332e37207365656e206f6e20686f737420746573742d30312e6578616d706c652e2054686973206973206e6f742061207265616c2073656372657420616e6420657869737473206f6e6c7920746f2065786572636973652053565820696d706c656d656e746174696f6e732e0a",
+  "rng_seed": "SHA-256(\"valid-basic\")",
+  "shares_test_only": {
+    "recipient_org": "afd62a0999ed1fd36abc1d4baa847885445a6537b0edf319cedc43dc64a2d375",
+    "service": "c9f9a6a672555911075ab31925eecdaa57f7a94a65948f6cec07e57666afee9b"
+  },
+  "signature": "5dcc638240024a6ddc03d5b6c6b37977ac6f59922559c4da4058219b34a818a4108b0038c3be3f530a56bcb75606965c6574b5890584ff7a733d64583ce47c08",
+  "trusted_senders": [
+    "acme-security"
+  ]
+}

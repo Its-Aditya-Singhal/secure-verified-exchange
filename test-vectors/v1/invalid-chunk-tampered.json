@@ -1,0 +1,12 @@
+{
+  "derived_from": "valid-basic",
+  "description": "One bit flipped in the first chunk ciphertext.",
+  "expected_result": "reject",
+  "file": "invalid-chunk-tampered.svx",
+  "file_sha256": "28b63594f8013823644890c26aaa2ef10d2c265b20d5498cb338f7788ca056ca",
+  "name": "invalid-chunk-tampered",
+  "reject_stage": "verify",
+  "trusted_senders": [
+    "acme-security"
+  ]
+}

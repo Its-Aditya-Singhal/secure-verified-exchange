@@ -1,0 +1,12 @@
+{
+  "derived_from": "valid-basic",
+  "description": "Suite 0x0002 (not implemented): must not be downgraded or guessed.",
+  "expected_result": "reject",
+  "file": "invalid-unsupported-suite.svx",
+  "file_sha256": "c061c15517a5abed5238631c634d6695ceae7daa0501697550a8b87fc1e23ffe",
+  "name": "invalid-unsupported-suite",
+  "reject_stage": "verify",
+  "trusted_senders": [
+    "acme-security"
+  ]
+}
