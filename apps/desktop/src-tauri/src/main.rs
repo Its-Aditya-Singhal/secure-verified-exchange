@@ -14,16 +14,18 @@ use std::sync::Mutex;
 
 use serde::Deserialize;
 use svx_app::{
-    AdminOverview, App, AppError, AppState, OpenResult, Progress, Recipient, SendRequest,
-    SetupForm, StatusView,
+    AdminOverview, App, AppError, AppState, HistoryView, OpenResult, PersonalSendRequest, Progress,
+    Providers, Recipient, RequestView, SendRequest, SentView, SetupForm, StatusView,
 };
 use svx_client::PackResult;
 use svx_client::account::WhoAmI;
 use svx_client::keyadmin::{ExportedKemKey, NewSigningKey};
 use svx_client::login::system_browser;
 use svx_client::onboard::{OnboardRequest, PendingOrg};
+use svx_client::personal::{AccountInfo, Contact, SendResult};
 use svx_client::setup::SetupPreview;
 use svx_protocol::admin::AuditPage;
+use svx_protocol::personal::{ApprovalRequest, UpdateFileRequest};
 use svx_protocol::{KeyEntry, KeyStatus, Policy};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
@@ -154,6 +156,157 @@ async fn audit(app: State<'_, App>, limit: u32) -> Result<AuditPage> {
 #[tauri::command]
 async fn policies(app: State<'_, App>) -> Result<std::collections::BTreeMap<String, Policy>> {
     app.policies().await
+}
+
+// ----- Personal accounts (Phase 5d) -----
+
+#[tauri::command]
+async fn providers(app: State<'_, App>) -> Result<Providers> {
+    app.providers().await
+}
+
+#[tauri::command]
+async fn sign_up(
+    app: State<'_, App>,
+    issuer: Option<String>,
+    reset: bool,
+    dev_user: Option<String>,
+    replace: bool,
+) -> Result<AccountInfo> {
+    app.sign_up(
+        issuer,
+        reset,
+        App::login_method(dev_user, system_browser()),
+        replace,
+    )
+    .await
+}
+
+/// Ask for the backup file, then sign in with it on this device.
+#[tauri::command]
+async fn restore(
+    handle: AppHandle,
+    app: State<'_, App>,
+    issuer: Option<String>,
+    password: String,
+    dev_user: Option<String>,
+    replace: bool,
+) -> Result<Option<AccountInfo>> {
+    let Some(path) = dialog(handle, |d| {
+        d.set_title("Choose your SVX backup")
+            .add_filter("SVX backups", &["svxbackup"])
+            .blocking_pick_file()
+    })
+    .await?
+    else {
+        return Ok(None);
+    };
+    app.restore(
+        &path,
+        &password,
+        issuer,
+        App::login_method(dev_user, system_browser()),
+        replace,
+    )
+    .await
+    .map(Some)
+}
+
+/// Ask where to save, then write the encrypted backup.
+#[tauri::command]
+async fn save_backup(
+    handle: AppHandle,
+    app: State<'_, App>,
+    password: String,
+) -> Result<Option<PathBuf>> {
+    let email = app.state().email.unwrap_or_else(|| "account".into());
+    let name = format!("svx-{}.svxbackup", email.replace(['@', '.'], "-"));
+    let Some(path) = dialog(handle, move |d| {
+        d.set_title("Save your SVX backup")
+            .set_file_name(name)
+            .add_filter("SVX backups", &["svxbackup"])
+            .blocking_save_file()
+    })
+    .await?
+    else {
+        return Ok(None);
+    };
+    app.save_backup(&path, &password)?;
+    Ok(Some(path))
+}
+
+#[tauri::command]
+async fn account(app: State<'_, App>) -> Result<AccountInfo> {
+    app.account().await
+}
+
+#[tauri::command]
+async fn lookup(app: State<'_, App>, email: String) -> Result<Contact> {
+    app.lookup(&email).await
+}
+
+#[tauri::command]
+async fn send_personal(app: State<'_, App>, req: PersonalSendRequest) -> Result<SendResult> {
+    app.send_personal(req).await
+}
+
+#[tauri::command]
+async fn requests(app: State<'_, App>) -> Result<Vec<RequestView>> {
+    app.requests().await
+}
+
+#[tauri::command]
+async fn approve(app: State<'_, App>, request_id: String) -> Result<ApprovalRequest> {
+    app.approve(&request_id).await
+}
+
+#[tauri::command]
+async fn decline(app: State<'_, App>, request_id: String) -> Result<ApprovalRequest> {
+    app.decline(&request_id).await
+}
+
+#[tauri::command]
+async fn history(app: State<'_, App>) -> Result<HistoryView> {
+    app.history().await
+}
+
+#[tauri::command]
+async fn file(app: State<'_, App>, artifact_id: String) -> Result<SentView> {
+    app.file(&artifact_id).await
+}
+
+#[tauri::command]
+async fn update_file(
+    app: State<'_, App>,
+    artifact_id: String,
+    update: UpdateFileRequest,
+) -> Result<SentView> {
+    app.update_file(&artifact_id, update).await
+}
+
+#[tauri::command]
+fn cancel_open(app: State<'_, App>) {
+    app.cancel_open()
+}
+
+/// Ask for a folder, then save opened files there.
+#[tauri::command]
+async fn set_output_dir(handle: AppHandle, app: State<'_, App>) -> Result<Option<PathBuf>> {
+    let Some(dir) = dialog(handle, |d| {
+        d.set_title("Choose where opened files are saved")
+            .blocking_pick_folder()
+    })
+    .await?
+    else {
+        return Ok(None);
+    };
+    app.set_output_dir(&dir)?;
+    Ok(Some(dir))
+}
+
+#[tauri::command]
+fn sign_out(app: State<'_, App>) -> Result<()> {
+    app.sign_out()
 }
 
 // ----- Onboarding (Phase 5b) -----
@@ -443,6 +596,22 @@ fn main() {
             revoke,
             audit,
             policies,
+            providers,
+            sign_up,
+            restore,
+            save_backup,
+            account,
+            lookup,
+            send_personal,
+            requests,
+            approve,
+            decline,
+            history,
+            file,
+            update_file,
+            cancel_open,
+            set_output_dir,
+            sign_out,
             onboard_register,
             onboard_complete,
             onboard_cancel,

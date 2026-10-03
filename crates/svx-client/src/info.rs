@@ -33,6 +33,8 @@ pub struct ArtifactInfo {
     pub sender_org: String,
     pub sender_key_id: String,
     pub recipient_org: String,
+    /// Every recipient (several for personal files sent to several people).
+    pub recipients: Vec<String>,
     pub service_id: String,
     pub policy_ref: String,
     pub chunk_size: u32,
@@ -62,6 +64,7 @@ impl ArtifactInfo {
             sender_org: h.sender_org.to_string(),
             sender_key_id: hex::encode(h.sender_key_id),
             recipient_org: h.recipient_org.to_string(),
+            recipients: h.all_recipients().iter().map(|r| r.to_string()).collect(),
             service_id: h.service_id.to_string(),
             policy_ref: h.policy_ref.to_string(),
             chunk_size: h.chunk_size,
@@ -147,15 +150,33 @@ pub struct Status {
     pub info: ArtifactInfo,
     pub chunk_count: u64,
     pub expired: bool,
-    /// The user's organization is the recipient.
+    /// The user's organization (or personal account) is a recipient.
     pub for_you: bool,
+    /// Who sent it, for display: a personal account's verified email, or
+    /// the organization's name.
+    pub sender_name: String,
 }
 
 pub async fn status(cfg: &ClientConfig, client: &ManagedClient, path: &Path) -> Result<Status> {
-    let trust = registry_trust(cfg, client, path).await?;
+    let info = inspect(path)?;
+    let sender = match Registry::new(cfg, client)?.org(&info.sender_org).await {
+        Ok(r) => r,
+        Err(e @ ClientError::Unavailable(_)) => return Err(e),
+        Err(_) => {
+            return Err(ClientError::Rejected(format!(
+                "sender {} is not a verified organization",
+                info.sender_org
+            )));
+        }
+    };
+    let mut trust = TrustStore::new();
+    sender
+        .add_signing_keys_to(&mut trust)
+        .map_err(|e| ClientError::Other(e.to_string()))?;
     let v = verify_with(path, &trust)?;
     Ok(Status {
-        for_you: v.info.recipient_org == cfg.org_id,
+        for_you: v.info.recipients.iter().any(|r| r == &cfg.org_id),
+        sender_name: sender.account_email.unwrap_or(sender.display_name),
         info: v.info,
         chunk_count: v.chunk_count,
         expired: v.expired,

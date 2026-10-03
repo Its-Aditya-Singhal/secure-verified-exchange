@@ -331,3 +331,132 @@ async fn onboarding_keys_policies_and_audit_export() {
     assert!(text.contains("policy partners"));
     assert!(example.produced(&csv).is_ok());
 }
+
+fn personal_app(w: &World, dir: &Path, name: &str) -> App {
+    App::with_secret_store(
+        Some(&dir.join(format!("{name}/config.toml"))),
+        std::sync::Arc::new(svx_client::keystore::MemoryStore::default()),
+    )
+    .unwrap()
+    .with_service_target(svx_client::defaults::ServiceTarget {
+        service_url: w.service_url.clone(),
+        registry_key: w.registry_key_hex(),
+        dev: true,
+    })
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn personal_accounts_in_the_app() {
+    let w = world!();
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path();
+    let alice = personal_app(&w, dir, "alice");
+    let bob = std::sync::Arc::new(personal_app(&w, dir, "bob"));
+
+    let p = alice.providers().await.unwrap();
+    assert_eq!(p.providers[0].name, "Google");
+    let issuer = Some(p.providers[0].issuer.clone());
+    let a = alice
+        .sign_up(issuer.clone(), false, dev("alice-google-id"), false)
+        .await
+        .unwrap();
+    assert_eq!(a.email, "alice@example.test");
+    bob.sign_up(issuer.clone(), false, dev("bob-google-id"), false)
+        .await
+        .unwrap();
+    let s = alice.state();
+    assert!(s.configured && s.personal);
+    assert_eq!(s.email.as_deref(), Some("alice@example.test"));
+    assert_eq!(alice.account().await.unwrap().account, a.account);
+    assert_eq!(
+        alice.lookup("bob@example.test").await.unwrap().email,
+        "bob@example.test"
+    );
+
+    let input = dir.join("holiday-plan.txt");
+    std::fs::write(&input, SECRET).unwrap();
+    let sent = alice
+        .send_personal(svx_app::PersonalSendRequest {
+            input: input.clone(),
+            to: vec!["bob@example.test".into()],
+            require_approval: true,
+            one_time: true,
+            expires_at: None,
+        })
+        .await
+        .unwrap();
+    assert!(alice.produced(&sent.path).is_ok());
+
+    // Bob checks the file, then opens it; it waits for Alice.
+    let st = bob.status(&sent.path).await.unwrap();
+    assert!(st.for_you);
+    assert_eq!(st.sender_name, "alice@example.test");
+    let (b, path) = (bob.clone(), sent.path.clone());
+    let out = dir.join("bob-out");
+    let opening = tokio::spawn(async move {
+        let mut steps = Vec::new();
+        let r = b
+            .open(&path, Some(out), dev("unused"), &mut |p: Progress| {
+                steps.push(p)
+            })
+            .await;
+        (r, steps)
+    });
+    let req = loop {
+        let r = alice.requests().await.unwrap();
+        if let Some(r) = r.into_iter().next() {
+            break r;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    };
+    assert_eq!(req.file_name.as_deref(), Some("holiday-plan.txt"));
+    alice
+        .approve(&hex::encode(req.request.request_id))
+        .await
+        .unwrap();
+    let (r, steps) = opening.await.unwrap();
+    let r = r.unwrap();
+    assert_eq!(std::fs::read(&r.path).unwrap(), SECRET);
+    assert!(steps.iter().any(
+        |p| p.step == "awaiting_approval" && p.sender.as_deref() == Some("alice@example.test")
+    ));
+
+    // History shows names on both sides; the file page changes rules.
+    let h = alice.history().await.unwrap();
+    assert_eq!(h.sent[0].file_name.as_deref(), Some("holiday-plan.txt"));
+    let h = bob.history().await.unwrap();
+    assert_eq!(h.received[0].file_name.as_deref(), Some("holiday-plan.txt"));
+    let f = alice
+        .update_file(
+            &sent.artifact_id,
+            svx_protocol::personal::UpdateFileRequest {
+                revoke: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert!(f.file.revoked_at.is_some());
+    assert!(alice.file("../etc/passwd").await.is_err());
+
+    // Cancelling when nothing waits does nothing.
+    bob.cancel_open();
+
+    // Backup, then sign out.
+    let backup = dir.join("alice.svxbackup");
+    alice.save_backup(&backup, "correct horse battery").unwrap();
+    alice.sign_out().unwrap();
+    assert!(!alice.state().configured);
+    let restored = alice
+        .restore(
+            &backup,
+            "correct horse battery",
+            issuer,
+            dev("alice-google-id"),
+            false,
+        )
+        .await
+        .unwrap();
+    assert_eq!(restored.account, a.account);
+    w.cleanup().await.unwrap();
+}

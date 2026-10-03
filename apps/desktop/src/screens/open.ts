@@ -7,7 +7,19 @@ import { card, dropZone, errorPanel, facts, note, retryButton } from "../compone
 import { baseName, button, clear, field, fmtSize, fmtTime, h, icon, revealLabel } from "../dom";
 import type { Ctx } from "../main";
 
-const STEPS: { step: string; label: string; hint?: string }[] = [
+type StepDef = { step: string; label: string; hint?: string };
+
+/** Personal accounts: the device key signs every request, so no sign-in. */
+const PERSONAL_STEPS: StepDef[] = [
+  { step: "verifying", label: "Checking the file" },
+  { step: "signature_valid", label: "Sender's signature verified" },
+  { step: "connecting", label: "Connecting to the SVX service" },
+  { step: "checking_authorization", label: "Checking the sender's rules" },
+  { step: "access_approved", label: "Access approved" },
+  { step: "decrypting", label: "Decrypting on this device" },
+];
+
+const STEPS: StepDef[] = [
   { step: "verifying", label: "Checking the file" },
   { step: "signature_valid", label: "Sender's signature verified" },
   { step: "connecting", label: "Connecting to the SVX service" },
@@ -34,7 +46,9 @@ export function openScreen(ctx: Ctx, root: HTMLElement, initialPath: string | nu
   const idle = () =>
     show(
       h("header", { class: "screen-head" }, h("h1", {}, "Open a secure file"), h("p", { class: "lede" },
-        "Double-click any .svx file, drop it here, or choose it. The file is checked before you're asked to sign in.")),
+        ctx.state.personal
+          ? "Double-click any .svx file sent to you, drop it here, or choose it. Every open is checked with the sender's rules."
+          : "Double-click any .svx file, drop it here, or choose it. The file is checked before you're asked to sign in.")),
       dropZone("Drop an .svx file here", "Files you open are saved to " + (ctx.state.output_dir ?? "your SVX folder"), [
         button("Choose file…", () => void pickAndCheck(), "primary"),
       ]),
@@ -76,6 +90,10 @@ export function openScreen(ctx: Ctx, root: HTMLElement, initialPath: string | nu
   }
 
   function ready(path: string, s: StatusView) {
+    if (ctx.state.personal) {
+      readyPersonal(path, s);
+      return;
+    }
     const devUser = h("input", { type: "text", placeholder: "alice", autocomplete: "off", spellcheck: "false" });
     const openBtn = button("Open securely", () => void run(path, s, null, devUser.value.trim() || null), "primary");
     show(
@@ -107,8 +125,34 @@ export function openScreen(ctx: Ctx, root: HTMLElement, initialPath: string | nu
     });
   }
 
+  function readyPersonal(path: string, s: StatusView) {
+    sender = s.sender_name;
+    const others = s.recipients.length - 1;
+    const openBtn = button("Open securely", () => void run(path, s, null, null), "primary");
+    show(
+      fileHeader(path),
+      card(
+        null,
+        facts([
+          ["From", h("span", {}, s.sender_name, " ", h("span", { class: "badge badge-ok" }, icon("ok"), "signature verified"))],
+          ["To", others > 0 ? `You and ${others} other${others > 1 ? "s" : ""}` : "You"],
+          ["Sent", fmtTime(s.created_at)],
+          ["Expires", fmtTime(s.expires_at)],
+          ["Protection", s.post_quantum
+            ? h("span", {}, h("span", { class: "badge badge-ok" }, icon("ok"), "post-quantum"), " ", s.protection)
+            : h("span", {}, h("span", { class: "badge badge-warn" }, "classical"), " ", s.protection)],
+        ]),
+        h("p", { class: "muted" },
+          "The SVX service checks the sender's rules first. If they asked to approve each open, they'll get a request now. It's decrypted only on this device."),
+        h("div", { class: "actions" }, openBtn, button("Cancel", idle)),
+      ),
+    );
+    openBtn.focus();
+  }
+
   async function run(path: string, s: StatusView, outputDir: string | null, devUser: string | null) {
-    const items = STEPS.map((st) =>
+    const defs = ctx.state.personal ? PERSONAL_STEPS : STEPS;
+    const items = defs.map((st) =>
       h("li", { class: "step is-pending", "data-step": st.step },
         h("span", { class: "step-mark", "aria-hidden": "true" }),
         h("span", { class: "step-text" }, h("span", { class: "step-label" }, st.label),
@@ -119,26 +163,43 @@ export function openScreen(ctx: Ctx, root: HTMLElement, initialPath: string | nu
     show(fileHeader(path), card(null, timeline), below);
 
     let current = 0;
-    const mark = (index: number, sender: string | null) => {
+    const cancelSlot = h("div", { class: "actions" });
+    const mark = (p: Progress) => {
+      const waiting = p.step === "awaiting_approval";
+      const index = defs.findIndex((d) => d.step === (waiting ? "checking_authorization" : p.step)) + 1;
+      if (index <= 0) return;
       current = index;
       items.forEach((li, i) => {
         li.classList.remove("is-pending", "is-active", "is-done");
         li.classList.add(i + 1 < index ? "is-done" : i + 1 === index ? "is-active" : "is-pending");
       });
-      if (sender) {
+      if (p.step === "signature_valid" && p.sender) {
         const label = items[1].querySelector(".step-label");
-        if (label) label.textContent = `Sender's signature verified (${sender})`;
+        if (label) label.textContent = `Sender's signature verified (${p.sender})`;
+      }
+      if (waiting) {
+        const li = items[index - 1];
+        li.querySelector(".step-label")!.textContent = `Waiting for ${p.sender ?? "the sender"} to approve`;
+        li.querySelector(".step-text")!.appendChild(h("span", { class: "step-hint step-hint-show" },
+          "They've been notified in the app and by email. You can wait here, or cancel and open the file again later."));
+        const stop = button("Stop waiting", () => void api.cancelOpen());
+        cancelSlot.replaceChildren(stop);
+      } else {
+        cancelSlot.replaceChildren();
       }
     };
-    const unlisten = await listen<Progress>("open-progress", (ev) => mark(ev.payload.index, ev.payload.sender));
+    below.appendChild(cancelSlot);
+    const unlisten = await listen<Progress>("open-progress", (ev) => mark(ev.payload));
     try {
       const r = await api.open(path, outputDir, devUser);
+      cancelSlot.replaceChildren();
       items.forEach((li) => {
         li.classList.remove("is-pending", "is-active");
         li.classList.add("is-done");
       });
       append(below, opened(r));
     } catch (err) {
+      cancelSlot.replaceChildren();
       const e = asAppError(err);
       const failed = items[Math.max(0, current - 1)];
       failed.classList.remove("is-active");
@@ -161,6 +222,8 @@ export function openScreen(ctx: Ctx, root: HTMLElement, initialPath: string | nu
     }
   }
 
+  let sender: string | null = null;
+
   function opened(r: OpenResult): HTMLElement {
     const reveal = button(revealLabel(), () => void api.reveal(r.path), r.can_open ? "secondary" : "primary");
     const openBtn = r.can_open ? button("Open", () => void api.openDocument(r.path), "primary") : null;
@@ -171,7 +234,7 @@ export function openScreen(ctx: Ctx, root: HTMLElement, initialPath: string | nu
       facts([
         [r.is_folder ? "Folder" : "File", r.name],
         ["Size", fmtSize(r.size)],
-        ["From", r.sender_org],
+        ["From", ctx.state.personal ? sender ?? r.sender_org : r.sender_org],
         ...(r.classification ? [["Classification", r.classification] as [string, string]] : []),
         ...(r.description ? [["Note", r.description] as [string, string]] : []),
         ["Saved to", h("span", { class: "mono" }, r.path)],
@@ -192,7 +255,7 @@ export function openScreen(ctx: Ctx, root: HTMLElement, initialPath: string | nu
 }
 
 function explainRetry(e: AppError): boolean {
-  return e.kind === "unavailable" || e.kind === "login" || e.kind === "other";
+  return e.kind === "unavailable" || e.kind === "login" || e.kind === "other" || e.kind === "cancelled";
 }
 
 function fileHeader(path: string): HTMLElement {

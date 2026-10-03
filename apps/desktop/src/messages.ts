@@ -10,7 +10,30 @@ export interface Explained {
   retry: boolean;
 }
 
+let personal = false;
+
+/** Personal accounts get "you" wording instead of "your organization". */
+export function setPersonalWording(on: boolean): void {
+  personal = on;
+}
+
 export function explain(e: AppError): Explained {
+  if (personal && e.kind === "not_recipient") {
+    return {
+      tone: "stop",
+      title: "This file wasn't sent to you",
+      body: "Only the people it was sent to can open it, each with their own account. Nothing was decrypted.",
+      retry: false,
+    };
+  }
+  if (personal && e.kind === "denied" && e.deny_reason === "not_authorized") {
+    return {
+      tone: "stop",
+      title: "You can't open this file",
+      body: "The service didn't release it to your account. Nothing was decrypted. Ask the sender to check who they sent it to.",
+      retry: false,
+    };
+  }
   switch (e.kind) {
     case "rejected":
       return {
@@ -36,6 +59,22 @@ export function explain(e: AppError): Explained {
         retry: false,
       };
     case "denied":
+      if (e.deny_reason === "already_opened") {
+        return {
+          tone: "stop",
+          title: "You've already opened this file",
+          body: "The sender made it one-time: it opens once for each person. Use the copy you saved, or ask the sender to send it again.",
+          retry: false,
+        };
+      }
+      if (e.deny_reason === "declined") {
+        return {
+          tone: "stop",
+          title: "The sender declined",
+          body: "The sender didn't approve opening this file. Nothing was decrypted. Contact them if you think this was a mistake.",
+          retry: false,
+        };
+      }
       if (e.deny_reason === "expired_or_revoked") {
         return {
           tone: "stop",
@@ -82,6 +121,15 @@ export function explain(e: AppError): Explained {
         body: `${e.path ?? "The destination"} already exists and is never overwritten. Choose another folder to save into.`,
         retry: false,
       };
+    case "account_exists":
+      return {
+        tone: "info",
+        title: "Your account is set up on another device",
+        body: "Restore your backup to use it here, or reset your keys (files sent to your old keys can't be opened after a reset).",
+        retry: false,
+      };
+    case "cancelled":
+      return { tone: "info", title: "Stopped waiting", body: "Nothing was decrypted. You can open the file again later; if the sender approves in the meantime, it opens straight away.", retry: true };
     case "not_configured":
       return { tone: "info", title: "Set up needed", body: "Finish setup first.", retry: false };
     case "config":

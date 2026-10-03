@@ -117,6 +117,9 @@ export interface AppState {
   dev: boolean;
   output_dir: string | null;
   prefs: Prefs;
+  /** A personal account (Google/Apple), not a company setup. */
+  personal: boolean;
+  email: string | null;
 }
 
 export interface SetupForm {
@@ -140,7 +143,10 @@ export interface SetupPreview {
 export interface StatusView {
   artifact_id: string;
   sender_org: string;
+  /** The sender's verified email (personal) or organization name. */
+  sender_name: string;
   recipient_org: string;
+  recipients: string[];
   my_org: string;
   for_you: boolean;
   expired: boolean;
@@ -238,6 +244,114 @@ export interface Policy {
   not_after: number | null;
 }
 
+// ----- Personal accounts -----
+
+export interface Provider {
+  name: string;
+  issuer: string;
+}
+
+export interface Providers {
+  service_url: string;
+  dev: boolean;
+  providers: Provider[];
+}
+
+export interface AccountInfo {
+  account: string;
+  email: string;
+  provider: string;
+  issuer: string;
+  created_at: number | null;
+  signing_key_id: string;
+  kem_key_id: string;
+  kem_public: string;
+}
+
+export interface Contact {
+  account: string;
+  email: string;
+}
+
+export interface FileRules {
+  require_approval: boolean;
+  one_time: boolean;
+  expires_at: number | null;
+}
+
+export interface PersonalSendRequest {
+  input: string;
+  to: string[];
+  require_approval: boolean;
+  one_time: boolean;
+  expires_at: number | null;
+}
+
+export interface SendResult {
+  path: string;
+  artifact_id: string;
+  recipients: Contact[];
+  rules: FileRules;
+  expires_at: number | null;
+  protection: string;
+}
+
+export type RecipientState = "not_opened" | "requested" | "approved" | "opened" | "declined" | "revoked";
+
+export interface RecipientStatus {
+  account: string;
+  email: string | null;
+  state: RecipientState;
+  requested_at: number | null;
+  opened_at: number | null;
+}
+
+export interface SentFile {
+  artifact_id: string;
+  sender: string;
+  sender_email: string | null;
+  created_at: number;
+  signed_expires_at: number | null;
+  rules: FileRules;
+  revoked_at: number | null;
+  recipients: RecipientStatus[];
+  file_name: string | null;
+}
+
+export interface ReceivedFile {
+  artifact_id: string;
+  sender: string;
+  sender_email: string | null;
+  created_at: number;
+  state: RecipientState;
+  requested_at: number | null;
+  opened_at: number | null;
+  file_name: string | null;
+}
+
+export interface HistoryView {
+  sent: SentFile[];
+  received: ReceivedFile[];
+}
+
+export interface RequestView {
+  request_id: string;
+  artifact_id: string;
+  requester: string;
+  requester_email: string | null;
+  requested_at: number;
+  expires_at: number;
+  file_name: string | null;
+}
+
+export interface UpdateFileRequest {
+  require_approval?: boolean;
+  one_time?: boolean;
+  expires_at?: number;
+  revoke?: boolean;
+  revoke_recipients?: string[];
+}
+
 export type PickKind =
   | "send_file"
   | "send_folder"
@@ -307,6 +421,25 @@ export const api = {
   discardPendingEncryptionKey: () => call<void>("discard_pending_encryption_key"),
   setKeyStatus: (keyId: string, status: KeyStatus) =>
     call<KeyEntry>("set_key_status", { keyId, status }),
+  providers: () => call<Providers>("providers"),
+  signUp: (issuer: string | null, reset: boolean, devUser: string | null, replace: boolean) =>
+    call<AccountInfo>("sign_up", { issuer, reset, devUser, replace }),
+  restore: (issuer: string | null, password: string, devUser: string | null, replace: boolean) =>
+    call<AccountInfo | null>("restore", { issuer, password, devUser, replace }),
+  saveBackup: (password: string) => call<string | null>("save_backup", { password }),
+  account: () => call<AccountInfo>("account"),
+  lookup: (email: string) => call<Contact>("lookup", { email }),
+  sendPersonal: (req: PersonalSendRequest) => call<SendResult>("send_personal", { req }),
+  requests: () => call<RequestView[]>("requests"),
+  approve: (requestId: string) => call<unknown>("approve", { requestId }),
+  decline: (requestId: string) => call<unknown>("decline", { requestId }),
+  history: () => call<HistoryView>("history"),
+  file: (artifactId: string) => call<SentFile>("file", { artifactId }),
+  updateFile: (artifactId: string, update: UpdateFileRequest) =>
+    call<SentFile>("update_file", { artifactId, update }),
+  cancelOpen: () => call<void>("cancel_open"),
+  setOutputDir: () => call<string | null>("set_output_dir"),
+  signOut: () => call<void>("sign_out"),
   pick: (kind: PickKind) => call<string | null>("pick", { kind }),
   reveal: (path: string) => call<void>("reveal", { path }),
   openDocument: (path: string) => call<void>("open_document", { path }),

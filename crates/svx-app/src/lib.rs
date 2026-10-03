@@ -11,6 +11,7 @@
 
 mod admin;
 mod error;
+mod personal;
 pub mod prefs;
 
 use std::collections::{BTreeMap, HashSet};
@@ -29,6 +30,9 @@ use svx_protocol::admin::AuditPage;
 
 pub use admin::{AdminOverview, AgentStatus, OrgSettingsForm};
 pub use error::{AppError, Result};
+pub use personal::{
+    HistoryView, PersonalSendRequest, Provider, Providers, ReceivedView, RequestView, SentView,
+};
 pub use prefs::Prefs;
 
 /// Setup form fields (also what "Import config file…" fills in).
@@ -70,6 +74,10 @@ pub struct AppState {
     pub dev: bool,
     pub output_dir: Option<PathBuf>,
     pub prefs: Prefs,
+    /// A personal account (Google/Apple), not a company setup.
+    pub personal: bool,
+    /// The personal account's email.
+    pub email: Option<String>,
 }
 
 /// A verified artifact, before any login.
@@ -77,7 +85,10 @@ pub struct AppState {
 pub struct StatusView {
     pub artifact_id: String,
     pub sender_org: String,
+    /// The sender's verified email (personal) or organization name.
+    pub sender_name: String,
     pub recipient_org: String,
+    pub recipients: Vec<String>,
     pub my_org: String,
     pub for_you: bool,
     pub expired: bool,
@@ -181,6 +192,13 @@ pub struct App {
     prefs: Mutex<Prefs>,
     /// Files and folders this app wrote (opened outputs, packed artifacts).
     produced: Mutex<HashSet<PathBuf>>,
+    /// The service personal accounts use (default: built in or from the
+    /// environment).
+    target: Option<svx_client::defaults::ServiceTarget>,
+    /// Local file names of personal files (`history.json`).
+    names: Mutex<personal::LocalNames>,
+    /// Set to stop waiting for a sender's approval.
+    cancel: Mutex<Option<Arc<std::sync::atomic::AtomicBool>>>,
 }
 
 impl App {
@@ -194,6 +212,7 @@ impl App {
     pub fn with_secret_store(config: Option<&Path>, secrets: Arc<dyn SecretStore>) -> Result<App> {
         let paths = Paths::resolve(config)?;
         let prefs = Prefs::load(&prefs_path(&paths));
+        let names = personal::LocalNames::load(&paths.config.with_file_name("history.json"));
         let app = App {
             paths,
             secrets,
@@ -201,9 +220,19 @@ impl App {
             config_error: RwLock::new(None),
             prefs: Mutex::new(prefs),
             produced: Mutex::new(HashSet::new()),
+            target: None,
+            names: Mutex::new(names),
+            cancel: Mutex::new(None),
         };
         app.reload();
         Ok(app)
+    }
+
+    /// Sign personal accounts up with this service instead of the built-in
+    /// one (development and tests).
+    pub fn with_service_target(mut self, t: svx_client::defaults::ServiceTarget) -> Self {
+        self.target = Some(t);
+        self
     }
 
     /// (Re)load the configuration from disk.
@@ -244,6 +273,8 @@ impl App {
             dev: cfg.is_some_and(|c| c.dev),
             output_dir: cfg.and_then(|c| configured_output_dir(c).ok()),
             prefs: self.prefs.lock().unwrap().clone(),
+            personal: cfg.is_some_and(|c| c.is_personal()),
+            email: cfg.and_then(|c| c.account.as_ref().map(|a| a.email.clone())),
         }
     }
 
@@ -286,6 +317,15 @@ impl App {
         }
     }
 
+    /// Change where opened files are saved (company or personal).
+    pub fn set_output_dir(&self, dir: &Path) -> Result<()> {
+        let mut cfg = self.client()?.cfg.clone();
+        cfg.default_output_dir = Some(dir.to_path_buf());
+        cfg.save(&self.paths.config)?;
+        self.reload();
+        Ok(())
+    }
+
     // ----- Open -----
 
     /// Verify against the registry; no login.
@@ -295,7 +335,9 @@ impl App {
         Ok(StatusView {
             artifact_id: s.info.artifact_id,
             sender_org: s.info.sender_org,
+            sender_name: s.sender_name,
             recipient_org: s.info.recipient_org,
+            recipients: s.info.recipients,
             my_org: c.cfg.org_id.clone(),
             for_you: s.for_you,
             expired: s.expired,
@@ -323,23 +365,26 @@ impl App {
             None => configured_output_dir(&c.cfg)?,
         };
         let mut on_step = |s: Step| progress(Progress::from(&s));
-        let o = c
-            .open(
-                path,
-                Some(Output::Dir {
-                    dir,
-                    overwrite: false,
-                }),
-                login,
-                &mut on_step,
-            )
-            .await?;
+        let output = Some(Output::Dir {
+            dir,
+            overwrite: false,
+        });
+        let o = if c.cfg.is_personal() {
+            let cancel = self.new_cancel();
+            c.open_personal(path, output, &mut on_step, &cancel).await?
+        } else {
+            c.open(path, output, login, &mut on_step).await?
+        };
         let out = o
             .path
             .clone()
             .ok_or_else(|| AppError::other("no output path"))?;
         let is_folder = o.is_folder();
         self.produced.lock().unwrap().insert(out.clone());
+        if c.cfg.is_personal() {
+            let name = out.file_name().map(|n| n.to_string_lossy().into_owned());
+            self.remember_received(&o.artifact_id, &name.unwrap_or_default());
+        }
         Ok(OpenResult {
             name: out
                 .file_name()
