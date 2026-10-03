@@ -2,6 +2,8 @@
 
 SVX is built in phases, following the development order in the product specification. The security architecture comes first and the website comes last.
 
+A task-by-task checklist for each phase is in [phase-checklist.md](phase-checklist.md).
+
 | Phase | Scope | Status |
 |-------|-------|--------|
 | **1. Foundations** | Threat model; security architecture; crypto profile; SVX 1.0 binary spec; Rust parser and writer; STREAM AEAD, HPKE envelopes, Ed25519 signing; deterministic test vectors; property tests and fuzz targets; `svx keygen / pack / inspect / verify` | ✅ done |
