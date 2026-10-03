@@ -18,6 +18,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod config;
+
 use std::sync::Arc;
 
 use axum::extract::{DefaultBodyLimit, State};
@@ -31,8 +33,8 @@ use svx_core::crypto::{
 use svx_core::format::{EnvelopeRole, Identifier, parse_header_region};
 use svx_oidc::{IssuerConfig, Validator};
 use svx_protocol::{
-    AgentReleaseRequest, AgentReleaseResponse, DenyReason, ErrorBody, SealedShare,
-    parse_client_key, unix_now,
+    AgentKey, AgentKeys, AgentReleaseRequest, AgentReleaseResponse, DenyReason, ErrorBody,
+    KeyKindWire, SealedShare, parse_client_key, unix_now,
 };
 
 const MAX_BODY: usize = 3 * 1024 * 1024;
@@ -56,8 +58,26 @@ pub async fn app(state: AgentState) -> anyhow::Result<Router> {
     Ok(Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .route("/v1/agent/release", post(release))
+        .route("/v1/agent/keys", get(keys))
         .layer(DefaultBodyLimit::max(MAX_BODY))
         .with_state(state))
+}
+
+/// The KEM keys this agent holds: public key IDs and kinds only. An
+/// administrator's app activates a new key in the registry only once the
+/// agent lists it, so senders never seal files the agent can't open.
+async fn keys(State(st): State<AgentState>) -> Json<AgentKeys> {
+    Json(AgentKeys {
+        org_id: st.org_id.to_string(),
+        keys: st
+            .kem_keys
+            .iter()
+            .map(|k| AgentKey {
+                key_id: k.public_key().key_id(),
+                kind: KeyKindWire::from_key_kind(k.kind()),
+            })
+            .collect(),
+    })
 }
 
 struct Denied(DenyReason);

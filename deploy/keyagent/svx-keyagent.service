@@ -1,0 +1,51 @@
+# SVX key agent as a hardened systemd service. Installed by install.sh.
+# Keys and the TLS key are passed as systemd credentials: owner-only copies
+# that only this service can read, at /run/credentials/svx-keyagent.service/.
+# In /etc/svx/agent.toml use, for example:
+#   kem_keys = ["/run/credentials/svx-keyagent.service/current.kem.key"]
+#   tls_key  = "/run/credentials/svx-keyagent.service/tls.key"
+
+[Unit]
+Description=SVX key agent
+Documentation=https://github.com/Its-Aditya-Singhal/secure-verified-exchange/blob/main/docs/key-agent.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStartPre=/usr/local/bin/svx-keyagent --config /etc/svx/agent.toml check
+ExecStart=/usr/local/bin/svx-keyagent --config /etc/svx/agent.toml serve
+# Edit the credential list to match your key files.
+LoadCredential=current.kem.key:/etc/svx/keys/current.kem.key
+LoadCredential=tls.key:/etc/svx/tls/agent.key
+EnvironmentFile=-/etc/svx/agent.env
+Restart=on-failure
+RestartSec=5
+
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

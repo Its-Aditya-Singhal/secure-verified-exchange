@@ -1,0 +1,48 @@
+# SVX key agent with its PostgreSQL database. See docs/key-agent.md.
+#
+#   1. Put agent.toml in ./config, keys in ./keys, the TLS certificate in ./tls.
+#      Inside the container the paths are /etc/svx/{agent.toml,keys,tls}.
+#   2. The agent runs as UID 65532: chown -R 65532:65532 keys tls && chmod 600 keys/*.key tls/*.key
+#   3. Set POSTGRES_PASSWORD (in the environment or a .env file), then:
+#      docker compose up -d
+#      docker compose run --rm keyagent check
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: svx_agent
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: svx_agent
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "svx_agent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  keyagent:
+    image: svx-keyagent:latest
+    build:
+      context: ../..
+      dockerfile: deploy/keyagent/Dockerfile
+    environment:
+      DATABASE_URL: postgres://svx_agent:${POSTGRES_PASSWORD}@db:5432/svx_agent
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./config/agent.toml:/etc/svx/agent.toml:ro
+      - ./keys:/etc/svx/keys:ro
+      - ./tls:/etc/svx/tls:ro
+    ports:
+      - "9443:9443"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+
+volumes:
+  db-data:

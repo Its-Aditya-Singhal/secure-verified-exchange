@@ -1,0 +1,11 @@
+# Keep the key agent image's build context small and free of local state.
+target
+fuzz/target
+fuzz/corpus
+**/node_modules
+apps/desktop/dist
+sdk/python/.venv
+.git
+*.svx
+**/*.kem.key
+**/*.sign.key

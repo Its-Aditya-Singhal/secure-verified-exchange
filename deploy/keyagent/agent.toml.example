@@ -1,0 +1,34 @@
+# SVX key agent configuration (see docs/key-agent.md). Flags override it.
+# Secret key files must be readable only by the agent's user (chmod 600).
+
+# PostgreSQL for single-use transaction IDs and the agent's own audit log.
+# Prefer the DATABASE_URL environment variable (it keeps the password out of
+# this file); the systemd unit reads it from /etc/svx/agent.env.
+# database_url = "postgres://svx_agent:CHANGE-ME@db:5432/svx_agent"
+
+# Your organization and its company sign-in (the same as in the SVX registry).
+org_id = "example-corp"
+idp_issuer = "https://login.example-corp.example"
+idp_client_id = "svx"
+group_claim = "groups"
+
+# The SVX service, and its grant key (an ed25519-public key file it publishes).
+service_id = "svx.example"
+service_grant_key = "/etc/svx/keys/service-grant.sign.pub"
+
+# Your encryption keys: the current X-Wing key (created on the Admin page of
+# the desktop app) plus any older keys still needed for files already sent.
+# (With the systemd unit, use the credential paths instead, e.g.
+#  "/run/credentials/svx-keyagent.service/current.kem.key".)
+kem_keys = [
+  "/etc/svx/keys/example-corp-current.kem.key",
+]
+
+listen = "0.0.0.0:9443"
+tls_cert = "/etc/svx/tls/agent.crt"
+tls_key = "/etc/svx/tls/agent.key"
+
+# Optional: lets `svx-keyagent check` confirm the registry's active
+# encryption key is one this agent holds.
+# service_url = "https://svx.example"
+# registry_key = "<64 hex characters>"
