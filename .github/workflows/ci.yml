@@ -222,7 +222,7 @@ jobs:
           mkdir -p smoke/keys
           cd smoke/keys
           ../../target/debug/svx keygen --kind kem --owner example-corp --out example | tee kem.txt
-          ../../target/debug/svx keygen --kind service-sign --owner svx.example --out grant
+          ../../target/debug/svx keygen --kind sign --owner svx.example --out grant
           cd ..
           cat > agent.toml <<'TOML'
           org_id = "example-corp"
