@@ -1,0 +1,33 @@
+{
+  "name": "@svx/sdk",
+  "version": "0.1.0",
+  "description": "SVX secure verified exchange: open, pack and administer .svx artifacts from Node.js",
+  "license": "Apache-2.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "native.js",
+    "native.d.ts",
+    "*.node"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "napi": {
+    "binaryName": "svx"
+  },
+  "scripts": {
+    "build:native": "napi build --platform --manifest-path ../../crates/svx-node/Cargo.toml --output-dir . --js native.js --dts native.d.ts",
+    "build:ts": "tsc -p tsconfig.json",
+    "build": "npm run build:native && npm run build:ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.examples.json",
+    "test": "node --test --test-concurrency=1 test/*.test.mjs"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.10.6",
+    "@types/node": "^22.20.5",
+    "typescript": "^5.9.3"
+  }
+}
