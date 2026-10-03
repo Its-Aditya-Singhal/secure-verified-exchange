@@ -73,6 +73,7 @@ mod tests {
             groups: groups.iter().map(|s| s.to_string()).collect(),
             acr: acr.map(str::to_owned),
             email: None,
+            email_verified: false,
             iat: 0,
         }
     }

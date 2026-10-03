@@ -33,6 +33,9 @@ pub mod event {
     pub const KEY_RELEASE_FAILURE: &str = "key_release_failure";
     pub const DECRYPTION_AUTHORIZED: &str = "decryption_authorized";
     pub const SUSPICIOUS: &str = "suspicious_repeated_attempts";
+    pub const APPROVAL_REQUESTED: &str = "approval_requested";
+    pub const APPROVAL_GRANTED: &str = "approval_granted";
+    pub const APPROVAL_DECLINED: &str = "approval_declined";
 }
 
 /// One event to append.

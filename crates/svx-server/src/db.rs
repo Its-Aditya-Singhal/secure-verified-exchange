@@ -19,6 +19,8 @@ pub struct OrgRow {
     pub challenge: String,
     pub created_at: i64,
     pub verified_at: Option<i64>,
+    /// `company` or `personal`.
+    pub kind: String,
 }
 
 impl OrgRow {

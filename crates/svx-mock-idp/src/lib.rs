@@ -158,6 +158,7 @@ impl MockIdp {
             "aud": self.inner.config.client_id,
             "sub": user.sub,
             "email": user.email,
+            "email_verified": user.email.is_some(),
             "groups": user.groups,
             "acr": user.acr,
             "nonce": nonce,

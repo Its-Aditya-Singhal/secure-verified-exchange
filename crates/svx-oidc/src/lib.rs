@@ -65,6 +65,9 @@ pub struct Identity {
     pub groups: Vec<String>,
     pub acr: Option<String>,
     pub email: Option<String>,
+    /// The issuer vouches that `email` belongs to this user
+    /// (`email_verified`, a boolean or Apple's `"true"`).
+    pub email_verified: bool,
     pub iat: i64,
 }
 
@@ -243,6 +246,8 @@ impl Validator {
             groups,
             acr: c.get("acr").and_then(Value::as_str).map(str::to_owned),
             email: c.get("email").and_then(Value::as_str).map(str::to_owned),
+            email_verified: matches!(c.get("email_verified"), Some(Value::Bool(true)))
+                || c.get("email_verified").and_then(Value::as_str) == Some("true"),
             iat,
         })
     }

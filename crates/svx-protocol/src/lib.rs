@@ -8,6 +8,8 @@
 //! * [`policy`] — authorization policy documents.
 //! * [`client`] — the release client used by `svx` and the test harness.
 //! * [`oidc_login`] — OIDC authorization-code + PKCE helpers.
+//! * [`personal`] — personal accounts, signed requests, file rules and
+//!   sender approval.
 
 #![forbid(unsafe_code)]
 
@@ -16,6 +18,7 @@ pub mod client;
 pub mod encoding;
 pub mod grant;
 pub mod oidc_login;
+pub mod personal;
 pub mod policy;
 pub mod registry;
 pub mod types;
@@ -27,6 +30,8 @@ pub use registry::{
     KeyEntry, KeyKindWire, KeyStatus, OrgRecord, ServiceInfo, ServiceRecord, SignedOrgRecord,
     SignedServiceRecord,
 };
+/// HTTP method of a signed request ([`ManagedClient::signed`]).
+pub use reqwest::Method;
 pub use types::*;
 
 /// Current wire protocol version, included in grants and records. Version 2

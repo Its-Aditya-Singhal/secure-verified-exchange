@@ -1,5 +1,6 @@
 mod admin;
 mod orgs;
+mod personal;
 mod public;
 mod release;
 
@@ -40,6 +41,22 @@ pub fn router(state: AppState) -> Router {
             post(admin::revoke),
         )
         .route("/v1/admin/orgs/{org}/audit", get(admin::audit))
+        .route("/v1/accounts", post(personal::sign_up))
+        .route("/v1/me", get(personal::me))
+        .route("/v1/directory", get(personal::directory))
+        .route("/v1/me/files", post(personal::register_file))
+        .route(
+            "/v1/me/files/{artifact_id}",
+            get(personal::get_file).patch(personal::update_file),
+        )
+        .route("/v1/me/requests", get(personal::requests))
+        .route(
+            "/v1/me/requests/{request_id}/{decision}",
+            post(personal::decide),
+        )
+        .route("/v1/me/history", get(personal::history))
+        .route("/v1/personal/release", post(personal::release))
+        .route("/v1/personal/opened", post(personal::opened))
         .route("/v1/artifacts", post(release::register_artifact))
         .route("/v1/release", post(release::release))
         .layer(DefaultBodyLimit::max(MAX_BODY))

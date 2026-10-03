@@ -19,6 +19,8 @@ allow = [
     "Apache-2.0 WITH LLVM-exception",
     # webpki-root-certs (Mozilla root store data, via rustls)
     "CDLA-Permissive-2.0",
+    # quoted_printable (email encoding, via lettre): public-domain equivalent
+    "0BSD",
 ]
 confidence-threshold = 0.9
 

@@ -29,7 +29,7 @@ fn deny(r: DenyReason) -> ApiError {
 
 /// Parse and verify the artifact head against the sender's registered keys.
 /// Failures are audited to the recipient org when it can be identified.
-async fn verified_head(
+pub(crate) async fn verified_head(
     st: &AppState,
     header_region: &[u8],
     trailer: &[u8],
@@ -182,6 +182,11 @@ pub async fn release(
     let recipient = db::verified_org(&st.db, h.recipient_org.as_str())
         .await?
         .ok_or(deny(DenyReason::InvalidArtifact))?;
+    // Personal files open through /v1/personal/release (sender approval,
+    // one-time), never through the company flow.
+    if recipient.kind != "company" || h.all_recipients().len() != 1 {
+        return Err(deny(DenyReason::InvalidArtifact));
+    }
     let org = recipient.org_id.as_str();
     // Only post-quantum hybrid (X-Wing) one-time keys are accepted.
     let client_key = parse_client_key(&req.client_key).ok_or(deny(DenyReason::InvalidRequest))?;

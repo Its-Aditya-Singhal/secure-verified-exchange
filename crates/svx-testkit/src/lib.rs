@@ -24,12 +24,16 @@ use svx_protocol::admin::{
     PutKeyRequest, RegisterOrgRequest, RegisterOrgResponse, VerifyOrgRequest,
 };
 use svx_protocol::oidc_login::dev_auto_login;
+use svx_protocol::personal::PersonalIdp;
 use svx_protocol::{
     KeyKindWire, KeyStatus, ManagedClient, Policy, ProtocolError, ReleaseSession, ServiceInfo,
 };
-use svx_server::AppState;
 use svx_server::dns::StaticDns;
 use svx_server::keys::LocalKeys;
+use svx_server::notify::MemoryNotifier;
+use svx_server::{AppState, RateLimiter};
+
+pub mod personal;
 
 pub const SECRET: &[u8] = b"FICTIONAL: Example Corp incident 3921 evidence. Not a real secret.";
 pub const ACME: &str = "acme-security";
@@ -44,6 +48,11 @@ pub struct World {
     pub acme_idp: MockIdp,
     pub example_idp: MockIdp,
     pub dns: StaticDns,
+    /// "Google" for personal accounts: alice, bob and carol at
+    /// `example.test`; eve has no confirmed email.
+    pub personal_idp: MockIdp,
+    /// Approval emails the service sent.
+    pub mail: Arc<MemoryNotifier>,
     pub db: sqlx::PgPool,
     /// Acme's active post-quantum hybrid signing key (Ed25519 + ML-DSA-65).
     pub acme_sign: SigningKey,
@@ -174,6 +183,26 @@ impl World {
         .await
         .unwrap();
 
+        let personal_idp = MockIdp::spawn(
+            Config {
+                client_id: "svx-personal".into(),
+                users: ["alice", "bob", "carol", "eve"]
+                    .iter()
+                    .map(|sub| User {
+                        sub: format!("{sub}-google-id"),
+                        email: (*sub != "eve").then(|| format!("{sub}@example.test")),
+                        groups: vec![],
+                        acr: None,
+                    })
+                    .collect(),
+                token_ttl_secs: 300,
+            },
+            "127.0.0.1:0".parse().unwrap(),
+        )
+        .await
+        .unwrap();
+        let mail = Arc::new(MemoryNotifier::default());
+
         // Managed service.
         let mut rng = os_rng();
         // Post-quantum hybrid keys for new files, classical ones for older
@@ -201,6 +230,14 @@ impl World {
             ),
             oidc: Arc::new(Validator::new(true).unwrap()),
             dns: Arc::new(dns.clone()),
+            personal_idps: Arc::new(vec![PersonalIdp {
+                name: "Google".into(),
+                issuer: personal_idp.issuer().into(),
+                client_id: personal_idp.client_id().into(),
+                client_secret: None,
+            }]),
+            notifier: mail.clone(),
+            limiter: Arc::new(RateLimiter::default()),
             dev: true,
         };
         let service_url = serve(svx_server::app(state).await.unwrap()).await;
@@ -236,6 +273,8 @@ impl World {
             acme_idp,
             example_idp,
             dns,
+            personal_idp,
+            mail,
             db,
             acme_sign: SigningKey::generate_hybrid(&mut rng),
             acme_sign_classical: SigningKey::generate(&mut rng),

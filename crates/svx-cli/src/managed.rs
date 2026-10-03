@@ -70,6 +70,8 @@ pub fn report(e: &ClientError) -> ExitCode {
                     DenyReason::InvalidArtifact => "artifact not accepted by the service",
                     DenyReason::InvalidRequest => "invalid request",
                     DenyReason::Unavailable => "service unavailable",
+                    DenyReason::AlreadyOpened => "this one-time file was already opened",
+                    DenyReason::Declined => "the sender declined your request",
                 }
             );
         }

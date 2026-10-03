@@ -29,9 +29,10 @@ impl IntoResponse for ApiError {
                 let s = match r {
                     DenyReason::InvalidRequest => StatusCode::BAD_REQUEST,
                     DenyReason::InvalidArtifact => StatusCode::UNPROCESSABLE_ENTITY,
-                    DenyReason::NotAuthorized | DenyReason::ExpiredOrRevoked => {
-                        StatusCode::FORBIDDEN
-                    }
+                    DenyReason::NotAuthorized
+                    | DenyReason::ExpiredOrRevoked
+                    | DenyReason::AlreadyOpened
+                    | DenyReason::Declined => StatusCode::FORBIDDEN,
                     DenyReason::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
                 };
                 (s, r, None)

@@ -98,6 +98,8 @@ impl ClientError {
                 DenyReason::InvalidArtifact => "invalid_artifact",
                 DenyReason::InvalidRequest => "invalid_request",
                 DenyReason::Unavailable => "unavailable",
+                DenyReason::AlreadyOpened => "already_opened",
+                DenyReason::Declined => "declined",
             }),
             _ => None,
         }

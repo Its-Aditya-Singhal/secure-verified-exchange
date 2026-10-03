@@ -16,9 +16,11 @@ use anyhow::{Context, Result, bail};
 use clap::Parser;
 use svx_core::format::Identifier;
 use svx_oidc::Validator;
+use svx_protocol::personal::PersonalIdp;
 use svx_server::dns::SystemDns;
 use svx_server::keys::{KeyProvider, LocalKeys};
-use svx_server::{AppState, app};
+use svx_server::notify::{LogNotifier, SmtpNotifier};
+use svx_server::{AppState, RateLimiter, app};
 
 #[derive(Parser)]
 #[command(name = "svx-server", version, about = "SVX managed service")]
@@ -47,6 +49,47 @@ struct Args {
     /// Development mode: plain HTTP on loopback; loopback http IdPs allowed.
     #[arg(long)]
     dev: bool,
+    /// A sign-in provider for personal accounts (repeatable), as
+    /// `issuer=https://accounts.google.com,client_id=…[,name=Google][,client_secret=…]`.
+    #[arg(long = "personal-idp", value_parser = parse_personal_idp)]
+    personal_idps: Vec<PersonalIdp>,
+    /// SMTP server for approval emails, e.g. `smtps://user:pass@smtp.example.com`.
+    /// Without it, emails are only logged.
+    #[arg(long, env = "SVX_SMTP_URL", requires = "smtp_from")]
+    smtp_url: Option<String>,
+    /// Sender address of approval emails.
+    #[arg(long, env = "SVX_SMTP_FROM")]
+    smtp_from: Option<String>,
+}
+
+fn parse_personal_idp(s: &str) -> Result<PersonalIdp, String> {
+    let (mut issuer, mut client_id, mut name, mut client_secret) = (None, None, None, None);
+    for part in s.split(',') {
+        let (k, v) = part
+            .split_once('=')
+            .ok_or_else(|| format!("expected key=value, got {part:?}"))?;
+        let v = Some(v.trim().to_string());
+        match k.trim() {
+            "issuer" => issuer = v,
+            "client_id" => client_id = v,
+            "name" => name = v,
+            "client_secret" => client_secret = v,
+            other => return Err(format!("unknown key {other:?}")),
+        }
+    }
+    let issuer = issuer.ok_or("issuer= is required")?;
+    let client_id = client_id.ok_or("client_id= is required")?;
+    let name = name.unwrap_or_else(|| match issuer.as_str() {
+        "https://accounts.google.com" => "Google".into(),
+        "https://appleid.apple.com" => "Apple".into(),
+        _ => issuer.clone(),
+    });
+    Ok(PersonalIdp {
+        name,
+        issuer,
+        client_id,
+        client_secret,
+    })
 }
 
 #[tokio::main]
@@ -77,6 +120,15 @@ async fn main() -> Result<()> {
         keys: Arc::new(keys),
         oidc: Arc::new(Validator::new(a.dev)?),
         dns: Arc::new(SystemDns::new()?),
+        personal_idps: Arc::new(a.personal_idps),
+        notifier: match (&a.smtp_url, &a.smtp_from) {
+            (Some(url), Some(from)) => Arc::new(SmtpNotifier::new(url, from)?),
+            _ => {
+                tracing::warn!("no SMTP configured: approval emails are only logged");
+                Arc::new(LogNotifier)
+            }
+        },
+        limiter: Arc::new(RateLimiter::default()),
         dev: a.dev,
     };
     let router = app(state).await?;

@@ -100,6 +100,10 @@ pub enum DenyReason {
     NotAuthorized,
     ExpiredOrRevoked,
     Unavailable,
+    /// A one-time file this recipient has already opened.
+    AlreadyOpened,
+    /// The sender declined this request to open the file.
+    Declined,
 }
 
 impl std::fmt::Display for DenyReason {
@@ -110,6 +114,8 @@ impl std::fmt::Display for DenyReason {
             DenyReason::NotAuthorized => "not authorized",
             DenyReason::ExpiredOrRevoked => "artifact expired or revoked",
             DenyReason::Unavailable => "service unavailable",
+            DenyReason::AlreadyOpened => "already opened (this file can be opened once)",
+            DenyReason::Declined => "the sender declined",
         })
     }
 }

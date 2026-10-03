@@ -91,6 +91,26 @@ impl ReleaseSession {
         &self.txn
     }
 
+    /// The service's half of the key from a personal release
+    /// ([`crate::personal::PersonalReleaseResponse::Released`]).
+    pub fn open_service_share(&self, artifact_id: &[u8; 16], s: &SealedShare) -> Result<Share> {
+        self.open(EnvelopeRole::Service, artifact_id, s)
+    }
+
+    /// A personal release request for this session.
+    pub fn personal_request(
+        &self,
+        header_region: &[u8],
+        trailer: &[u8],
+    ) -> crate::personal::PersonalReleaseRequest {
+        crate::personal::PersonalReleaseRequest {
+            header_region: header_region.to_vec(),
+            trailer: trailer.to_vec(),
+            client_key: self.key.public_key().to_vec(),
+            txn: self.txn,
+        }
+    }
+
     fn open(&self, role: EnvelopeRole, artifact_id: &[u8; 16], s: &SealedShare) -> Result<Share> {
         Ok(open_released_share(
             role,
@@ -229,6 +249,71 @@ impl ManagedClient {
                 .await?,
         )
         .await
+    }
+
+    /// A request signed with a personal account's device key (see
+    /// [`crate::personal::sign_request`]). `body` is sent as JSON.
+    pub async fn signed<B: Serialize, T: DeserializeOwned>(
+        &self,
+        method: reqwest::Method,
+        base: &str,
+        path_and_query: &str,
+        body: Option<&B>,
+        account: &str,
+        key: &svx_core::crypto::SigningKey,
+    ) -> Result<T> {
+        check_url(base, self.allow_dev_http)?;
+        let bytes = match body {
+            Some(b) => {
+                serde_json::to_vec(b).map_err(|e| ProtocolError::BadResponse(e.to_string()))?
+            }
+            None => Vec::new(),
+        };
+        let auth = crate::personal::sign_request(
+            key,
+            account,
+            method.as_str(),
+            path_and_query,
+            &bytes,
+            crate::unix_now(),
+        )
+        .map_err(|e| ProtocolError::BadResponse(format!("signing the request: {e}")))?;
+        let mut req = self.http.request(method, join(base, path_and_query));
+        for (k, v) in auth.headers() {
+            req = req.header(k, v);
+        }
+        if body.is_some() {
+            req = req
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .body(bytes);
+        }
+        Self::decode(req.send().await?).await
+    }
+
+    /// Find a personal account by email in the signed directory, as
+    /// `account`. The answer must be signed by `registry_key` and carry
+    /// exactly this email.
+    pub async fn lookup_email(
+        &self,
+        base: &str,
+        email: &str,
+        account: &str,
+        key: &svx_core::crypto::SigningKey,
+        registry_key: &VerifyingKey,
+    ) -> Result<OrgRecord> {
+        let q: String = url::form_urlencoded::byte_serialize(email.trim().as_bytes()).collect();
+        let s: SignedOrgRecord = self
+            .signed::<(), _>(
+                reqwest::Method::GET,
+                base,
+                &format!("/v1/directory?email={q}"),
+                None,
+                account,
+                key,
+            )
+            .await?;
+        s.verify_for_email(registry_key, email, crate::unix_now())
+            .map_err(|e| ProtocolError::BadResponse(e.to_string()))
     }
 
     pub async fn get_json_auth<T: DeserializeOwned>(

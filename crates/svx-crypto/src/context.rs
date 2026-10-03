@@ -17,6 +17,8 @@ pub enum SignContext {
     RegistryRecord,
     /// The managed service's own public keys, published by the registry.
     ServiceRecord,
+    /// A request from a personal account's device, signed with its key.
+    AccountRequest,
 }
 
 impl SignContext {
@@ -25,6 +27,7 @@ impl SignContext {
             SignContext::ReleaseGrant => b"SVX-1 grant\0",
             SignContext::RegistryRecord => b"SVX-1 registry\0",
             SignContext::ServiceRecord => b"SVX-1 service\0",
+            SignContext::AccountRequest => b"SVX-1 account request\0",
         }
     }
 }

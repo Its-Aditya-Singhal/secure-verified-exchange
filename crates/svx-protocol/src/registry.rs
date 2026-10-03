@@ -14,6 +14,7 @@ use svx_core::crypto::{
 use svx_core::format::Identifier;
 
 use crate::encoding::{b64, hex_array, hex_vec};
+use crate::personal::{OrgKind, PersonalIdp};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum KeyKindWire {
@@ -187,6 +188,13 @@ pub struct OrgRecord {
     pub key_agent_url: Option<String>,
     pub keys: Vec<KeyEntry>,
     pub issued_at: i64,
+    /// A company or a personal account.
+    #[serde(default)]
+    pub kind: OrgKind,
+    /// A personal account's verified email: the registry signs the binding
+    /// between this email and the keys above.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_email: Option<String>,
 }
 
 impl OrgRecord {
@@ -275,6 +283,30 @@ impl SignedOrgRecord {
         }
         Ok(r)
     }
+
+    /// Verify a directory answer (`GET /v1/directory?email=`): a signed
+    /// record of a personal account whose verified email is `email`
+    /// (compared case-insensitively).
+    pub fn verify_for_email(
+        &self,
+        registry_key: &VerifyingKey,
+        email: &str,
+        now: i64,
+    ) -> Result<OrgRecord, RecordError> {
+        // Only to learn which org to expect; `verify` checks the signature.
+        let org = serde_json::from_slice::<OrgRecord>(&self.record)
+            .map_err(|_| RecordError::Malformed)?
+            .org_id;
+        let r = self.verify(registry_key, &org, now)?;
+        let matches = r
+            .account_email
+            .as_deref()
+            .is_some_and(|e| e.eq_ignore_ascii_case(email.trim()));
+        if r.kind != OrgKind::Personal || !matches {
+            return Err(RecordError::WrongOrg);
+        }
+        Ok(r)
+    }
 }
 
 /// `GET /v1/service`: public keys of the managed service. Nothing here is
@@ -327,6 +359,9 @@ pub struct ServiceRecord {
     #[serde(with = "hex_vec")]
     pub grant_public: Vec<u8>,
     pub issued_at: i64,
+    /// Sign-in providers for personal accounts (Google, Apple).
+    #[serde(default)]
+    pub personal_idps: Vec<PersonalIdp>,
 }
 
 impl ServiceRecord {
@@ -430,6 +465,8 @@ mod tests {
                 ),
             ],
             issued_at: 1000,
+            kind: Default::default(),
+            account_email: None,
         };
         let s = SignedOrgRecord::sign(&rec, &reg).unwrap();
         let got = s
@@ -465,6 +502,7 @@ mod tests {
             kem_public: kem.public_key().to_vec(),
             grant_public: grant(),
             issued_at: 1000,
+            personal_idps: vec![],
         };
         let s = SignedServiceRecord::sign(&rec, &reg).unwrap();
         assert_eq!(s.verify(&reg.verifying_key(), 1001).unwrap(), rec);
@@ -499,6 +537,7 @@ mod tests {
             kem_public: classical.public_key().to_vec(),
             grant_public: grant(),
             issued_at: 1000,
+            personal_idps: vec![],
         };
         let s = SignedServiceRecord::sign(&rec, &reg).unwrap();
         assert_eq!(
@@ -552,6 +591,8 @@ mod tests {
             key_agent_url: None,
             keys: vec![],
             issued_at: 1000,
+            kind: Default::default(),
+            account_email: None,
         };
         let s = SignedOrgRecord::sign(&rec, &reg).unwrap();
         assert_eq!(
@@ -571,6 +612,7 @@ mod tests {
                 .to_vec(),
             grant_public: grant(),
             issued_at: 1000,
+            personal_idps: vec![],
         };
         assert!(SignedServiceRecord::sign(&rec, &ed).is_err());
         // An Ed25519-only signature under a hybrid key: refused.
