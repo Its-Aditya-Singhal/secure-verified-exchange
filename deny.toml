@@ -3,6 +3,12 @@
 [advisories]
 version = 2
 yanked = "deny"
+ignore = [
+    # "Unmaintained", not a vulnerability: a compile-time proc-macro used by
+    # gtk-rs 0.18 (glib-macros), which Tauri 2 needs for its Linux webview.
+    # Only in svx-desktop's Linux build; revisit when Tauri moves off GTK3.
+    { id = "RUSTSEC-2024-0370", reason = "build-time proc-macro via Tauri's GTK3 backend (svx-desktop on Linux only)" },
+]
 
 [licenses]
 version = 2

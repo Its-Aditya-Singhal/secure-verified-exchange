@@ -1,0 +1,22 @@
+{
+  "name": "svx-desktop-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "UI of the Secure Verified Exchange desktop app (presentation only; all security logic is in Rust)",
+  "license": "Apache-2.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.12.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.1",
+    "typescript": "~5.9.3",
+    "vite": "^8.3.2"
+  }
+}

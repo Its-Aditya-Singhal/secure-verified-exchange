@@ -1,0 +1,70 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Secure Verified Exchange",
+  "mainBinaryName": "svx-desktop",
+  "version": "0.1.0",
+  "identifier": "org.svx.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Secure Verified Exchange",
+        "width": 980,
+        "height": 740,
+        "minWidth": 760,
+        "minHeight": 560,
+        "dragDropEnabled": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+      "freezePrototype": true
+    },
+    "withGlobalTauri": false
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Utility",
+    "shortDescription": "Send and open SVX secure files",
+    "longDescription": "Protect files for another organization and open .svx files you receive. Files open only after your company sign-in and your organization's policy allow it.",
+    "copyright": "Apache-2.0",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      {
+        "ext": ["svx"],
+        "name": "SVX artifact",
+        "description": "SVX secure exchange artifact",
+        "role": "Viewer",
+        "rank": "Owner",
+        "mimeType": "application/vnd.svx",
+        "exportedType": {
+          "identifier": "org.svx.artifact",
+          "conformsTo": ["public.data"]
+        }
+      }
+    ],
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    },
+    "linux": {
+      "deb": {
+        "files": {
+          "/usr/share/mime/packages/svx-desktop.xml": "../../../packaging/linux/svx-mime.xml"
+        }
+      }
+    }
+  }
+}

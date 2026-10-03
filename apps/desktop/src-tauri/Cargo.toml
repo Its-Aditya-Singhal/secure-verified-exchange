@@ -1,0 +1,27 @@
+[package]
+name = "svx-desktop"
+description = "Secure Verified Exchange desktop app (Tauri shell over svx-app)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+# tauri-plugin-opener 2.7 needs 1.90; the rest of the workspace stays on 1.88.
+rust-version = "1.90"
+publish = false
+default-run = "svx-desktop"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+svx-app = { path = "../../../crates/svx-app", version = "0.1.0" }
+svx-client = { path = "../../../crates/svx-client", version = "0.1.0" }
+svx-protocol = { path = "../../../crates/svx-protocol", version = "0.1.0" }
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+
+[lints]
+workspace = true
