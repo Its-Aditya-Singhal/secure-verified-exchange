@@ -16,6 +16,8 @@ pub mod event {
     pub const ORG_REGISTERED: &str = "org_registered";
     pub const ORG_VERIFIED: &str = "org_verified";
     pub const ADMIN_ADDED: &str = "admin_added";
+    pub const ADMIN_REMOVED: &str = "admin_removed";
+    pub const ORG_CHANGED: &str = "org_changed";
     pub const ADMIN_AUTH_FAILURE: &str = "admin_authentication_failure";
     pub const KEY_CHANGED: &str = "key_changed";
     pub const POLICY_CHANGED: &str = "policy_changed";
@@ -131,19 +133,29 @@ pub async fn note(db: &PgPool, org: &str, rec: Record<'_>) {
 }
 
 /// The latest `limit` records for `org`, oldest first, with chain check.
+/// The newest `limit` records of `org`, optionally only those older than
+/// `before_seq` and of one `event` kind. Every record's hash is recomputed;
+/// links between consecutive records are checked when the page is not
+/// filtered by event (a filtered page has gaps by design).
 pub async fn list(
     db: &PgPool,
     org: &str,
     limit: i64,
+    before_seq: Option<i64>,
+    event: Option<&str>,
 ) -> Result<(Vec<AuditEntry>, bool), sqlx::Error> {
     let rows = sqlx::query(
         "SELECT seq, at, event, subject, artifact_id, txn, reason, prev_hash, hash FROM audit \
-         WHERE org_id = $1 ORDER BY seq DESC LIMIT $2",
+         WHERE org_id = $1 AND ($3::BIGINT IS NULL OR seq < $3) AND ($4::TEXT IS NULL OR event = $4) \
+         ORDER BY seq DESC LIMIT $2",
     )
     .bind(org)
     .bind(limit)
+    .bind(before_seq)
+    .bind(event)
     .fetch_all(db)
     .await?;
+    let linked = event.is_none();
     let mut valid = true;
     let mut out = Vec::with_capacity(rows.len());
     let mut expected_prev: Option<Vec<u8>> = None;
@@ -169,7 +181,7 @@ pub async fn list(
             reason.as_deref(),
         );
         if recomputed != hash
-            || expected_prev.as_ref().is_some_and(|p| *p != prev)
+            || (linked && expected_prev.as_ref().is_some_and(|p| *p != prev))
             || (seq == 1 && prev != [0u8; 32])
         {
             valid = false;

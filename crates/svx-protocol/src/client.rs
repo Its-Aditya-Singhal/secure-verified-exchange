@@ -26,6 +26,10 @@ pub enum ProtocolError {
     Http(#[from] reqwest::Error),
     #[error("access denied: {0}")]
     Denied(DenyReason),
+    /// An administrative or registration request was refused, with the
+    /// service's explanation (release endpoints never give one).
+    #[error("{0}")]
+    Invalid(String),
     #[error("unexpected HTTP status {0}")]
     Status(u16),
     #[error("invalid response: {0}")]
@@ -142,6 +146,11 @@ impl ManagedClient {
                 .map_err(|e| ProtocolError::BadResponse(e.to_string()));
         }
         match resp.json::<ErrorBody>().await {
+            Ok(ErrorBody {
+                detail: Some(d), ..
+            }) if status.is_client_error() && status.as_u16() != 404 => {
+                Err(ProtocolError::Invalid(d))
+            }
             Ok(b) => Err(ProtocolError::Denied(b.error)),
             Err(_) => Err(ProtocolError::Status(status.as_u16())),
         }
@@ -179,6 +188,42 @@ impl ManagedClient {
             self.http
                 .put(join(base, path))
                 .json(body)
+                .bearer_auth(bearer)
+                .send()
+                .await?,
+        )
+        .await
+    }
+
+    pub async fn patch_json<B: Serialize, T: DeserializeOwned>(
+        &self,
+        base: &str,
+        path: &str,
+        body: &B,
+        bearer: &str,
+    ) -> Result<T> {
+        check_url(base, self.allow_dev_http)?;
+        Self::decode(
+            self.http
+                .patch(join(base, path))
+                .json(body)
+                .bearer_auth(bearer)
+                .send()
+                .await?,
+        )
+        .await
+    }
+
+    pub async fn delete_auth<T: DeserializeOwned>(
+        &self,
+        base: &str,
+        path: &str,
+        bearer: &str,
+    ) -> Result<T> {
+        check_url(base, self.allow_dev_http)?;
+        Self::decode(
+            self.http
+                .delete(join(base, path))
                 .bearer_auth(bearer)
                 .send()
                 .await?,

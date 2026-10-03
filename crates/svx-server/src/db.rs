@@ -113,6 +113,15 @@ pub async fn policy(db: &PgPool, org_id: &str, name: &str) -> Result<Option<Poli
     Ok(doc.map(|j| j.0))
 }
 
+pub async fn admins(db: &PgPool, org_id: &str) -> Result<Vec<(String, i64)>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT subject, added_at FROM org_admins WHERE org_id = $1 ORDER BY added_at, subject",
+    )
+    .bind(org_id)
+    .fetch_all(db)
+    .await
+}
+
 pub async fn is_admin(db: &PgPool, org_id: &str, subject: &str) -> Result<bool, sqlx::Error> {
     sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM org_admins WHERE org_id = $1 AND subject = $2)",

@@ -6,7 +6,7 @@ mod release;
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::http::HeaderMap;
-use axum::routing::{get, post, put};
+use axum::routing::{delete, get, post, put};
 use svx_oidc::Identity;
 
 use crate::error::{ApiError, ApiResult};
@@ -20,12 +20,20 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/registry/orgs/{org}", get(public::org_record))
         .route("/v1/orgs", post(orgs::register))
         .route("/v1/orgs/{org}/verify", post(orgs::verify))
+        .route(
+            "/v1/admin/orgs/{org}",
+            get(admin::overview).patch(admin::update_org),
+        )
         .route("/v1/admin/orgs/{org}/keys", put(admin::put_key))
         .route("/v1/admin/orgs/{org}/admins", post(admin::add_admin))
+        .route(
+            "/v1/admin/orgs/{org}/admins/{subject}",
+            delete(admin::remove_admin),
+        )
         .route("/v1/admin/orgs/{org}/policies", get(admin::list_policies))
         .route(
             "/v1/admin/orgs/{org}/policies/{name}",
-            put(admin::put_policy),
+            put(admin::put_policy).delete(admin::delete_policy),
         )
         .route(
             "/v1/admin/orgs/{org}/artifacts/{artifact_id}/revoke",

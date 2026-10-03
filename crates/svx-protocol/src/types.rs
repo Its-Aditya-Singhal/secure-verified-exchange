@@ -68,6 +68,22 @@ pub struct AgentReleaseResponse {
     pub share: SealedShare,
 }
 
+/// `GET /v1/agent/keys` on a key agent: the KEM keys it holds (public
+/// information only). Administrators use it to activate a new encryption key
+/// in the registry only once the agent can use it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentKeys {
+    pub org_id: String,
+    pub keys: Vec<AgentKey>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentKey {
+    #[serde(with = "hex_array")]
+    pub key_id: [u8; 16],
+    pub kind: crate::registry::KeyKindWire,
+}
+
 /// Parse a release request's one-time client key. Only X-Wing keys are
 /// accepted.
 pub fn parse_client_key(bytes: &[u8]) -> Option<KemPublicKey> {

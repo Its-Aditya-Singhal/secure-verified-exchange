@@ -32,6 +32,10 @@ fn valid_domain(d: &str) -> bool {
         })
 }
 
+pub(crate) fn valid_display_name(n: &str) -> bool {
+    !n.is_empty() && n.len() <= MAX_TEXT && !n.chars().any(char::is_control)
+}
+
 fn bad(msg: &str) -> ApiError {
     ApiError::BadRequest(msg.to_owned())
 }
@@ -48,10 +52,7 @@ pub async fn register(
     if let Some(u) = &req.key_agent_url {
         check_url(u, st.dev).map_err(|_| bad("key_agent_url must be an https URL"))?;
     }
-    if req.display_name.is_empty()
-        || req.display_name.len() > MAX_TEXT
-        || req.display_name.chars().any(char::is_control)
-    {
+    if !valid_display_name(&req.display_name) {
         return Err(bad("invalid display_name"));
     }
     if req.idp_client_id.is_empty() || req.idp_client_id.len() > MAX_TEXT {

@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::encoding::hex_vec;
+use crate::encoding::{hex_array, hex_vec};
 use crate::registry::{KeyKindWire, KeyStatus};
 
 /// `POST /v1/orgs`
@@ -50,6 +50,57 @@ pub struct PutKeyRequest {
     #[serde(with = "hex_vec")]
     pub public_key: Vec<u8>,
     pub status: KeyStatus,
+}
+
+/// `GET /v1/admin/orgs/{org}`: everything an administrator manages.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrgOverview {
+    pub org_id: String,
+    pub display_name: String,
+    pub domain: String,
+    pub idp_issuer: String,
+    pub idp_client_id: String,
+    pub group_claim: String,
+    pub key_agent_url: Option<String>,
+    pub verified_at: i64,
+    pub admins: Vec<AdminEntry>,
+    pub keys: Vec<KeyDetail>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdminEntry {
+    pub subject: String,
+    pub added_at: i64,
+}
+
+/// A registered key with its lifecycle times (Unix seconds).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeyDetail {
+    #[serde(with = "hex_array")]
+    pub key_id: [u8; 16],
+    pub kind: KeyKindWire,
+    #[serde(with = "hex_vec")]
+    pub public_key: Vec<u8>,
+    pub status: KeyStatus,
+    pub created_at: i64,
+    pub retired_at: Option<i64>,
+    pub revoked_at: Option<i64>,
+}
+
+/// `PATCH /v1/admin/orgs/{org}`. Omitted fields are unchanged. The IdP
+/// can't be changed here: that would hand the organization to whoever
+/// controls the new IdP.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateOrgRequest {
+    #[serde(default)]
+    pub display_name: Option<String>,
+    /// New key agent URL (https outside dev).
+    #[serde(default)]
+    pub key_agent_url: Option<String>,
+    /// Remove the key agent: the organization can then only send.
+    #[serde(default)]
+    pub remove_key_agent: bool,
 }
 
 /// `POST /v1/admin/orgs/{org}/admins`
