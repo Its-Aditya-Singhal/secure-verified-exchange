@@ -416,12 +416,69 @@ fn nonce_binding_depends_on_key_and_txn() {
 }
 
 #[test]
-fn context_signatures_are_domain_separated() {
+fn context_signatures_are_hybrid_and_domain_separated() {
     let mut r = rng();
-    let sk = SigningKey::generate(&mut r);
+    let sk = SigningKey::generate_hybrid(&mut r);
     let vk = sk.verifying_key();
-    let sig = sign_context(&sk, SignContext::ReleaseGrant, b"payload");
+    let sig = sign_context(&sk, SignContext::ReleaseGrant, b"payload").unwrap();
+    assert_eq!(sig.len(), HYBRID_SIG_LEN);
     verify_context(&vk, SignContext::ReleaseGrant, b"payload", &sig).unwrap();
+    // Wrong context or message.
     assert!(verify_context(&vk, SignContext::RegistryRecord, b"payload", &sig).is_err());
+    assert!(verify_context(&vk, SignContext::ServiceRecord, b"payload", &sig).is_err());
     assert!(verify_context(&vk, SignContext::ReleaseGrant, b"payloaD", &sig).is_err());
+    // Either half tampered: refused (both must verify).
+    for i in [0, ED25519_SIG_LEN + 10, HYBRID_SIG_LEN - 1] {
+        let mut bad = sig.clone();
+        bad[i] ^= 1;
+        assert!(verify_context(&vk, SignContext::ReleaseGrant, b"payload", &bad).is_err());
+    }
+    // The Ed25519 half alone is not a signature.
+    assert!(
+        verify_context(
+            &vk,
+            SignContext::ReleaseGrant,
+            b"payload",
+            &sig[..ED25519_SIG_LEN]
+        )
+        .is_err()
+    );
+    // Another hybrid key does not verify it.
+    let other = SigningKey::generate_hybrid(&mut r).verifying_key();
+    assert!(verify_context(&other, SignContext::ReleaseGrant, b"payload", &sig).is_err());
+}
+
+#[test]
+fn context_signatures_refuse_classical_keys() {
+    let mut r = rng();
+    let ed = SigningKey::generate(&mut r);
+    assert_eq!(
+        sign_context(&ed, SignContext::RegistryRecord, b"record"),
+        Err(CryptoError::WrongKeyKind)
+    );
+    // A valid Ed25519 signature over the same labelled message is refused too.
+    let hybrid = SigningKey::generate_hybrid(&mut r);
+    let sig = sign_context(&hybrid, SignContext::RegistryRecord, b"record").unwrap();
+    assert!(
+        verify_context(
+            &ed.verifying_key(),
+            SignContext::RegistryRecord,
+            b"record",
+            &sig[..64]
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn key_fingerprint_vector() {
+    // SHA-256("SVX-1 key-fingerprint\0" ‖ 0x04 ‖ 00 01 .. 1f), computed independently.
+    let pk: Vec<u8> = (0u8..32).collect();
+    assert_eq!(
+        hex::encode(key_fingerprint(KeyKind::HybridSigning, &pk)),
+        "49ccf6628f3ac704dcbfb917ac90f4a999787742dc210e6ad53432cb5e847537"
+    );
+    let vk = SigningKey::generate_hybrid(&mut rng()).verifying_key();
+    assert_eq!(vk.fingerprint(), key_fingerprint(vk.kind(), &vk.to_vec()));
+    assert_ne!(vk.fingerprint()[..16], vk.key_id());
 }

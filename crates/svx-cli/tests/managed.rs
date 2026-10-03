@@ -377,6 +377,7 @@ async fn service_unavailable_fails_closed() {
     let cfg = svx_client::ClientConfig {
         service_url: "http://127.0.0.1:9".into(),
         registry_key: w.registry_key_hex(),
+        registry_public: w.registry_public_hex(),
         org_id: EXAMPLE.into(),
         idp_issuer: w.example_idp.issuer().into(),
         idp_client_id: "svx-example".into(),

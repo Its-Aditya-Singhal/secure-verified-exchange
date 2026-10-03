@@ -14,7 +14,7 @@
 //! tls_key = "/run/secrets/tls.key"
 //! # Optional: lets `svx-keyagent check` compare these keys with the registry.
 //! service_url = "https://svx.example"
-//! registry_key = "<hex>"
+//! registry_key = "<registry key fingerprint, 64 hex>"
 //! ```
 
 use std::net::SocketAddr;
@@ -112,7 +112,8 @@ pub struct LoadedKeys {
 
 /// Load and check every key: secret key files must be owner-only and owned
 /// by this organization, at least one must be X-Wing (post-quantum) so new
-/// files can be opened, and the service grant key must be Ed25519.
+/// files can be opened, and the service grant key must be a hybrid
+/// (Ed25519 + ML-DSA-65) key.
 pub fn load_keys(cfg: &AgentConfig) -> Result<LoadedKeys> {
     let org_id =
         Identifier::new(AgentConfig::require(&cfg.org_id, "org_id")?).context("invalid org_id")?;
@@ -138,8 +139,11 @@ pub fn load_keys(cfg: &AgentConfig) -> Result<LoadedKeys> {
     let grant = AgentConfig::require(&cfg.service_grant_key, "service_grant_key")?;
     let (_, service_grant_key) = keyfile::load_verifying_key(grant)
         .with_context(|| format!("loading {}", grant.display()))?;
-    if service_grant_key.kind() != KeyKind::Ed25519Signing {
-        bail!("the service grant key must be an Ed25519 key (svx keygen --kind service-sign)");
+    if service_grant_key.kind() != KeyKind::HybridSigning {
+        bail!(
+            "the service grant key must be a post-quantum hybrid key (Ed25519 + ML-DSA-65); \
+             get the current one from your SVX service"
+        );
     }
     Ok(LoadedKeys {
         org_id,
@@ -177,6 +181,10 @@ mod tests {
     use svx_core::crypto::{SigningKey, os_rng};
 
     fn write_keys(dir: &Path, hybrid: bool) -> AgentConfig {
+        write_keys_with_grant(dir, hybrid, SigningKey::generate_hybrid(&mut os_rng()))
+    }
+
+    fn write_keys_with_grant(dir: &Path, hybrid: bool, grant: SigningKey) -> AgentConfig {
         let org = Identifier::new("example-corp").unwrap();
         let kem = if hybrid {
             KemSecretKey::generate_hybrid(&mut os_rng())
@@ -185,12 +193,7 @@ mod tests {
         };
         keyfile::write_kem_pair(&dir.join("example"), &org, &kem).unwrap();
         let svc = Identifier::new("svx.example").unwrap();
-        keyfile::write_signing_pair(
-            &dir.join("grant"),
-            &svc,
-            &SigningKey::generate(&mut os_rng()),
-        )
-        .unwrap();
+        keyfile::write_signing_pair(&dir.join("grant"), &svc, &grant).unwrap();
         AgentConfig {
             org_id: Some("example-corp".into()),
             kem_keys: vec![dir.join("example.kem.key")],
@@ -239,6 +242,12 @@ mod tests {
         let classical = write_keys(d2.path(), false);
         let e = load_keys(&classical).err().unwrap().to_string();
         assert!(e.contains("X-Wing"), "{e}");
+
+        // A classical (Ed25519) service grant key: refused.
+        let d3 = tempfile::tempdir().unwrap();
+        let ed_grant = write_keys_with_grant(d3.path(), true, SigningKey::generate(&mut os_rng()));
+        let e = load_keys(&ed_grant).err().unwrap().to_string();
+        assert!(e.contains("hybrid"), "{e}");
     }
 
     #[cfg(unix)]

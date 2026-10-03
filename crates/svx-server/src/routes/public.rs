@@ -9,23 +9,29 @@ use crate::error::{ApiError, ApiResult};
 use crate::{AppState, db};
 
 pub async fn service_info(State(st): State<AppState>) -> Json<ServiceInfo> {
+    let registry = st.keys.registry_public();
     Json(ServiceInfo {
         service_id: st.service_id.to_string(),
         kem_public: st.keys.service_kem_public().to_vec(),
-        grant_public: st.keys.grant_public().to_bytes(),
-        registry_public: st.keys.registry_public().to_bytes(),
+        grant_public: st.keys.grant_public().to_vec(),
+        registry_public: registry.to_vec(),
+        registry_fingerprint: registry.fingerprint(),
     })
 }
 
 /// The service's public keys, signed by the registry key.
-pub async fn service_record(State(st): State<AppState>) -> Json<SignedServiceRecord> {
-    Json(st.keys.sign_service_record(&ServiceRecord {
-        v: PROTOCOL_VERSION,
-        service_id: st.service_id.to_string(),
-        kem_public: st.keys.service_kem_public().to_vec(),
-        grant_public: st.keys.grant_public().to_bytes(),
-        issued_at: unix_now(),
-    }))
+pub async fn service_record(State(st): State<AppState>) -> ApiResult<Json<SignedServiceRecord>> {
+    let signed = st
+        .keys
+        .sign_service_record(&ServiceRecord {
+            v: PROTOCOL_VERSION,
+            service_id: st.service_id.to_string(),
+            kem_public: st.keys.service_kem_public().to_vec(),
+            grant_public: st.keys.grant_public().to_vec(),
+            issued_at: unix_now(),
+        })
+        .map_err(|e| ApiError::Internal(format!("signing the service record: {e}")))?;
+    Ok(Json(signed))
 }
 
 /// The signed registry record of a verified organization.
@@ -51,5 +57,9 @@ pub async fn org_record(
         keys,
         issued_at: unix_now(),
     };
-    Ok(Json(st.keys.sign_record(&record)))
+    let signed = st
+        .keys
+        .sign_record(&record)
+        .map_err(|e| ApiError::Internal(format!("signing the registry record: {e}")))?;
+    Ok(Json(signed))
 }

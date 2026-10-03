@@ -205,7 +205,7 @@ Releasing parties MUST require this nonce in the ID token. As a result, a token 
 
 ## 13. Context signatures
 
-Grants and registry records are signed with Ed25519 over `label ‖ bytes`, where `bytes` are the exact JSON bytes transmitted and no canonicalization is applied.
+Grants, registry records and the service record are signed over `label ‖ bytes`, where `bytes` are the exact JSON bytes transmitted and no canonicalization is applied. Since protocol version 3 the signing keys are hybrid Ed25519 + ML-DSA-65 keys and the signature is the §9.1 composite `Ed25519.Sign(ed_sk, m) ‖ ML-DSA-65.Sign(ml_sk, m, ctx = "SVX-1H")` with `m = label ‖ bytes` (3373 bytes). Verifiers MUST accept only hybrid keys and only if **both** halves verify; Ed25519-only keys and signatures are refused.
 
 | Object | Label |
 |--------|-------|
@@ -214,3 +214,11 @@ Grants and registry records are signed with Ed25519 over `label ‖ bytes`, wher
 | Service record | `"SVX-1 service\0"` |
 
 The labels keep these signatures disjoint from each other and from artifact signatures (`"SVX-1 signature\0"`).
+
+**Registry key fingerprint.** A hybrid public key is 1984 bytes, too long to copy by hand, so clients pin its fingerprint instead:
+
+```text
+fingerprint = SHA-256("SVX-1 key-fingerprint\0" ‖ kind ‖ public_key)      (32 bytes, 64 hex)
+```
+
+Unlike `key_id` it is not truncated, so finding a second key with the same fingerprint stays out of reach, quantum search included (2^128 with Grover). Clients fetch the key from `GET /v1/service`, accept it only if it matches the pin, then save it beside the pin and re-check the match on every load.

@@ -1,4 +1,4 @@
-// First run (and "Change setup"): service URL, registry key, organization.
+// First run (and "Change setup"): service URL, registry key fingerprint, organization.
 // Verification against the pinned registry key happens in Rust
 // (svx_client::setup); Save verifies again before writing.
 
@@ -70,7 +70,7 @@ export function setupScreen(ctx: Ctx, root: HTMLElement, replace: boolean, initi
         out.appendChild(
           errorPanel(
             err.kind === "other" || err.kind === "rejected"
-              ? { ...err, kind: "config", message: `Couldn't verify with this registry key: ${err.message}` }
+              ? { ...err, kind: "config", message: `Couldn't verify with this registry key fingerprint: ${err.message}` }
               : err,
           ),
         );
@@ -111,7 +111,7 @@ export function setupScreen(ctx: Ctx, root: HTMLElement, replace: boolean, initi
     h("header", { class: "screen-head" },
       h("h1", {}, replace ? "Change setup" : "Set up Secure Verified Exchange"),
       h("p", { class: "lede" },
-        "Your administrator gives you these details. The registry key is how the app knows it's talking to the real SVX service, so copy it exactly.")),
+        "Your administrator gives you these details. The registry key fingerprint is how the app knows it's talking to the real SVX service, so copy it exactly.")),
     h("div", { class: "panel panel-info" },
       h("p", {}, "Setting up SVX for a new organization? ",
         button("Register a new organization…", () => {
@@ -121,7 +121,7 @@ export function setupScreen(ctx: Ctx, root: HTMLElement, replace: boolean, initi
     card(
       null,
       field("SVX service URL", service),
-      field("Registry key", key, "Published by your SVX service. Every organization's keys are checked against it."),
+      field("Registry key fingerprint", key, "Published by your SVX service. Every organization's keys are checked against the key it identifies."),
       h("div", { class: "grid2" },
         field("Your organization ID", org),
         field("Sign-in client ID", clientId, "The SVX app's client ID at your company login."),

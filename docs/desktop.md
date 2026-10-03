@@ -24,9 +24,9 @@ The installers register `.svx` (MIME type `application/vnd.svx`, macOS UTI `org.
 
 ## First run
 
-**A new organization** chooses **Register a new organization…**: enter the service URL and registry key, your organization's name, ID and domain, and your company sign-in. The app shows a DNS TXT record to add to your domain; once it exists, **Verify and sign in** proves you control both the domain and the sign-in, and makes you the first administrator. The registration is remembered if you close the app while DNS updates. Then create this computer's signing key, and you can send.
+**A new organization** chooses **Register a new organization…**: enter the service URL and registry key fingerprint, your organization's name, ID and domain, and your company sign-in. The app shows a DNS TXT record to add to your domain; once it exists, **Verify and sign in** proves you control both the domain and the sign-in, and makes you the first administrator. The registration is remembered if you close the app while DNS updates. Then create this computer's signing key, and you can send.
 
-**Joining an existing organization:** your administrator gives you four values: the service URL, the registry key (the service's public key, 64 hex characters), your organization ID and the sign-in client ID. Enter them and press **Verify**. The app checks the service record and your organization's record against the registry key before anything is saved; **Save** verifies again and writes the configuration.
+**Joining an existing organization:** your administrator gives you four values: the service URL, the registry key fingerprint (64 hex characters that identify the service's post-quantum registry key), your organization ID and the sign-in client ID. Enter them and press **Verify**. The app checks the service record and your organization's record against that registry key before anything is saved; **Save** verifies again and writes the configuration.
 
 **Import config file…** fills the form from an existing `config.toml` (for example one written by `svx init` or `svx-demo serve`). It is verified the same way.
 

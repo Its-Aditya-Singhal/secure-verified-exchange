@@ -24,14 +24,13 @@ pub fn keygen(kind: KeyKindArg, owner: &str, out: &Path) -> Result<ExitCode> {
                 out.display()
             );
             println!("Key ID: {id}");
-        }
-        KeyKindArg::ServiceSign => {
-            let id = svx_client::keys::generate_service_signing(out, owner)?;
-            println!(
-                "Wrote {0}.sign.key (secret) and {0}.sign.pub",
-                out.display()
-            );
-            println!("Key ID: {id}");
+            // Users pin this when the key is a service's registry key.
+            let public = out.with_file_name(format!(
+                "{}.sign.pub",
+                out.file_name().unwrap_or_default().to_string_lossy()
+            ));
+            let (_, vk) = keyfile::load_verifying_key(&public)?;
+            println!("Fingerprint: {}", hex::encode(vk.fingerprint()));
         }
         KeyKindArg::Kem => {
             let id = svx_client::keys::generate_kem(out, owner)?;

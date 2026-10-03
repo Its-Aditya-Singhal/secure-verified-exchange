@@ -387,7 +387,8 @@ async fn compromised_service_cannot_get_org_share() {
             exp: now() + 60,
         },
         &w.service_grant,
-    );
+    )
+    .unwrap();
     let req = AgentReleaseRequest {
         header_region: v.header_region.clone(),
         id_token: alice_token,
@@ -405,7 +406,7 @@ async fn compromised_service_cannot_get_org_share() {
     ));
 
     // A grant signed by anyone other than the pinned service key is refused.
-    let rogue = SigningKey::generate(&mut os_rng());
+    let rogue = SigningKey::generate_hybrid(&mut os_rng());
     let s = ReleaseSession::new();
     let t = w.token(EXAMPLE, "alice", &s.nonce()).await;
     let (_, real) = w
@@ -415,7 +416,18 @@ async fn compromised_service_cannot_get_org_share() {
         .unwrap();
     let mut g: Grant = serde_json::from_slice(&real.payload).unwrap();
     g.exp = now() + 3600;
-    let forged = SignedGrant::sign(&g, &rogue);
+    // Only the Ed25519 half of the real signature: refused (both halves needed).
+    let mut ed_only = real.clone();
+    ed_only.signature.truncate(64);
+    let r = w
+        .client
+        .release_from_agent(&w.agent_url, &s, v.head(), &t, ed_only)
+        .await;
+    assert!(matches!(
+        r,
+        Err(ProtocolError::Denied(DenyReason::NotAuthorized))
+    ));
+    let forged = SignedGrant::sign(&g, &rogue).unwrap();
     let r = w
         .client
         .release_from_agent(&w.agent_url, &s, v.head(), &t, forged)
@@ -603,7 +615,8 @@ async fn classical_client_keys_are_refused() {
             exp: now() + 60,
         },
         &w.service_grant,
-    );
+    )
+    .unwrap();
     let req = AgentReleaseRequest {
         header_region: v.header_region.clone(),
         id_token: token,

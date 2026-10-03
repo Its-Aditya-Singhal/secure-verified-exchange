@@ -1,23 +1,25 @@
 //! First-run setup (`svx init`, the desktop app's welcome screen).
 //!
-//! The registry key is the client's only trust anchor. [`verify`] checks the
-//! service record and the user's organization record against it, so a wrong
-//! pin, a wrong service URL or an unknown organization fails before any
-//! configuration is written.
+//! The registry key is the client's only trust anchor. The user pins its
+//! fingerprint; [`verify`] fetches the key, accepts it only if it matches,
+//! then checks the service record and the user's organization record
+//! against it, so a wrong pin, a wrong service URL or an unknown
+//! organization fails before any configuration is written.
 
 use std::path::PathBuf;
 
 use serde::Serialize;
+use svx_core::crypto::VerifyingKey;
 use svx_protocol::{ManagedClient, check_url};
 
-use crate::config::{ClientConfig, Paths, parse_registry_key};
+use crate::config::{ClientConfig, Paths, parse_registry_fingerprint};
 use crate::error::{ClientError, Result};
 
 /// What the user is setting up.
 #[derive(Clone, Debug)]
 pub struct SetupRequest {
     pub service_url: String,
-    /// Registry public key (hex), from an out-of-band source.
+    /// Registry key fingerprint (64 hex), from an out-of-band source.
     pub registry_key: String,
     pub org_id: String,
     pub idp_client_id: String,
@@ -42,11 +44,9 @@ pub struct SetupPreview {
 
 /// Verify the service and organization records with the pinned key.
 pub async fn verify(req: SetupRequest) -> Result<SetupPreview> {
-    let key = parse_registry_key(&req.registry_key)?;
-    check_url(&req.service_url, req.dev)
-        .map_err(|_| ClientError::Config("service URL must be https".into()))?;
     let client = ManagedClient::new(req.dev)?;
-    // Both lookups verify signatures with the pinned key: a wrong pin fails here.
+    let key = registry_key(&client, &req.service_url, &req.registry_key, req.dev).await?;
+    // Both lookups verify signatures with the pinned key.
     let service = client
         .service_record(&req.service_url, &key)
         .await
@@ -62,7 +62,8 @@ pub async fn verify(req: SetupRequest) -> Result<SetupPreview> {
         })?;
     let config = ClientConfig {
         service_url: req.service_url,
-        registry_key: hex::encode(key.to_bytes()),
+        registry_key: hex::encode(key.fingerprint()),
+        registry_public: hex::encode(key.to_vec()),
         org_id: req.org_id,
         idp_issuer: org.idp_issuer.clone(),
         idp_client_id: req.idp_client_id,
@@ -80,6 +81,23 @@ pub async fn verify(req: SetupRequest) -> Result<SetupPreview> {
         can_receive: org.key_agent_url.is_some(),
         config,
     })
+}
+
+/// Fetch the service's registry key and accept it only if it matches the
+/// pinned fingerprint (64 hex). A wrong pin or service fails here.
+pub async fn registry_key(
+    client: &ManagedClient,
+    service_url: &str,
+    fingerprint: &str,
+    dev: bool,
+) -> Result<VerifyingKey> {
+    let pinned = parse_registry_fingerprint(fingerprint)?;
+    check_url(service_url, dev)
+        .map_err(|_| ClientError::Config("service URL must be https".into()))?;
+    client
+        .pinned_registry_key(service_url, &pinned)
+        .await
+        .map_err(|e| context("checking the service's registry key", e))
 }
 
 /// Save a verified configuration. Refuses to replace an existing one unless

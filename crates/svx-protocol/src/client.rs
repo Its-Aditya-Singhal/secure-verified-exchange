@@ -252,6 +252,20 @@ impl ManagedClient {
         self.get_json(service_url, "/v1/service").await
     }
 
+    /// Fetch the service's registry key and accept it only if it matches the
+    /// pinned `fingerprint` (first-run setup; afterwards clients use the key
+    /// saved in their configuration).
+    pub async fn pinned_registry_key(
+        &self,
+        service_url: &str,
+        fingerprint: &[u8; 32],
+    ) -> Result<VerifyingKey> {
+        self.service_info(service_url)
+            .await?
+            .pinned_registry_key(fingerprint)
+            .map_err(|e| ProtocolError::BadResponse(e.to_string()))
+    }
+
     /// Fetch and verify the service record against the pinned registry key.
     pub async fn service_record(
         &self,

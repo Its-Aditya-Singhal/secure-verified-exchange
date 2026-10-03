@@ -18,8 +18,9 @@ the public file header.
   users are on your network or VPN).
 - PostgreSQL 14+ (for one-time transaction IDs and the agent's own audit log).
 - A TLS certificate for the agent's host name.
-- From SVX: the service ID and the service's grant key file
-  (`service-grant.sign.pub`).
+- From SVX: the service ID, the service's grant key file
+  (`service-grant.sign.pub`, a post-quantum hybrid key) and, optionally for
+  `check`, the registry key fingerprint.
 - Your organization's encryption key. An administrator creates it in the
   desktop app: **Admin → Keys → Create a new encryption key…** writes an
   owner-only `*.kem.key` file to a folder they choose. Move that file to
@@ -73,11 +74,14 @@ if:
 - a secret key file is readable by other users;
 - a key file belongs to another organization;
 - no X-Wing (post-quantum) encryption key is configured;
-- the service grant key isn't an Ed25519 key.
+- the service grant key isn't a post-quantum hybrid (Ed25519 + ML-DSA-65) key.
 
 `svx-keyagent check` runs these checks, connects to the database and, if
-`service_url` and `registry_key` are set, confirms that the registry's
-active encryption key is one the agent holds. Run it after every change.
+`service_url` and `registry_key` (the registry key fingerprint) are set,
+confirms that the service's registry key matches the fingerprint, that
+`service_grant_key` is the grant key the service publishes, and that the
+registry's active encryption key is one the agent holds. Run it after every
+change.
 
 ## Rotating the encryption key
 

@@ -7,7 +7,7 @@
 //! | Payload / manifest | ChaCha20-Poly1305 (RFC 8439) in the STREAM construction |
 //! | Key envelopes      | HPKE base mode (RFC 9180) with HKDF-SHA256 and ChaCha20-Poly1305; KEM DHKEM(X25519) (SVX-1) or X-Wing = X25519 + ML-KEM-768 (SVX-1H) |
 //! | Key schedule       | HKDF-SHA256 (RFC 5869)                                 |
-//! | Signatures         | Ed25519 (RFC 8032), strict verification; SVX-1H adds ML-DSA-65 (FIPS 204), both required |
+//! | Signatures         | Ed25519 (RFC 8032), strict verification; SVX-1H adds ML-DSA-65 (FIPS 204), both required. Service signatures (grants, registry and service records) are always hybrid |
 //! | Hashing            | SHA-256                                                |
 //!
 //! Two suites exist (see [`Suite`]): SVX-1 and the post-quantum hybrid
@@ -36,7 +36,7 @@ pub use error::{CryptoError, Result};
 pub use keys::{
     ED25519_SIG_LEN, HYBRID_PUBLIC_LEN, HYBRID_SIG_LEN, KemPublicKey, KemSecretKey, KeyKind,
     MLDSA65_PUBLIC_LEN, MLDSA65_SIG_LEN, SigningKey, VerifyingKey, X25519_PUBLIC_LEN,
-    XWING_ENC_LEN, XWING_PUBLIC_LEN, key_id,
+    XWING_ENC_LEN, XWING_PUBLIC_LEN, key_fingerprint, key_id,
 };
 pub use release::{TXN_LEN, nonce_binding, open_released_share, seal_released_share};
 pub use schedule::{ArtifactKeys, Share};

@@ -94,6 +94,18 @@ pub fn key_id(kind: KeyKind, public_key: &[u8]) -> [u8; 16] {
     out
 }
 
+/// `SHA-256("SVX-1 key-fingerprint\0" ‖ kind ‖ public_key)`: the full
+/// 256-bit digest that users pin in place of a key too long to paste (the
+/// registry key). Unlike [`key_id`] it is not truncated, so a second
+/// preimage stays out of reach even for a quantum attacker.
+pub fn key_fingerprint(kind: KeyKind, public_key: &[u8]) -> [u8; 32] {
+    let mut h = Sha256::new();
+    h.update(b"SVX-1 key-fingerprint\0");
+    h.update([kind.byte()]);
+    h.update(public_key);
+    h.finalize().into()
+}
+
 // ----- Signing -----
 
 /// An organization's signing key: Ed25519 (suite SVX-1) or hybrid
@@ -322,6 +334,11 @@ impl VerifyingKey {
 
     pub fn key_id(&self) -> [u8; 16] {
         key_id(self.kind(), &self.to_vec())
+    }
+
+    /// See [`key_fingerprint`].
+    pub fn fingerprint(&self) -> [u8; 32] {
+        key_fingerprint(self.kind(), &self.to_vec())
     }
 
     /// Strict verification. A hybrid signature is valid only if **both**

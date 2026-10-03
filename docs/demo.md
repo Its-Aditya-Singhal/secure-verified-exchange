@@ -126,7 +126,7 @@ It writes to the state directory:
 
 | File | What |
 |------|------|
-| `state.json` | URLs, registry key, IdPs, users, policy and file paths |
+| `state.json` | URLs, registry key fingerprint, IdPs, users, policy and file paths |
 | `example.toml`, `acme.toml` | Ready-made `svx` configurations (dev mode) |
 | `acme.sign.key` / `.pub` | Acme's registered signing key |
 | `incident-report.svx` | A valid sample artifact for Example Corp |

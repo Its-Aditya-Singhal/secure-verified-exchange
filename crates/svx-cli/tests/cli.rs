@@ -121,12 +121,16 @@ fn keygen_kinds_and_classical_keys_cannot_pack() {
         ("sign", "acme-security", "acme"),
         ("kem", "example-corp", "example"),
         ("kem", "svx.example", "service"),
-        ("service-sign", "svx.example", "registry"),
     ] {
         svx(d)
             .args(["keygen", "--kind", kind, "--owner", owner, "--out", out])
             .assert()
-            .success();
+            .success()
+            .stdout(contains(if kind == "sign" {
+                "Fingerprint: "
+            } else {
+                "Key ID: "
+            }));
     }
     let kind = |f: &str| {
         let v: serde_json::Value =
@@ -135,9 +139,16 @@ fn keygen_kinds_and_classical_keys_cannot_pack() {
     };
     assert_eq!(kind("acme.sign.pub"), "ed25519-mldsa65-public");
     assert_eq!(kind("example.kem.pub"), "xwing-public");
+    // `svx keygen` makes only hybrid keys; write a classical one (as older
+    // versions did) to check that it can't make new files.
+    svx_core::keyfile::write_signing_pair(
+        &d.join("registry"),
+        &svx_core::format::Identifier::new("acme-security").unwrap(),
+        &svx_core::crypto::SigningKey::generate(&mut svx_core::crypto::os_rng()),
+    )
+    .unwrap();
     assert_eq!(kind("registry.sign.pub"), "ed25519-public");
 
-    // A classical (service) signing key can't make new files.
     std::fs::write(d.join("a.txt"), b"fictional").unwrap();
     svx(d)
         .args([

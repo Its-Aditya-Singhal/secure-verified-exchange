@@ -1,7 +1,7 @@
 # SVX Key Hierarchy and Lifecycle
 
 ```text
-Registry signing key (managed service, HSM)          signs org records and key status
+Registry signing key (Ed25519 + ML-DSA-65, HSM)      signs org and service records; clients pin its fingerprint
 │
 ├── Organization A
 │   ├── Ed25519 + ML-DSA-65 signing keys [key_id, status]   signs artifacts (both halves)
@@ -12,7 +12,7 @@ Registry signing key (managed service, HSM)          signs org records and key s
 │
 └── Managed service
     ├── X-Wing service KEM key  [key_id, ...]                receives share_svc
-    └── Ed25519 grant key                                    signs short-lived release grants
+    └── Ed25519 + ML-DSA-65 grant key                        signs short-lived release grants
 
 Classical keys (Ed25519 signing, X25519 KEM) from before the upgrade stay
 `retired`: they verify and open older SVX-1 files and never make new ones.
@@ -66,7 +66,7 @@ Private keys are never stored in plaintext in server databases.
 | Org signing key | Mark `revoked` with a compromise time in the registry | Verifiers reject signatures from that key. Artifacts created before the compromise time can be accepted only if they were registered with the service before it. |
 | Org KEM key | Revoke; key agent refuses to use it | One share is exposed. The service share still protects the artifacts. Re-issue the artifacts that matter. |
 | Service KEM key | Revoke; service refuses release for artifacts sealed to it | One share is exposed. The org share still protects the artifacts. Senders re-issue. |
-| Registry key | Roll to a new key through a signed client update anchored in the offline root | Full trust reset |
+| Registry key | Roll to a new key through a signed client update anchored in the offline root (clients pin the new fingerprint) | Full trust reset |
 
 ## Offboarding
 

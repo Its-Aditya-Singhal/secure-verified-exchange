@@ -37,7 +37,8 @@ enum Cmd {
         /// Managed service URL.
         #[arg(long)]
         service: String,
-        /// The service's registry public key (hex), obtained out of band.
+        /// The fingerprint of the service's registry key (64 hex), obtained
+        /// out of band.
         #[arg(long)]
         registry_key: String,
         /// Your organization ID.
@@ -197,8 +198,6 @@ pub enum KeyKindArg {
     Sign,
     /// Encryption key (X-Wing: X25519 + ML-KEM-768).
     Kem,
-    /// The managed service's registry or grant key (Ed25519).
-    ServiceSign,
 }
 
 #[tokio::main]

@@ -12,7 +12,7 @@ idp_issuer = "https://login.example-corp.example"
 idp_client_id = "svx"
 group_claim = "groups"
 
-# The SVX service, and its grant key (an ed25519-public key file it publishes).
+# The SVX service, and its grant key (an ed25519-mldsa65-public key file it publishes).
 service_id = "svx.example"
 service_grant_key = "/etc/svx/keys/service-grant.sign.pub"
 
@@ -28,7 +28,9 @@ listen = "0.0.0.0:9443"
 tls_cert = "/etc/svx/tls/agent.crt"
 tls_key = "/etc/svx/tls/agent.key"
 
-# Optional: lets `svx-keyagent check` confirm the registry's active
-# encryption key is one this agent holds.
+# Optional: lets `svx-keyagent check` confirm that service_grant_key is the
+# grant key the service publishes and that the registry's active encryption
+# key is one this agent holds. registry_key is the registry key fingerprint
+# your SVX service publishes.
 # service_url = "https://svx.example"
 # registry_key = "<64 hex characters>"

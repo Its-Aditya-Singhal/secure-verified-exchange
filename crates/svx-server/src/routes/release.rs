@@ -331,19 +331,22 @@ pub async fn release(
     drop(share);
 
     let now = unix_now();
-    let grant = st.keys.sign_grant(&Grant {
-        v: PROTOCOL_VERSION,
-        service_id: st.service_id.to_string(),
-        artifact_id: h.artifact_id,
-        header_hash: *head.header_hash().as_bytes(),
-        recipient_org: org.to_owned(),
-        issuer: who.issuer.clone(),
-        sub: who.sub.clone(),
-        client_key_id: client_key.key_id(),
-        txn: req.txn,
-        iat: now,
-        exp: now + GRANT_TTL_SECS,
-    });
+    let grant = st
+        .keys
+        .sign_grant(&Grant {
+            v: PROTOCOL_VERSION,
+            service_id: st.service_id.to_string(),
+            artifact_id: h.artifact_id,
+            header_hash: *head.header_hash().as_bytes(),
+            recipient_org: org.to_owned(),
+            issuer: who.issuer.clone(),
+            sub: who.sub.clone(),
+            client_key_id: client_key.key_id(),
+            txn: req.txn,
+            iat: now,
+            exp: now + GRANT_TTL_SECS,
+        })
+        .map_err(|e| ApiError::Internal(format!("signing the grant: {e}")))?;
 
     // Fail closed: no release without an audit record.
     audit::append(

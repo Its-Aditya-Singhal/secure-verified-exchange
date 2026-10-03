@@ -17,7 +17,7 @@ use clap::Parser;
 use svx_core::format::Identifier;
 use svx_oidc::Validator;
 use svx_server::dns::SystemDns;
-use svx_server::keys::LocalKeys;
+use svx_server::keys::{KeyProvider, LocalKeys};
 use svx_server::{AppState, app};
 
 #[derive(Parser)]
@@ -65,10 +65,16 @@ async fn main() -> Result<()> {
         .connect(&a.database_url)
         .await
         .context("connecting to Postgres")?;
+    let keys = LocalKeys::load(&a.kem_keys, &a.grant_key, &a.registry_key)?;
+    // Clients pin this fingerprint (`svx init --registry-key`).
+    tracing::info!(
+        registry_fingerprint = %hex::encode(keys.registry_public().fingerprint()),
+        "registry key loaded"
+    );
     let state = AppState {
         db,
         service_id: Identifier::new(&a.service_id).context("invalid service id")?,
-        keys: Arc::new(LocalKeys::load(&a.kem_keys, &a.grant_key, &a.registry_key)?),
+        keys: Arc::new(keys),
         oidc: Arc::new(Validator::new(a.dev)?),
         dns: Arc::new(SystemDns::new()?),
         dev: a.dev,

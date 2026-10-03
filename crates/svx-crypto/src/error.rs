@@ -16,6 +16,8 @@ pub enum CryptoError {
     KeyCommitmentMismatch,
     #[error("invalid key encoding")]
     InvalidKey,
+    #[error("wrong key kind for this operation")]
+    WrongKeyKind,
     #[error("encryption failed")]
     Encryption,
     #[error("stream misuse: {0}")]

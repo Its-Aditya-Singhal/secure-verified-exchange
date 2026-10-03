@@ -3,17 +3,18 @@
 //! its IdP (the person signing in becomes the first administrator), then
 //! save a verified configuration.
 //!
-//! The service is checked against the pinned registry key before anything
-//! is sent to it.
+//! The service is checked against the pinned registry key fingerprint before
+//! anything is sent to it.
 
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+use svx_core::crypto::VerifyingKey;
 use svx_protocol::admin::{RegisterOrgRequest, RegisterOrgResponse, VerifyOrgRequest};
 use svx_protocol::{ManagedClient, check_url};
 
 use crate::account::{self, LoginMethod, WhoAmI};
-use crate::config::{ClientConfig, Paths, parse_registry_key};
+use crate::config::{ClientConfig, Paths};
 use crate::error::{ClientError, Result};
 use crate::setup::{self, SetupPreview, SetupRequest};
 
@@ -21,7 +22,7 @@ use crate::setup::{self, SetupPreview, SetupRequest};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OnboardRequest {
     pub service_url: String,
-    /// The registry public key (hex), obtained out of band.
+    /// The registry key fingerprint (64 hex), obtained out of band.
     pub registry_key: String,
     pub org_id: String,
     pub display_name: String,
@@ -54,10 +55,12 @@ pub struct PendingOrg {
 }
 
 impl OnboardRequest {
-    fn config(&self) -> ClientConfig {
+    /// The configuration, given the registry key that matched the pin.
+    fn config(&self, registry: &VerifyingKey) -> ClientConfig {
         ClientConfig {
             service_url: self.service_url.trim().to_owned(),
-            registry_key: self.registry_key.trim().to_owned(),
+            registry_key: hex::encode(registry.fingerprint()),
+            registry_public: hex::encode(registry.to_vec()),
             org_id: self.org_id.trim().to_owned(),
             idp_issuer: self.idp_issuer.trim().to_owned(),
             idp_client_id: self.idp_client_id.trim().to_owned(),
@@ -74,15 +77,16 @@ impl OnboardRequest {
 
 /// Step 1: register. Returns the DNS record to create.
 pub async fn register(req: OnboardRequest) -> Result<PendingOrg> {
-    let cfg = req.config();
-    cfg.validate()?;
     if let Some(u) = &req.key_agent_url {
         check_url(u, req.dev)
             .map_err(|_| ClientError::Config("key agent URL must be https".into()))?;
     }
-    let key = parse_registry_key(&cfg.registry_key)?;
     let client = ManagedClient::new(req.dev)?;
     // Talk only to a service that proves it belongs to the pinned registry.
+    let key =
+        setup::registry_key(&client, req.service_url.trim(), &req.registry_key, req.dev).await?;
+    let cfg = req.config(&key);
+    cfg.validate()?;
     client.service_record(&cfg.service_url, &key).await?;
     let r: RegisterOrgResponse = client
         .post_json(
@@ -118,8 +122,6 @@ pub async fn complete(
     replace: bool,
 ) -> Result<(SetupPreview, WhoAmI)> {
     let req = &pending.request;
-    let cfg = req.config();
-    cfg.validate()?;
     if paths.config.exists() && !replace {
         return Err(ClientError::Config(format!(
             "{} exists (replace it to continue)",
@@ -127,6 +129,10 @@ pub async fn complete(
         )));
     }
     let client = ManagedClient::new(req.dev)?;
+    let key =
+        setup::registry_key(&client, req.service_url.trim(), &req.registry_key, req.dev).await?;
+    let cfg = req.config(&key);
+    cfg.validate()?;
     let auth = account::authenticator(&cfg, &client, login)?;
     let nonce = hex::encode(svx_core::crypto::random_bytes::<16>());
     let id_token = auth.id_token(&nonce).await?;

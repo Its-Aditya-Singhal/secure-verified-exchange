@@ -1,14 +1,16 @@
 //! Client configuration (`config.toml`).
 //!
-//! The only trust anchor is `registry_key`: the managed service's registry
-//! public key, pinned at `svx init` time from an out-of-band source (the
-//! organization's admin, the service's published fingerprint). Every org
-//! and service key the client uses is verified against it.
+//! The only trust anchor is `registry_key`: the fingerprint of the managed
+//! service's hybrid (Ed25519 + ML-DSA-65) registry key, pinned at `svx init`
+//! time from an out-of-band source (the organization's admin, the service's
+//! published fingerprint). Setup saves the full key in `registry_public`
+//! only after it matched the fingerprint, and every load checks it again.
+//! Every org and service key the client uses is verified against that key.
 
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use svx_core::crypto::VerifyingKey;
+use svx_core::crypto::{KeyKind, VerifyingKey};
 use svx_core::format::Identifier;
 use svx_oidc::IssuerConfig;
 use svx_protocol::check_url;
@@ -20,8 +22,12 @@ use crate::error::{ClientError, Result};
 pub struct ClientConfig {
     /// Managed service base URL (https).
     pub service_url: String,
-    /// Pinned registry public key (hex, 32 bytes).
+    /// Pinned fingerprint of the registry key (hex, 32 bytes).
     pub registry_key: String,
+    /// The registry's hybrid public key (hex), saved by setup after it
+    /// matched `registry_key`.
+    #[serde(default)]
+    pub registry_public: String,
     /// The user's organization.
     pub org_id: String,
     /// The organization's OIDC issuer (from its verified registry record).
@@ -83,8 +89,27 @@ impl ClientConfig {
         Ok(())
     }
 
+    /// The registry key, checked against the pinned fingerprint.
     pub fn registry_key(&self) -> Result<VerifyingKey> {
-        parse_registry_key(&self.registry_key)
+        let pinned = parse_registry_fingerprint(&self.registry_key)?;
+        if self.registry_public.is_empty() {
+            return Err(ClientError::Config(
+                "this setup predates post-quantum registry signatures: run `svx init` again \
+                 (or Setup in the app) with the service's registry key fingerprint"
+                    .into(),
+            ));
+        }
+        let bytes = hex::decode(self.registry_public.trim())
+            .map_err(|_| ClientError::Config("registry_public is not hex".into()))?;
+        let key = VerifyingKey::from_kind_bytes(KeyKind::HybridSigning, &bytes).map_err(|_| {
+            ClientError::Config("registry_public is not a post-quantum hybrid key".into())
+        })?;
+        if key.fingerprint() != pinned {
+            return Err(ClientError::Config(
+                "registry_public does not match the pinned registry key fingerprint".into(),
+            ));
+        }
+        Ok(key)
     }
 
     pub fn issuer_config(&self) -> IssuerConfig {
@@ -134,27 +159,30 @@ pub fn default_open_dir() -> Result<PathBuf> {
         .join("SVX"))
 }
 
-pub fn parse_registry_key(hex_key: &str) -> Result<VerifyingKey> {
+/// Parse a registry key fingerprint (64 hex characters).
+pub fn parse_registry_fingerprint(hex_fp: &str) -> Result<[u8; 32]> {
     let mut b = [0u8; 32];
-    hex::decode_to_slice(hex_key.trim(), &mut b)
-        .map_err(|_| ClientError::Config("registry_key must be 64 hex characters".into()))?;
-    VerifyingKey::from_bytes(&b)
-        .map_err(|_| ClientError::Config("registry_key is not a valid Ed25519 key".into()))
+    hex::decode_to_slice(hex_fp.trim(), &mut b).map_err(|_| {
+        ClientError::Config("the registry key fingerprint must be 64 hex characters".into())
+    })?;
+    Ok(b)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use svx_core::crypto::{SigningKey, os_rng};
+    use svx_core::crypto::SigningKey;
+
+    fn registry() -> VerifyingKey {
+        // One fixed key, so `registry_key` and `registry_public` match.
+        SigningKey::hybrid_from_seeds(&[1; 32], &[2; 32]).verifying_key()
+    }
 
     fn cfg() -> ClientConfig {
         ClientConfig {
             service_url: "https://svx.example".into(),
-            registry_key: hex::encode(
-                SigningKey::generate(&mut os_rng())
-                    .verifying_key()
-                    .to_bytes(),
-            ),
+            registry_key: hex::encode(registry().fingerprint()),
+            registry_public: hex::encode(registry().to_vec()),
             org_id: "example-corp".into(),
             idp_issuer: "https://login.example-corp.example".into(),
             idp_client_id: "svx".into(),
@@ -181,6 +209,31 @@ mod tests {
         let mut c = cfg();
         c.org_id = "Example Corp".into();
         assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn registry_key_is_checked_against_the_pin() {
+        assert_eq!(cfg().registry_key().unwrap(), registry());
+        // Another key in registry_public: refused.
+        let mut c = cfg();
+        c.registry_public = hex::encode(
+            SigningKey::hybrid_from_seeds(&[3; 32], &[4; 32])
+                .verifying_key()
+                .to_vec(),
+        );
+        assert!(c.validate().is_err());
+        // A classical key whose fingerprint was pinned: refused.
+        let ed = SigningKey::from_bytes(&[5; 32]).verifying_key();
+        let mut c = cfg();
+        c.registry_key = hex::encode(ed.fingerprint());
+        c.registry_public = hex::encode(ed.to_vec());
+        assert!(c.validate().is_err());
+        // A configuration from before hybrid registry signatures: asked to set up again.
+        let mut c = cfg();
+        c.registry_key = hex::encode(ed.to_bytes());
+        c.registry_public.clear();
+        let e = c.validate().unwrap_err().to_string();
+        assert!(e.contains("svx init"), "{e}");
     }
 
     #[test]

@@ -146,7 +146,7 @@ async fn run(cli: Cli) -> Result<ExitCode> {
                     users.join(", ")
                 );
             }
-            println!("  Registry key:   {}", state.registry_key);
+            println!("  Registry key fingerprint: {}", state.registry_key);
             println!(
                 "  State:          {}",
                 state_dir.join("state.json").display()

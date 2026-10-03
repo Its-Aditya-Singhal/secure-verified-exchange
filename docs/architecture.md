@@ -115,7 +115,7 @@ policies[]             (see section 7)
 Trust model:
 
 1. **Registration.** An admin proves control of a domain (DNS TXT challenge) and sets up the org's IdP. The first admin login through that IdP binds the admin.
-2. **Registry signing.** The service signs each org record with a registry key. Clients pin the registry public key, which ships with the client and is rotated through signed update manifests. A client accepts sender keys only from a signed record. A plain org name is never treated as identity.
+2. **Registry signing.** The service signs each org record with a registry key. Registry signatures are hybrid (Ed25519 + ML-DSA-65). Clients pin the registry key's fingerprint, which ships with the client and is rotated through signed update manifests. A client accepts sender keys only from a signed record. A plain org name is never treated as identity.
 3. **Key status.** Keys move from `active` to `retired` to `revoked`. Verification checks that the key was valid at `created_at` and is not revoked.
 4. **Later: federation.** Org-to-org trust that does not depend on the managed registry (signed cross-certification). Listed in Future features.
 

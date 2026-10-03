@@ -181,9 +181,11 @@ impl World {
         let service_kem = KemSecretKey::generate_hybrid(&mut rng);
         let service_kem_classical = KemSecretKey::generate(&mut rng);
         let service_kem_classical_pub = service_kem_classical.public_key().clone();
-        let service_grant = SigningKey::generate(&mut rng);
-        let registry = SigningKey::generate(&mut rng);
-        let grant_copy = SigningKey::from_bytes(&service_grant.to_bytes());
+        let service_grant = SigningKey::generate_hybrid(&mut rng);
+        let registry = SigningKey::generate_hybrid(&mut rng);
+        let grant_copy =
+            SigningKey::from_secret_bytes(service_grant.kind(), &service_grant.to_secret_bytes())
+                .unwrap();
         let db = fresh_db(admin_url, &svc_db).await;
         let dns = StaticDns::default();
         let state = AppState {
@@ -412,8 +414,9 @@ impl World {
         KemPublicKey::from_kind_bytes(KeyKind::XWingKem, &self.info.kem_public).unwrap()
     }
 
+    /// The service's hybrid registry key.
     pub fn registry_key(&self) -> VerifyingKey {
-        VerifyingKey::from_bytes(&self.info.registry_public).unwrap()
+        VerifyingKey::from_kind_bytes(KeyKind::HybridSigning, &self.info.registry_public).unwrap()
     }
 
     /// Acme packs SECRET for Example Corp: suite SVX-1H with a hybrid
@@ -553,9 +556,14 @@ impl World {
         .unwrap()
     }
 
-    /// The registry public key clients must pin (hex).
+    /// The registry key fingerprint clients pin (hex).
     pub fn registry_key_hex(&self) -> String {
-        hex::encode(self.info.registry_public)
+        hex::encode(self.registry_key().fingerprint())
+    }
+
+    /// The full registry key, as setup saves it in `registry_public` (hex).
+    pub fn registry_public_hex(&self) -> String {
+        hex::encode(self.registry_key().to_vec())
     }
 
     /// Write Acme's signing key as `<dir>/acme.sign.key` (+ `.pub`).
@@ -576,6 +584,7 @@ impl World {
         ClientConfig {
             service_url: self.service_url.clone(),
             registry_key: self.registry_key_hex(),
+            registry_public: self.registry_public_hex(),
             org_id: org.into(),
             idp_issuer: idp.issuer().into(),
             idp_client_id: idp.client_id().into(),

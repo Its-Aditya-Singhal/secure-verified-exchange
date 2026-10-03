@@ -98,7 +98,7 @@ function detailsStep(ctx: Ctx, root: HTMLElement, replace: boolean): void {
     card(
       "SVX service",
       field("SVX service URL", service),
-      field("Registry key", key, "Published by the SVX service. The app checks the service against it before sending anything."),
+      field("Registry key fingerprint", key, "Published by the SVX service. The app checks the service's post-quantum registry key against it before sending anything."),
     ),
     card(
       "Your organization",

@@ -206,12 +206,26 @@ async fn check(a: &Args) -> Result<()> {
     match (&cfg.service_url, &cfg.registry_key) {
         (Some(url), Some(reg)) => {
             let mut pin = [0u8; 32];
-            hex::decode_to_slice(reg.trim(), &mut pin).context("registry_key must be 64 hex")?;
-            let pin =
-                svx_core::crypto::VerifyingKey::from_bytes(&pin).context("invalid registry_key")?;
+            hex::decode_to_slice(reg.trim(), &mut pin)
+                .context("registry_key must be the registry key fingerprint (64 hex)")?;
             let client = svx_protocol::ManagedClient::new(cfg.dev)?;
+            let registry = client
+                .pinned_registry_key(url, &pin)
+                .await
+                .context("checking the service's registry key against registry_key")?;
+            let service = client
+                .service_record(url, &registry)
+                .await
+                .context("fetching the service record")?;
+            if service.grant_key()? != st.service_grant_key {
+                bail!(
+                    "service_grant_key is not the grant key the service publishes; \
+                     releases would be refused"
+                );
+            }
+            println!("Grant key:     ok (matches the service record)");
             let rec = client
-                .org_record(url, st.org_id.as_str(), &pin)
+                .org_record(url, st.org_id.as_str(), &registry)
                 .await
                 .context("fetching the registry record")?;
             let active = rec

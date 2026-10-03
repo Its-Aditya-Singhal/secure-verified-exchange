@@ -16,21 +16,11 @@ fn owner_id(owner: &str) -> Result<Identifier> {
 }
 
 /// Generate a post-quantum hybrid signing key pair (Ed25519 + ML-DSA-65);
-/// returns the hex key ID.
+/// returns the hex key ID. Used for artifacts and for the managed service's
+/// own grant and registry keys.
 pub fn generate_signing(prefix: &Path, owner: &str) -> Result<String> {
     let owner = owner_id(owner)?;
     let sk = SigningKey::generate_hybrid(&mut os_rng());
-    keyfile::write_signing_pair(prefix, &owner, &sk)
-        .map_err(|e| ClientError::Other(e.to_string()))?;
-    Ok(hex::encode(sk.verifying_key().key_id()))
-}
-
-/// Generate an Ed25519 key for the managed service's own signatures:
-/// registry records and release grants (not artifacts). These are
-/// short-lived authentication, so they stay classical for now.
-pub fn generate_service_signing(prefix: &Path, owner: &str) -> Result<String> {
-    let owner = owner_id(owner)?;
-    let sk = SigningKey::generate(&mut os_rng());
     keyfile::write_signing_pair(prefix, &owner, &sk)
         .map_err(|e| ClientError::Other(e.to_string()))?;
     Ok(hex::encode(sk.verifying_key().key_id()))

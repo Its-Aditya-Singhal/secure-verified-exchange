@@ -20,13 +20,13 @@ JSON over HTTPS. Binary blobs are standard base64; keys, IDs and transaction IDs
 ## Public
 
 ### `GET /v1/service`
-The service's public keys. Clients **pin** `registry_public` out of band. Key agents pin `grant_public`.
+The service's public keys. Nothing here is trusted by itself. Clients pin `registry_fingerprint` out of band and accept `registry_public` only if its fingerprint matches the pin (see `spec/crypto-profile.md` §13). Key agents pin `grant_public` (as a key file). Both keys are hybrid Ed25519 + ML-DSA-65.
 ```json
-{ "service_id": "svx.example", "kem_public": "<hex1216 X-Wing>", "grant_public": "<hex32>", "registry_public": "<hex32>" }
+{ "service_id": "svx.example", "kem_public": "<hex1216 X-Wing>", "grant_public": "<hex1984 Ed25519 + ML-DSA-65>", "registry_public": "<hex1984 Ed25519 + ML-DSA-65>", "registry_fingerprint": "<hex32>" }
 ```
 
 ### `GET /v1/service/record`
-The service's public keys, signed with the registry key under context `"SVX-1 service\0"`. Records older than 15 minutes are rejected.
+The service's public keys, signed with the registry key under context `"SVX-1 service\0"` (hybrid signature, both halves must verify). Records older than 15 minutes are rejected. `grant_public` must be a hybrid key.
 ```json
 { "record": "<b64 JSON {v, service_id, kem_public, grant_public, issued_at}>", "signature": "<b64>" }
 ```
@@ -35,7 +35,7 @@ Senders take the service KEM key from here instead of from the unsigned `/v1/ser
 ### `GET /v1/registry/orgs/{org_id}`
 Signed record of a **verified** organization. Returns 404 otherwise.
 ```json
-{ "record": "<b64 JSON OrgRecord>", "signature": "<b64 Ed25519>" }
+{ "record": "<b64 JSON OrgRecord>", "signature": "<b64 Ed25519 ‖ ML-DSA-65, 3373 bytes>" }
 ```
 The signature uses context `"SVX-1 registry\0"` over the exact record bytes. Clients reject records older than 15 minutes.
 

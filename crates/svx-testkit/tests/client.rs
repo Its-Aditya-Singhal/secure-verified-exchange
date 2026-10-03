@@ -65,6 +65,10 @@ async fn setup_verifies_against_the_pin() {
     assert_eq!(p.service_id, SERVICE_ID);
     assert_eq!(p.idp_issuer, w.example_idp.issuer());
     assert!(p.can_receive);
+    // The pin is the fingerprint; the full hybrid key is saved beside it.
+    assert_eq!(p.config.registry_key, w.registry_key_hex());
+    assert_eq!(p.config.registry_public, w.registry_public_hex());
+    assert_eq!(p.config.registry_key().unwrap(), w.registry_key());
     let paths = Paths {
         config: dir.path().join("c.toml"),
         session: dir.path().join("s.json"),
@@ -80,13 +84,19 @@ async fn setup_verifies_against_the_pin() {
         Err(ClientError::Config(_))
     ));
 
+    // Another registry's fingerprint: refused before any record is trusted.
     let mut wrong = request(&w, EXAMPLE);
     wrong.registry_key = hex::encode(
-        svx_core::crypto::SigningKey::generate(&mut svx_core::crypto::os_rng())
+        svx_core::crypto::SigningKey::generate_hybrid(&mut svx_core::crypto::os_rng())
             .verifying_key()
-            .to_bytes(),
+            .fingerprint(),
     );
-    assert!(setup::verify(wrong).await.is_err());
+    let e = setup::verify(wrong).await.unwrap_err().to_string();
+    assert!(e.contains("fingerprint"), "{e}");
+    // The raw Ed25519-era key in place of a fingerprint: refused too.
+    let mut old = request(&w, EXAMPLE);
+    old.registry_key = hex::encode([7u8; 32]);
+    assert!(setup::verify(old).await.is_err());
     assert!(setup::verify(request(&w, "ghost-org")).await.is_err());
     let mut insecure = request(&w, EXAMPLE);
     insecure.dev = false;

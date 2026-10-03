@@ -145,9 +145,10 @@ Status key: ✅ enforced and tested (test names in parentheses). 🔜 designed h
   - Both key shares are sealed with X-Wing, the hybrid of X25519 and ML-KEM-768. Recovering a share needs breaking **both**.
   - Released shares are re-sealed to an X-Wing one-time key, and the TLS connection itself uses X25519MLKEM768, so a recording of the release reveals nothing later.
   - Files are signed with Ed25519 **and** ML-DSA-65; a forgery needs breaking both.
+  - The service signs registry records, the service record and release grants with Ed25519 **and** ML-DSA-65 too, so a quantum attacker cannot forge an organization's keys and make senders seal files to the attacker. Clients pin a 256-bit fingerprint of the hybrid registry key.
   - Payload and manifest encryption use 256-bit ChaCha20-Poly1305 keys, which keep a large margin against quantum search (Grover).
-- **Limitations:** files made before the upgrade (suite SVX-1) remain classical; re-issue the ones that must stay confidential for decades. The registry, grant and session signatures are still Ed25519: they are short-lived authentication, not secrecy, so recording them gives nothing later, but they move to hybrid keys before a quantum computer is plausible (follow-up). OIDC tokens and IdP TLS depend on each organization's IdP.
-- **Tests:** KATs for X-Wing (HPKE PQ vectors) and ML-DSA-65 (NIST ACVP); `hybrid_signature_needs_both_halves`; `legacy_classical_files_still_open`; hybrid test vectors.
+- **Limitations:** files made before the upgrade (suite SVX-1) remain classical; re-issue the ones that must stay confidential for decades. TLS server certificates are still classical (the WebPKI has no ML-DSA certificates yet); certificate authentication happens live during the handshake, so a recording gives nothing later, and the key exchange is already post-quantum. OIDC tokens and IdP TLS depend on each organization's IdP.
+- **Tests:** KATs for X-Wing (HPKE PQ vectors) and ML-DSA-65 (NIST ACVP); `hybrid_signature_needs_both_halves`; `legacy_classical_files_still_open`; hybrid test vectors; `context_signatures_are_hybrid_and_domain_separated`, `context_signatures_refuse_classical_keys`, `registry_key_must_match_the_pinned_fingerprint`, `setup_verifies_against_the_pin`, the Ed25519-only grant refused by the key agent (`managed_flow`).
 
 ## 5. Security claims we will make (after review)
 

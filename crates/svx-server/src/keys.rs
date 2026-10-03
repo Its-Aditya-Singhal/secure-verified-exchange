@@ -5,7 +5,9 @@
 use std::path::Path;
 
 use anyhow::bail;
-use svx_core::crypto::{KemPublicKey, KemSecretKey, KeyKind, Share, SigningKey, VerifyingKey};
+use svx_core::crypto::{
+    CryptoError, KemPublicKey, KemSecretKey, KeyKind, Share, SigningKey, VerifyingKey,
+};
 use svx_core::format::EnvelopeRole;
 use svx_core::{CoreError, VerifiedHead, keyfile};
 use svx_protocol::{
@@ -20,9 +22,13 @@ pub trait KeyProvider: Send + Sync {
     fn registry_public(&self) -> VerifyingKey;
     /// Unwrap the service's key-share envelope of a verified artifact.
     fn unwrap_service_share(&self, head: &VerifiedHead) -> Result<Share, CoreError>;
-    fn sign_grant(&self, grant: &Grant) -> SignedGrant;
-    fn sign_record(&self, record: &OrgRecord) -> SignedOrgRecord;
-    fn sign_service_record(&self, record: &ServiceRecord) -> SignedServiceRecord;
+    /// Hybrid (Ed25519 + ML-DSA-65) signatures with the grant and registry keys.
+    fn sign_grant(&self, grant: &Grant) -> Result<SignedGrant, CryptoError>;
+    fn sign_record(&self, record: &OrgRecord) -> Result<SignedOrgRecord, CryptoError>;
+    fn sign_service_record(
+        &self,
+        record: &ServiceRecord,
+    ) -> Result<SignedServiceRecord, CryptoError>;
 }
 
 /// Keys held in process memory, loaded from 0600 key files.
@@ -47,8 +53,11 @@ impl LocalKeys {
         let Some(active) = kems.iter().position(|k| k.kind() == KeyKind::XWingKem) else {
             bail!("the service needs an X-Wing (post-quantum hybrid) KEM key");
         };
-        if grant.kind() != KeyKind::Ed25519Signing || registry.kind() != KeyKind::Ed25519Signing {
-            bail!("grant and registry keys must be Ed25519 (svx keygen --kind service-sign)");
+        if grant.kind() != KeyKind::HybridSigning || registry.kind() != KeyKind::HybridSigning {
+            bail!(
+                "grant and registry keys must be post-quantum hybrid keys \
+                 (Ed25519 + ML-DSA-65, svx keygen --kind sign)"
+            );
         }
         Ok(LocalKeys {
             kems,
@@ -88,15 +97,18 @@ impl KeyProvider for LocalKeys {
         head.unwrap_share_from(EnvelopeRole::Service, &self.kems)
     }
 
-    fn sign_grant(&self, grant: &Grant) -> SignedGrant {
+    fn sign_grant(&self, grant: &Grant) -> Result<SignedGrant, CryptoError> {
         SignedGrant::sign(grant, &self.grant)
     }
 
-    fn sign_record(&self, record: &OrgRecord) -> SignedOrgRecord {
+    fn sign_record(&self, record: &OrgRecord) -> Result<SignedOrgRecord, CryptoError> {
         SignedOrgRecord::sign(record, &self.registry)
     }
 
-    fn sign_service_record(&self, record: &ServiceRecord) -> SignedServiceRecord {
+    fn sign_service_record(
+        &self,
+        record: &ServiceRecord,
+    ) -> Result<SignedServiceRecord, CryptoError> {
         SignedServiceRecord::sign(record, &self.registry)
     }
 }
@@ -112,16 +124,18 @@ mod tests {
         let ed = || SigningKey::generate(&mut os_rng());
         // No X-Wing key: refused.
         assert!(LocalKeys::new(vec![KemSecretKey::generate(&mut rng)], ed(), ed()).is_err());
-        // Hybrid grant or registry keys: refused (context signatures are Ed25519).
+        // Classical grant or registry keys: refused (service signatures are hybrid).
         let xwing = || vec![KemSecretKey::generate_hybrid(&mut os_rng())];
         let hybrid = || SigningKey::generate_hybrid(&mut os_rng());
         assert!(LocalKeys::new(xwing(), hybrid(), ed()).is_err());
         assert!(LocalKeys::new(xwing(), ed(), hybrid()).is_err());
+        assert!(LocalKeys::new(xwing(), ed(), ed()).is_err());
         // An X25519 key for older files plus an X-Wing key: the X-Wing key is published.
         let classical = KemSecretKey::generate(&mut rng);
         let pq = KemSecretKey::generate_hybrid(&mut rng);
         let pq_pub = pq.public_key().clone();
-        let keys = LocalKeys::new(vec![classical, pq], ed(), ed()).unwrap();
+        let keys = LocalKeys::new(vec![classical, pq], hybrid(), hybrid()).unwrap();
         assert_eq!(keys.service_kem_public(), pq_pub);
+        assert_eq!(keys.registry_public().kind(), KeyKind::HybridSigning);
     }
 }

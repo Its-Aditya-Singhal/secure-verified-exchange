@@ -1,13 +1,15 @@
 //! Signed organization registry records.
 //!
 //! The registry is the managed service's statement of which keys and which
-//! IdP belong to an organization. Clients pin the registry public key and
-//! accept sender signing keys only from a correctly signed, fresh record.
+//! IdP belong to an organization. Clients pin the fingerprint of the
+//! registry's hybrid (Ed25519 + ML-DSA-65) public key and accept sender
+//! signing keys only from a correctly signed, fresh record.
 
 use serde::{Deserialize, Serialize};
 use svx_core::TrustStore;
 use svx_core::crypto::{
-    KemPublicKey, KeyKind, SignContext, SigningKey, VerifyingKey, sign_context, verify_context,
+    CryptoError, KemPublicKey, KeyKind, SignContext, SigningKey, VerifyingKey, sign_context,
+    verify_context,
 };
 use svx_core::format::Identifier;
 
@@ -228,6 +230,8 @@ pub enum RecordError {
     WrongOrg,
     #[error("registry record is stale")]
     Stale,
+    #[error("the service's registry key does not match the pinned fingerprint")]
+    WrongRegistryKey,
 }
 
 /// Records older than this are refused, so a captured record cannot be
@@ -235,13 +239,14 @@ pub enum RecordError {
 pub const MAX_RECORD_AGE_SECS: i64 = 15 * 60;
 
 impl SignedOrgRecord {
-    pub fn sign(record: &OrgRecord, registry_key: &SigningKey) -> Self {
+    /// Sign with the registry key (a hybrid key; others are refused).
+    pub fn sign(record: &OrgRecord, registry_key: &SigningKey) -> Result<Self, CryptoError> {
         let bytes = serde_json::to_vec(record).expect("record serializes");
-        let signature = sign_context(registry_key, SignContext::RegistryRecord, &bytes).to_vec();
-        SignedOrgRecord {
+        let signature = sign_context(registry_key, SignContext::RegistryRecord, &bytes)?;
+        Ok(SignedOrgRecord {
             record: bytes,
             signature,
-        }
+        })
     }
 
     pub fn verify(
@@ -272,7 +277,9 @@ impl SignedOrgRecord {
     }
 }
 
-/// `GET /v1/service`: public keys of the managed service.
+/// `GET /v1/service`: public keys of the managed service. Nothing here is
+/// trusted by itself: clients accept `registry_public` only if it matches
+/// the fingerprint they pinned ([`ServiceInfo::pinned_registry_key`]).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ServiceInfo {
@@ -280,10 +287,27 @@ pub struct ServiceInfo {
     /// The service's X-Wing (X25519 + ML-KEM-768) KEM key.
     #[serde(with = "hex_vec")]
     pub kem_public: Vec<u8>,
+    /// Hybrid (Ed25519 + ML-DSA-65) grant key.
+    #[serde(with = "hex_vec")]
+    pub grant_public: Vec<u8>,
+    /// Hybrid (Ed25519 + ML-DSA-65) registry key.
+    #[serde(with = "hex_vec")]
+    pub registry_public: Vec<u8>,
+    /// Fingerprint of `registry_public`, the value users pin.
     #[serde(with = "hex_array")]
-    pub grant_public: [u8; 32],
-    #[serde(with = "hex_array")]
-    pub registry_public: [u8; 32],
+    pub registry_fingerprint: [u8; 32],
+}
+
+impl ServiceInfo {
+    /// The registry key, if it is a hybrid key whose fingerprint is `pinned`.
+    pub fn pinned_registry_key(&self, pinned: &[u8; 32]) -> Result<VerifyingKey, RecordError> {
+        let key = VerifyingKey::from_kind_bytes(KeyKind::HybridSigning, &self.registry_public)
+            .map_err(|_| RecordError::Malformed)?;
+        if &key.fingerprint() != pinned {
+            return Err(RecordError::WrongRegistryKey);
+        }
+        Ok(key)
+    }
 }
 
 /// `GET /v1/service/record`: the service's public keys, signed with the
@@ -299,8 +323,9 @@ pub struct ServiceRecord {
     /// service to open older files and are not published.
     #[serde(with = "hex_vec")]
     pub kem_public: Vec<u8>,
-    #[serde(with = "hex_array")]
-    pub grant_public: [u8; 32],
+    /// The service's hybrid (Ed25519 + ML-DSA-65) grant key.
+    #[serde(with = "hex_vec")]
+    pub grant_public: Vec<u8>,
     pub issued_at: i64,
 }
 
@@ -308,6 +333,12 @@ impl ServiceRecord {
     /// The service KEM key (always X-Wing).
     pub fn kem_public_key(&self) -> Result<KemPublicKey, RecordError> {
         KemPublicKey::from_kind_bytes(KeyKind::XWingKem, &self.kem_public)
+            .map_err(|_| RecordError::Malformed)
+    }
+
+    /// The service grant key (always hybrid).
+    pub fn grant_key(&self) -> Result<VerifyingKey, RecordError> {
+        VerifyingKey::from_kind_bytes(KeyKind::HybridSigning, &self.grant_public)
             .map_err(|_| RecordError::Malformed)
     }
 }
@@ -322,13 +353,14 @@ pub struct SignedServiceRecord {
 }
 
 impl SignedServiceRecord {
-    pub fn sign(record: &ServiceRecord, registry_key: &SigningKey) -> Self {
+    /// Sign with the registry key (a hybrid key; others are refused).
+    pub fn sign(record: &ServiceRecord, registry_key: &SigningKey) -> Result<Self, CryptoError> {
         let bytes = serde_json::to_vec(record).expect("record serializes");
-        let signature = sign_context(registry_key, SignContext::ServiceRecord, &bytes).to_vec();
-        SignedServiceRecord {
+        let signature = sign_context(registry_key, SignContext::ServiceRecord, &bytes)?;
+        Ok(SignedServiceRecord {
             record: bytes,
             signature,
-        }
+        })
     }
 
     pub fn verify(
@@ -352,6 +384,7 @@ impl SignedServiceRecord {
             return Err(RecordError::Stale);
         }
         r.kem_public_key()?;
+        r.grant_key()?;
         Ok(r)
     }
 }
@@ -360,6 +393,12 @@ impl SignedServiceRecord {
 mod tests {
     use super::*;
     use svx_core::crypto::{KemSecretKey, os_rng};
+
+    fn grant() -> Vec<u8> {
+        SigningKey::generate_hybrid(&mut os_rng())
+            .verifying_key()
+            .to_vec()
+    }
 
     fn entry(kind: KeyKindWire, public_key: Vec<u8>, status: KeyStatus) -> KeyEntry {
         KeyEntry {
@@ -372,7 +411,7 @@ mod tests {
 
     #[test]
     fn record_sign_verify() {
-        let reg = SigningKey::generate(&mut os_rng());
+        let reg = SigningKey::generate_hybrid(&mut os_rng());
         let classical = SigningKey::generate(&mut os_rng()).verifying_key();
         let hybrid = SigningKey::generate_hybrid(&mut os_rng()).verifying_key();
         let rec = OrgRecord {
@@ -392,7 +431,7 @@ mod tests {
             ],
             issued_at: 1000,
         };
-        let s = SignedOrgRecord::sign(&rec, &reg);
+        let s = SignedOrgRecord::sign(&rec, &reg).unwrap();
         let got = s
             .verify(&reg.verifying_key(), "acme-security", 1001)
             .unwrap();
@@ -409,7 +448,7 @@ mod tests {
             s.verify(&reg.verifying_key(), "acme-security", 1000 + 3600),
             Err(RecordError::Stale)
         );
-        let other = SigningKey::generate(&mut os_rng());
+        let other = SigningKey::generate_hybrid(&mut os_rng());
         assert_eq!(
             s.verify(&other.verifying_key(), "acme-security", 1001),
             Err(RecordError::BadSignature)
@@ -418,22 +457,22 @@ mod tests {
 
     #[test]
     fn service_record_sign_verify() {
-        let reg = SigningKey::generate(&mut os_rng());
+        let reg = SigningKey::generate_hybrid(&mut os_rng());
         let kem = KemSecretKey::generate_hybrid(&mut os_rng());
         let rec = ServiceRecord {
             v: crate::PROTOCOL_VERSION,
             service_id: "svx.example".into(),
             kem_public: kem.public_key().to_vec(),
-            grant_public: [2; 32],
+            grant_public: grant(),
             issued_at: 1000,
         };
-        let s = SignedServiceRecord::sign(&rec, &reg);
+        let s = SignedServiceRecord::sign(&rec, &reg).unwrap();
         assert_eq!(s.verify(&reg.verifying_key(), 1001).unwrap(), rec);
         assert_eq!(
             s.verify(&reg.verifying_key(), 5000),
             Err(RecordError::Stale)
         );
-        let other = SigningKey::generate(&mut os_rng());
+        let other = SigningKey::generate_hybrid(&mut os_rng());
         assert_eq!(
             s.verify(&other.verifying_key(), 1001),
             Err(RecordError::BadSignature)
@@ -452,16 +491,16 @@ mod tests {
 
     #[test]
     fn service_record_requires_xwing_key() {
-        let reg = SigningKey::generate(&mut os_rng());
+        let reg = SigningKey::generate_hybrid(&mut os_rng());
         let classical = KemSecretKey::generate(&mut os_rng());
         let rec = ServiceRecord {
             v: crate::PROTOCOL_VERSION,
             service_id: "svx.example".into(),
             kem_public: classical.public_key().to_vec(),
-            grant_public: [2; 32],
+            grant_public: grant(),
             issued_at: 1000,
         };
-        let s = SignedServiceRecord::sign(&rec, &reg);
+        let s = SignedServiceRecord::sign(&rec, &reg).unwrap();
         assert_eq!(
             s.verify(&reg.verifying_key(), 1001),
             Err(RecordError::Malformed)
@@ -503,9 +542,9 @@ mod tests {
 
     #[test]
     fn records_of_another_protocol_version_are_refused() {
-        let reg = SigningKey::generate(&mut os_rng());
+        let reg = SigningKey::generate_hybrid(&mut os_rng());
         let rec = OrgRecord {
-            v: 1,
+            v: 2,
             org_id: "acme-security".into(),
             display_name: "Acme Security".into(),
             domain: "acme.example".into(),
@@ -514,9 +553,79 @@ mod tests {
             keys: vec![],
             issued_at: 1000,
         };
-        let s = SignedOrgRecord::sign(&rec, &reg);
+        let s = SignedOrgRecord::sign(&rec, &reg).unwrap();
         assert_eq!(
             s.verify(&reg.verifying_key(), "acme-security", 1001),
+            Err(RecordError::Malformed)
+        );
+    }
+
+    #[test]
+    fn classical_registry_keys_are_refused() {
+        let ed = SigningKey::generate(&mut os_rng());
+        let rec = ServiceRecord {
+            v: crate::PROTOCOL_VERSION,
+            service_id: "svx.example".into(),
+            kem_public: KemSecretKey::generate_hybrid(&mut os_rng())
+                .public_key()
+                .to_vec(),
+            grant_public: grant(),
+            issued_at: 1000,
+        };
+        assert!(SignedServiceRecord::sign(&rec, &ed).is_err());
+        // An Ed25519-only signature under a hybrid key: refused.
+        let reg = SigningKey::generate_hybrid(&mut os_rng());
+        let mut s = SignedServiceRecord::sign(&rec, &reg).unwrap();
+        s.signature.truncate(64);
+        assert_eq!(
+            s.verify(&reg.verifying_key(), 1001),
+            Err(RecordError::BadSignature)
+        );
+        // A classical grant key in the record: malformed.
+        let mut classical_grant = rec.clone();
+        classical_grant.grant_public = ed.verifying_key().to_vec();
+        let s = SignedServiceRecord::sign(&classical_grant, &reg).unwrap();
+        assert_eq!(
+            s.verify(&reg.verifying_key(), 1001),
+            Err(RecordError::Malformed)
+        );
+    }
+
+    #[test]
+    fn registry_key_must_match_the_pinned_fingerprint() {
+        let reg = SigningKey::generate_hybrid(&mut os_rng()).verifying_key();
+        let info = ServiceInfo {
+            service_id: "svx.example".into(),
+            kem_public: vec![],
+            grant_public: grant(),
+            registry_public: reg.to_vec(),
+            registry_fingerprint: reg.fingerprint(),
+        };
+        assert_eq!(info.pinned_registry_key(&reg.fingerprint()).unwrap(), reg);
+        let mut wrong = reg.fingerprint();
+        wrong[31] ^= 1;
+        assert_eq!(
+            info.pinned_registry_key(&wrong),
+            Err(RecordError::WrongRegistryKey)
+        );
+        // The advertised fingerprint is not trusted: only the pin counts.
+        let other = SigningKey::generate_hybrid(&mut os_rng()).verifying_key();
+        let swapped = ServiceInfo {
+            registry_public: other.to_vec(),
+            ..info.clone()
+        };
+        assert_eq!(
+            swapped.pinned_registry_key(&reg.fingerprint()),
+            Err(RecordError::WrongRegistryKey)
+        );
+        // A classical registry key never matches.
+        let ed = SigningKey::generate(&mut os_rng()).verifying_key();
+        let classical = ServiceInfo {
+            registry_public: ed.to_vec(),
+            ..info
+        };
+        assert_eq!(
+            classical.pinned_registry_key(&ed.fingerprint()),
             Err(RecordError::Malformed)
         );
     }

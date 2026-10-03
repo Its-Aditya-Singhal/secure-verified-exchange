@@ -6,10 +6,13 @@
 //! on the service only for the *policy* decision, never for user identity.
 //!
 //! The signature covers the exact JSON payload bytes (no canonicalization),
-//! under the `"SVX-1 grant\0"` signing context.
+//! under the `"SVX-1 grant\0"` signing context, and is a hybrid
+//! Ed25519 + ML-DSA-65 signature (both halves must verify).
 
 use serde::{Deserialize, Serialize};
-use svx_core::crypto::{SignContext, SigningKey, VerifyingKey, sign_context, verify_context};
+use svx_core::crypto::{
+    CryptoError, SignContext, SigningKey, VerifyingKey, sign_context, verify_context,
+};
 
 use crate::encoding::{b64, hex_array};
 
@@ -63,14 +66,15 @@ pub enum GrantError {
 }
 
 impl SignedGrant {
-    pub fn sign(grant: &Grant, key: &SigningKey) -> Self {
+    /// Sign with the service grant key (a hybrid key; others are refused).
+    pub fn sign(grant: &Grant, key: &SigningKey) -> Result<Self, CryptoError> {
         let payload = serde_json::to_vec(grant).expect("grant serializes");
-        let signature = sign_context(key, SignContext::ReleaseGrant, &payload).to_vec();
-        SignedGrant {
+        let signature = sign_context(key, SignContext::ReleaseGrant, &payload)?;
+        Ok(SignedGrant {
             payload,
             signature,
             key_id: key.verifying_key().key_id(),
-        }
+        })
     }
 
     /// Verify the signature with the pinned service grant key, then parse
@@ -123,10 +127,10 @@ mod tests {
 
     #[test]
     fn sign_verify_and_tamper() {
-        let sk = SigningKey::generate(&mut os_rng());
-        let other = SigningKey::generate(&mut os_rng());
+        let sk = SigningKey::generate_hybrid(&mut os_rng());
+        let other = SigningKey::generate_hybrid(&mut os_rng());
         let g = grant(1000);
-        let sg = SignedGrant::sign(&g, &sk);
+        let sg = SignedGrant::sign(&g, &sk).unwrap();
         assert_eq!(sg.verify(&sk.verifying_key(), 1010).unwrap(), g);
         assert_eq!(
             sg.verify(&other.verifying_key(), 1010),
@@ -142,6 +146,36 @@ mod tests {
         assert_eq!(
             t.verify(&sk.verifying_key(), 1010),
             Err(GrantError::BadSignature)
+        );
+    }
+
+    #[test]
+    fn classical_grant_keys_are_refused() {
+        let ed = SigningKey::generate(&mut os_rng());
+        assert!(SignedGrant::sign(&grant(1000), &ed).is_err());
+        // A grant carrying an Ed25519 signature by the pinned key's ID is refused.
+        let hybrid = SigningKey::generate_hybrid(&mut os_rng());
+        let mut sg = SignedGrant::sign(&grant(1000), &hybrid).unwrap();
+        sg.signature.truncate(64);
+        assert_eq!(
+            sg.verify(&hybrid.verifying_key(), 1010),
+            Err(GrantError::BadSignature)
+        );
+        assert_eq!(
+            sg.verify(&ed.verifying_key(), 1010),
+            Err(GrantError::WrongKey)
+        );
+    }
+
+    #[test]
+    fn grants_of_another_protocol_version_are_refused() {
+        let sk = SigningKey::generate_hybrid(&mut os_rng());
+        let mut g = grant(1000);
+        g.v = 2;
+        let sg = SignedGrant::sign(&g, &sk).unwrap();
+        assert_eq!(
+            sg.verify(&sk.verifying_key(), 1010),
+            Err(GrantError::Malformed)
         );
     }
 }

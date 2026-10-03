@@ -31,8 +31,8 @@ createdb svx_agent_example
 
 ```sh
 $B/svx keygen --kind kem          --owner svx.example   --out service    # receives the service share (X-Wing)
-$B/svx keygen --kind service-sign --owner svx.example   --out grant      # signs release grants (Ed25519)
-$B/svx keygen --kind service-sign --owner svx.example   --out registry   # signs registry records (Ed25519)
+$B/svx keygen --kind sign         --owner svx.example   --out grant      # signs release grants (Ed25519 + ML-DSA-65)
+$B/svx keygen --kind sign         --owner svx.example   --out registry   # signs registry records; prints the fingerprint clients pin
 $B/svx keygen --kind sign         --owner acme-security --out acme       # Acme signs artifacts (Ed25519 + ML-DSA-65)
 $B/svx keygen --kind kem          --owner example-corp  --out example    # Example Corp's org key (X-Wing)
 ```
@@ -84,7 +84,7 @@ psql -Atc "select 'drop database '||datname||';' from pg_database where datname 
 Onboarding still runs through the API (see the integration tests), because in-app administration arrives in Phase 5b. Once an organization is registered, use these commands:
 
 ```sh
-REG=$(curl -s http://127.0.0.1:8443/v1/service | sed 's/.*"registry_public":"\([0-9a-f]*\)".*/\1/')
+REG=$(curl -s http://127.0.0.1:8443/v1/service | sed 's/.*"registry_fingerprint":"\([0-9a-f]*\)".*/\1/')
 $B/svx --config example.toml init --dev --service http://127.0.0.1:8443 \
   --registry-key "$REG" --org example-corp --client-id svx-example-corp
 $B/svx --config acme.toml init --dev --service http://127.0.0.1:8443 \
