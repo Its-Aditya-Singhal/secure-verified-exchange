@@ -55,7 +55,7 @@ Neither party can decrypt alone. That gives three properties:
 - **Leaked org key is not enough.** Someone with the org KEM key still needs the service, which enforces policy, expiry and revocation (T12).
 - **Recipient binding.** Only the named recipient org's key agent can contribute the second share (G4).
 
-Deployments where the managed service also operates the recipient's key agent lose the "server cannot decrypt" property. The admin portal must show this clearly.
+Deployments where the managed service also operates the recipient's key agent lose the "server cannot decrypt" property. The desktop app's admin screens must show this clearly.
 
 ## 3. Packing flow (implemented)
 

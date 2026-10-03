@@ -71,7 +71,7 @@ For your organization's SVX administrators:
 - **Account:** sign in (browser), see who you are and when the session ends, sign out. The session is short-lived and can never open files.
 - **Revoke a file** by artifact ID or by choosing the `.svx`. Revocation stops all future access; it cannot recall copies already opened.
 - **Audit trail:** the most recent 200 events, with the hash-chain check.
-- **Policies:** read-only. Editing comes with the web admin portal (Phase 5b).
+- **Policies:** read-only. Editing comes to this screen in Phase 5b.
 
 ## Security notes
 

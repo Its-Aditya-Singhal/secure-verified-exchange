@@ -80,7 +80,7 @@ psql -Atc "select 'drop database '||datname||';' from pg_database where datname 
 
 ## 4. Use the CLI against the local stack
 
-Onboarding still runs through the API (see the integration tests), because the admin portal arrives in Phase 5. Once an organization is registered, use these commands:
+Onboarding still runs through the API (see the integration tests), because in-app administration arrives in Phase 5b. Once an organization is registered, use these commands:
 
 ```sh
 REG=$(curl -s http://127.0.0.1:8443/v1/service | sed 's/.*"registry_public":"\([0-9a-f]*\)".*/\1/')

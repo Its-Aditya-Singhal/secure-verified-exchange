@@ -145,7 +145,7 @@ export function adminScreen(ctx: Ctx, root: HTMLElement): void {
               ])),
           );
         }
-        policyBox.appendChild(h("p", { class: "muted small" }, "Editing policies will come with the web admin portal."));
+        policyBox.appendChild(h("p", { class: "muted small" }, "Editing policies is coming to this screen."));
       } catch (e) {
         policyBox.appendChild(errorPanel(asAppError(e)));
       }

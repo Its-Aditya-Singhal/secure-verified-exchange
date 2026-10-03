@@ -62,4 +62,4 @@ Private keys are never stored in plaintext in server databases.
 
 ## Backup and recovery
 
-Org KEM keys need escrow, for example KMS multi-region or HSM backup under the org's own control. Losing them makes every artifact sealed to them unreadable. That is by design, and it must be documented in the admin portal. Signing keys do not need backup: generate new ones and rotate.
+Org KEM keys need escrow, for example KMS multi-region or HSM backup under the org's own control. Losing them makes every artifact sealed to them unreadable. That is by design, and it must be documented in the desktop app's admin screens. Signing keys do not need backup: generate new ones and rotate.
