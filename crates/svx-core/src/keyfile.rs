@@ -32,6 +32,7 @@ pub enum KeyType {
 }
 
 impl KeyType {
+    #[cfg_attr(not(unix), allow(dead_code))]
     fn is_secret(self) -> bool {
         matches!(self, KeyType::Ed25519Secret | KeyType::X25519Secret)
     }
