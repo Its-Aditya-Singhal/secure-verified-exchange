@@ -3,7 +3,6 @@
 
 use sqlx::{FromRow, PgPool};
 use svx_core::TrustStore;
-use svx_core::crypto::VerifyingKey;
 use svx_core::format::Identifier;
 use svx_oidc::IssuerConfig;
 use svx_protocol::{KeyEntry, KeyKindWire, KeyStatus, Policy};
@@ -48,7 +47,7 @@ impl KeyRow {
         Some(KeyEntry {
             key_id: self.key_id.as_slice().try_into().ok()?,
             kind: KeyKindWire::parse(&self.kind)?,
-            public_key: self.public_key.as_slice().try_into().ok()?,
+            public_key: self.public_key.clone(),
             status: KeyStatus::parse(&self.status)?,
         })
     }
@@ -88,18 +87,16 @@ pub async fn sender_trust(
         return Ok(trust);
     }
     for k in keys(db, org.as_str()).await? {
-        if k.kind != "ed25519" {
-            continue;
-        }
-        let usable = match k.status.as_str() {
-            "active" => true,
-            "retired" => k.retired_at.is_some_and(|r| created_at <= r),
-            _ => false,
-        };
-        let Ok(pk) = <[u8; 32]>::try_from(k.public_key.as_slice()) else {
+        // Classical (Ed25519) and hybrid (Ed25519 + ML-DSA-65) signing keys.
+        let Some(entry) = k.to_entry().filter(|e| e.kind.is_signing()) else {
             continue;
         };
-        if let (true, Ok(vk)) = (usable, VerifyingKey::from_bytes(&pk)) {
+        let usable = match entry.status {
+            KeyStatus::Active => true,
+            KeyStatus::Retired => k.retired_at.is_some_and(|r| created_at <= r),
+            KeyStatus::Revoked => false,
+        };
+        if let (true, Ok(vk)) = (usable, entry.verifying_key()) {
             trust.add(org.clone(), vk);
         }
     }

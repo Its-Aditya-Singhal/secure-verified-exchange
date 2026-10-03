@@ -67,7 +67,9 @@ pub struct ReleaseSession {
 impl ReleaseSession {
     pub fn new() -> Self {
         ReleaseSession {
-            key: KemSecretKey::generate(&mut os_rng()),
+            // A post-quantum hybrid one-time key: services and key agents
+            // re-seal released shares to it with X-Wing.
+            key: KemSecretKey::generate_hybrid(&mut os_rng()),
             txn: random_bytes(),
         }
     }
@@ -245,7 +247,7 @@ impl ManagedClient {
                 .encode()
                 .map_err(|e| ProtocolError::BadResponse(e.to_string()))?,
             id_token: id_token.to_owned(),
-            client_key: session.client_key().to_bytes(),
+            client_key: session.client_key().to_vec(),
             txn: session.txn,
         };
         let resp: ReleaseResponse = self
@@ -267,7 +269,7 @@ impl ManagedClient {
         let req = AgentReleaseRequest {
             header_region: head.header_region.clone(),
             id_token: id_token.to_owned(),
-            client_key: session.client_key().to_bytes(),
+            client_key: session.client_key().to_vec(),
             txn: session.txn,
             grant,
         };

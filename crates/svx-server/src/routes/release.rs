@@ -5,12 +5,13 @@ use axum::extract::State;
 use axum::http::HeaderMap;
 use serde::Deserialize;
 use svx_core::VerifiedHead;
-use svx_core::crypto::{KemPublicKey, nonce_binding, os_rng, seal_released_share};
+use svx_core::crypto::{nonce_binding, os_rng, seal_released_share};
 use svx_core::format::{EnvelopeRole, parse_header_region};
 use svx_oidc::Identity;
 use svx_protocol::encoding::b64;
 use svx_protocol::{
-    DenyReason, Grant, PROTOCOL_VERSION, ReleaseRequest, ReleaseResponse, SealedShare, unix_now,
+    DenyReason, Grant, PROTOCOL_VERSION, ReleaseRequest, ReleaseResponse, SealedShare,
+    parse_client_key, unix_now,
 };
 
 use super::bearer;
@@ -182,8 +183,8 @@ pub async fn release(
         .await?
         .ok_or(deny(DenyReason::InvalidArtifact))?;
     let org = recipient.org_id.as_str();
-    let client_key =
-        KemPublicKey::from_bytes(&req.client_key).map_err(|_| deny(DenyReason::InvalidRequest))?;
+    // Only post-quantum hybrid (X-Wing) one-time keys are accepted.
+    let client_key = parse_client_key(&req.client_key).ok_or(deny(DenyReason::InvalidRequest))?;
 
     // 2. Authentication: the recipient org's own IdP, bound to this
     //    client key and transaction through the nonce.

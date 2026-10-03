@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::encoding::hex_array;
+use crate::encoding::hex_vec;
 use crate::registry::{KeyKindWire, KeyStatus};
 
 /// `POST /v1/orgs`
@@ -45,8 +45,10 @@ pub struct VerifyOrgRequest {
 #[serde(deny_unknown_fields)]
 pub struct PutKeyRequest {
     pub kind: KeyKindWire,
-    #[serde(with = "hex_array")]
-    pub public_key: [u8; 32],
+    /// Exact length for `kind`: 32 bytes classical, 1216 X-Wing, 1984
+    /// Ed25519 + ML-DSA-65.
+    #[serde(with = "hex_vec")]
+    pub public_key: Vec<u8>,
     pub status: KeyStatus,
 }
 

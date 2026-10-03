@@ -107,7 +107,7 @@ mod tests {
 
     fn grant(now: i64) -> Grant {
         Grant {
-            v: 1,
+            v: crate::PROTOCOL_VERSION,
             service_id: "svx.example".into(),
             artifact_id: [1; 16],
             header_hash: [2; 32],

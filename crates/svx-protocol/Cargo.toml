@@ -12,6 +12,9 @@ svx-core = { path = "../svx-core", version = "0.1.0" }
 base64 = "0.22"
 hex = "0.4"
 reqwest = { version = "0.13", default-features = false, features = ["json", "form", "query", "rustls"] }
+# Only to turn on post-quantum TLS (X25519MLKEM768 offered and preferred
+# first) for every rustls user in the build: reqwest, axum-server, sqlx.
+rustls = { version = "0.23", default-features = false, features = ["prefer-post-quantum"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11"
@@ -19,7 +22,8 @@ thiserror = "2"
 url = "2"
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["aws-lc-rs"] }
 
 [lints]
 workspace = true

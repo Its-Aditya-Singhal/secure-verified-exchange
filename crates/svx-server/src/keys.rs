@@ -4,7 +4,8 @@
 
 use std::path::Path;
 
-use svx_core::crypto::{KemPublicKey, KemSecretKey, Share, SigningKey, VerifyingKey};
+use anyhow::bail;
+use svx_core::crypto::{KemPublicKey, KemSecretKey, KeyKind, Share, SigningKey, VerifyingKey};
 use svx_core::format::EnvelopeRole;
 use svx_core::{CoreError, VerifiedHead, keyfile};
 use svx_protocol::{
@@ -12,6 +13,8 @@ use svx_protocol::{
 };
 
 pub trait KeyProvider: Send + Sync {
+    /// The active X-Wing (X25519 + ML-KEM-768) key new artifacts seal the
+    /// service share to.
     fn service_kem_public(&self) -> KemPublicKey;
     fn grant_public(&self) -> VerifyingKey;
     fn registry_public(&self) -> VerifyingKey;
@@ -24,32 +27,53 @@ pub trait KeyProvider: Send + Sync {
 
 /// Keys held in process memory, loaded from 0600 key files.
 pub struct LocalKeys {
-    kem: KemSecretKey,
+    /// Every KEM key the service still opens envelopes with, chosen per
+    /// artifact by key ID: the X-Wing key and any older X25519 keys.
+    kems: Vec<KemSecretKey>,
+    /// Index into `kems` of the active X-Wing key.
+    active: usize,
     grant: SigningKey,
     registry: SigningKey,
 }
 
 impl LocalKeys {
-    pub fn new(kem: KemSecretKey, grant: SigningKey, registry: SigningKey) -> Self {
-        LocalKeys {
-            kem,
+    /// `kems` must hold an X-Wing key; the first one is published for new
+    /// artifacts. X25519 keys only open older (suite SVX-1) files.
+    pub fn new(
+        kems: Vec<KemSecretKey>,
+        grant: SigningKey,
+        registry: SigningKey,
+    ) -> anyhow::Result<Self> {
+        let Some(active) = kems.iter().position(|k| k.kind() == KeyKind::XWingKem) else {
+            bail!("the service needs an X-Wing (post-quantum hybrid) KEM key");
+        };
+        if grant.kind() != KeyKind::Ed25519Signing || registry.kind() != KeyKind::Ed25519Signing {
+            bail!("grant and registry keys must be Ed25519 (svx keygen --kind service-sign)");
+        }
+        Ok(LocalKeys {
+            kems,
+            active,
             grant,
             registry,
-        }
+        })
     }
 
-    pub fn load(kem: &Path, grant: &Path, registry: &Path) -> anyhow::Result<Self> {
-        Ok(LocalKeys {
-            kem: keyfile::load_kem_secret(kem)?.1,
-            grant: keyfile::load_signing_key(grant)?.1,
-            registry: keyfile::load_signing_key(registry)?.1,
-        })
+    pub fn load(kems: &[impl AsRef<Path>], grant: &Path, registry: &Path) -> anyhow::Result<Self> {
+        let kems = kems
+            .iter()
+            .map(|p| Ok(keyfile::load_kem_secret(p.as_ref())?.1))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        Self::new(
+            kems,
+            keyfile::load_signing_key(grant)?.1,
+            keyfile::load_signing_key(registry)?.1,
+        )
     }
 }
 
 impl KeyProvider for LocalKeys {
     fn service_kem_public(&self) -> KemPublicKey {
-        self.kem.public_key().clone()
+        self.kems[self.active].public_key().clone()
     }
 
     fn grant_public(&self) -> VerifyingKey {
@@ -61,7 +85,7 @@ impl KeyProvider for LocalKeys {
     }
 
     fn unwrap_service_share(&self, head: &VerifiedHead) -> Result<Share, CoreError> {
-        head.unwrap_share(EnvelopeRole::Service, &self.kem)
+        head.unwrap_share_from(EnvelopeRole::Service, &self.kems)
     }
 
     fn sign_grant(&self, grant: &Grant) -> SignedGrant {
@@ -74,5 +98,30 @@ impl KeyProvider for LocalKeys {
 
     fn sign_service_record(&self, record: &ServiceRecord) -> SignedServiceRecord {
         SignedServiceRecord::sign(record, &self.registry)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use svx_core::crypto::os_rng;
+
+    #[test]
+    fn key_kinds_are_checked() {
+        let mut rng = os_rng();
+        let ed = || SigningKey::generate(&mut os_rng());
+        // No X-Wing key: refused.
+        assert!(LocalKeys::new(vec![KemSecretKey::generate(&mut rng)], ed(), ed()).is_err());
+        // Hybrid grant or registry keys: refused (context signatures are Ed25519).
+        let xwing = || vec![KemSecretKey::generate_hybrid(&mut os_rng())];
+        let hybrid = || SigningKey::generate_hybrid(&mut os_rng());
+        assert!(LocalKeys::new(xwing(), hybrid(), ed()).is_err());
+        assert!(LocalKeys::new(xwing(), ed(), hybrid()).is_err());
+        // An X25519 key for older files plus an X-Wing key: the X-Wing key is published.
+        let classical = KemSecretKey::generate(&mut rng);
+        let pq = KemSecretKey::generate_hybrid(&mut rng);
+        let pq_pub = pq.public_key().clone();
+        let keys = LocalKeys::new(vec![classical, pq], ed(), ed()).unwrap();
+        assert_eq!(keys.service_kem_public(), pq_pub);
     }
 }

@@ -29,8 +29,9 @@ pub use registry::{
 };
 pub use types::*;
 
-/// Current wire protocol version, included in grants and records.
-pub const PROTOCOL_VERSION: u32 = 1;
+/// Current wire protocol version, included in grants and records. Version 2
+/// carries post-quantum hybrid keys (X-Wing, Ed25519 + ML-DSA-65).
+pub const PROTOCOL_VERSION: u32 = 2;
 
 /// Seconds since the Unix epoch, UTC.
 pub fn unix_now() -> i64 {

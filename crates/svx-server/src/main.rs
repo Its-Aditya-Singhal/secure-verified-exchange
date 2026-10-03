@@ -2,7 +2,7 @@
 //!
 //! ```sh
 //! svx-server --database-url postgres://... --service-id svx.example \
-//!   --kem-key service.kem.key --grant-key grant.sign.key --registry-key registry.sign.key \
+//!   --kem-key service.kem.key [--kem-key old-x25519.kem.key] --grant-key grant.sign.key --registry-key registry.sign.key \
 //!   --listen 0.0.0.0:8443 --tls-cert cert.pem --tls-key key.pem
 //! ```
 //!
@@ -27,9 +27,11 @@ struct Args {
     database_url: String,
     #[arg(long, env = "SVX_SERVICE_ID")]
     service_id: String,
-    /// X25519 secret key file receiving the service share.
-    #[arg(long)]
-    kem_key: PathBuf,
+    /// KEM secret key files receiving the service share (repeatable). One
+    /// must be X-Wing (post-quantum hybrid); it is published for new
+    /// artifacts. X25519 keys only open older files.
+    #[arg(long = "kem-key", required = true)]
+    kem_keys: Vec<PathBuf>,
     /// Ed25519 secret key file signing release grants.
     #[arg(long)]
     grant_key: PathBuf,
@@ -66,7 +68,7 @@ async fn main() -> Result<()> {
     let state = AppState {
         db,
         service_id: Identifier::new(&a.service_id).context("invalid service id")?,
-        keys: Arc::new(LocalKeys::load(&a.kem_key, &a.grant_key, &a.registry_key)?),
+        keys: Arc::new(LocalKeys::load(&a.kem_keys, &a.grant_key, &a.registry_key)?),
         oidc: Arc::new(Validator::new(a.dev)?),
         dns: Arc::new(SystemDns::new()?),
         dev: a.dev,

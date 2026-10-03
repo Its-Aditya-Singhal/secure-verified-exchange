@@ -36,7 +36,8 @@ struct Args {
     /// The managed service's grant public key (ed25519-public key file), pinned.
     #[arg(long)]
     service_grant_key: PathBuf,
-    /// X25519 secret key file(s); pass several during rotation.
+    /// KEM secret key files: the org's X-Wing key and any older keys (X25519
+    /// or rotated) still needed to open existing files. Repeatable.
     #[arg(long = "kem-key", required = true)]
     kem_keys: Vec<PathBuf>,
     #[arg(long, default_value = "127.0.0.1:9443")]
@@ -71,6 +72,9 @@ async fn main() -> Result<()> {
         kem_keys.push(sk);
     }
     let (_, service_grant_key) = keyfile::load_verifying_key(&a.service_grant_key)?;
+    if service_grant_key.kind() != svx_core::crypto::KeyKind::Ed25519Signing {
+        bail!("the service grant key must be an Ed25519 key (svx keygen --kind service-sign)");
+    }
     let db = sqlx::postgres::PgPoolOptions::new()
         .max_connections(10)
         .connect(&a.database_url)

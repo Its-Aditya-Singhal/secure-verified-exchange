@@ -3,11 +3,11 @@
 
 use std::io::Cursor;
 
-use svx_core::crypto::{KemSecretKey, SigningKey, os_rng};
+use svx_core::crypto::{KemSecretKey, SigningKey, Suite, os_rng};
 use svx_protocol::admin::AuditPage;
 use svx_protocol::{
     AgentReleaseRequest, AgentReleaseResponse, DenyReason, Grant, KeyKindWire, KeyStatus, Policy,
-    ProtocolError, ReleaseSession, SignedGrant,
+    ProtocolError, ReleaseRequest, ReleaseResponse, ReleaseSession, SignedGrant,
 };
 use svx_testkit::*;
 
@@ -259,8 +259,8 @@ async fn revoked_sender_key_is_rejected() {
     w.put_key(
         ACME,
         &admin,
-        KeyKindWire::Ed25519,
-        w.acme_sign.verifying_key().to_bytes(),
+        KeyKindWire::Ed25519Mldsa65,
+        w.acme_sign.verifying_key().to_vec(),
         KeyStatus::Revoked,
     )
     .await
@@ -270,8 +270,8 @@ async fn revoked_sender_key_is_rejected() {
         w.put_key(
             ACME,
             &admin,
-            KeyKindWire::Ed25519,
-            w.acme_sign.verifying_key().to_bytes(),
+            KeyKindWire::Ed25519Mldsa65,
+            w.acme_sign.verifying_key().to_vec(),
             KeyStatus::Active
         )
         .await
@@ -288,7 +288,13 @@ async fn revoked_sender_key_is_rejected() {
         Err(ProtocolError::Denied(DenyReason::InvalidArtifact))
     ));
     // And it disappears from the recipient's registry-derived trust.
-    assert!(w.trust().await.is_empty());
+    let acme = svx_core::format::Identifier::new(ACME).unwrap();
+    let trust = w.trust().await;
+    assert!(
+        trust
+            .resolve(&acme, &w.acme_sign.verifying_key().key_id())
+            .is_err()
+    );
 }
 
 #[tokio::test]
@@ -364,11 +370,11 @@ async fn compromised_service_cannot_get_org_share() {
     let alice = ReleaseSession::new();
     let alice_token = w.token(EXAMPLE, "alice", &alice.nonce()).await;
 
-    let attacker_key = KemSecretKey::generate(&mut os_rng());
+    let attacker_key = KemSecretKey::generate_hybrid(&mut os_rng());
     let h = &v.header;
     let grant = SignedGrant::sign(
         &Grant {
-            v: 1,
+            v: svx_protocol::PROTOCOL_VERSION,
             service_id: SERVICE_ID.into(),
             artifact_id: h.artifact_id,
             header_hash: *v.header_hash().as_bytes(),
@@ -385,7 +391,7 @@ async fn compromised_service_cannot_get_org_share() {
     let req = AgentReleaseRequest {
         header_region: v.header_region.clone(),
         id_token: alice_token,
-        client_key: attacker_key.public_key().to_bytes(),
+        client_key: attacker_key.public_key().to_vec(),
         txn: *alice.txn(),
         grant,
     };
@@ -519,8 +525,11 @@ async fn registry_records_are_signed_and_scoped() {
     assert_eq!(rec.org_id, EXAMPLE);
     assert_eq!(rec.key_agent_url.as_deref(), Some(w.agent_url.as_str()));
     assert_eq!(
-        rec.active_kem_key().unwrap().public_key,
-        w.example_kem.public_key().to_bytes()
+        rec.active_hybrid_kem_key()
+            .unwrap()
+            .kem_public_key()
+            .unwrap(),
+        *w.example_kem.public_key()
     );
     // Verifying with the wrong registry key fails.
     let wrong = SigningKey::generate(&mut os_rng()).verifying_key();
@@ -530,4 +539,114 @@ async fn registry_records_are_signed_and_scoped() {
             .await
             .is_err()
     );
+}
+
+/// Files made before the post-quantum upgrade (suite SVX-1, classical keys)
+/// still open: the service and key agent keep their X25519 keys and the
+/// sender's retired Ed25519 key still verifies files it signed.
+#[tokio::test]
+async fn legacy_classical_files_still_open() {
+    let w = world!();
+    let file = w.pack_legacy();
+    let v = svx_core::verify(Cursor::new(&file), &w.trust().await).unwrap();
+    assert_eq!(v.head().suite, Suite::Svx1);
+    assert_eq!(w.open_as(&file, EXAMPLE, "alice").await.unwrap(), SECRET);
+    assert_eq!(
+        denied(w.open_as(&file, EXAMPLE, "bob").await),
+        DenyReason::NotAuthorized
+    );
+
+    let new = w.pack();
+    let v = svx_core::verify(Cursor::new(&new), &w.trust().await).unwrap();
+    assert_eq!(v.head().suite, Suite::Svx1H);
+}
+
+/// Releases are re-sealed only to post-quantum one-time keys: a classical
+/// X25519 client key is refused before anything is released.
+#[tokio::test]
+async fn classical_client_keys_are_refused() {
+    let w = world!();
+    let file = w.pack();
+    let v = svx_core::verify(Cursor::new(&file), &w.trust().await).unwrap();
+    let classical = KemSecretKey::generate(&mut os_rng());
+    let txn = [7u8; 16];
+    let nonce = svx_core::crypto::nonce_binding(classical.public_key(), &txn);
+    let token = w.token(EXAMPLE, "alice", &nonce).await;
+    let req = ReleaseRequest {
+        header_region: v.header_region.clone(),
+        trailer: v.trailer.encode().unwrap(),
+        id_token: token.clone(),
+        client_key: classical.public_key().to_vec(),
+        txn,
+    };
+    let r: Result<ReleaseResponse, _> = w
+        .client
+        .post_json(&w.service_url, "/v1/release", &req, None)
+        .await;
+    assert!(matches!(
+        r,
+        Err(ProtocolError::Denied(DenyReason::InvalidRequest))
+    ));
+
+    let grant = SignedGrant::sign(
+        &Grant {
+            v: svx_protocol::PROTOCOL_VERSION,
+            service_id: SERVICE_ID.into(),
+            artifact_id: v.header.artifact_id,
+            header_hash: *v.header_hash().as_bytes(),
+            recipient_org: EXAMPLE.into(),
+            issuer: w.example_idp.issuer().into(),
+            sub: "alice".into(),
+            client_key_id: classical.public_key().key_id(),
+            txn,
+            iat: now(),
+            exp: now() + 60,
+        },
+        &w.service_grant,
+    );
+    let req = AgentReleaseRequest {
+        header_region: v.header_region.clone(),
+        id_token: token,
+        client_key: classical.public_key().to_vec(),
+        txn,
+        grant,
+    };
+    let r: Result<AgentReleaseResponse, _> = w
+        .client
+        .post_json(&w.agent_url, "/v1/agent/release", &req, None)
+        .await;
+    assert!(matches!(
+        r,
+        Err(ProtocolError::Denied(DenyReason::InvalidRequest))
+    ));
+}
+
+/// Key registration checks the exact length for each kind.
+#[tokio::test]
+async fn key_registration_checks_kind_and_length() {
+    let w = world!();
+    let admin = w.token(EXAMPLE, "example-admin", "keys").await;
+    let xwing = KemSecretKey::generate_hybrid(&mut os_rng());
+    let pk = xwing.public_key().to_vec();
+    // An X-Wing key registered as X25519, a truncated key, a signing kind.
+    for (kind, key) in [
+        (KeyKindWire::X25519, pk.clone()),
+        (KeyKindWire::XWing, pk[..1215].to_vec()),
+        (KeyKindWire::Ed25519Mldsa65, pk.clone()),
+    ] {
+        assert!(
+            w.put_key(EXAMPLE, &admin, kind, key, KeyStatus::Active)
+                .await
+                .is_err()
+        );
+    }
+    let hybrid_sign = SigningKey::generate_hybrid(&mut os_rng()).verifying_key();
+    for (kind, key) in [
+        (KeyKindWire::XWing, pk),
+        (KeyKindWire::Ed25519Mldsa65, hybrid_sign.to_vec()),
+    ] {
+        w.put_key(EXAMPLE, &admin, kind, key, KeyStatus::Retired)
+            .await
+            .unwrap();
+    }
 }

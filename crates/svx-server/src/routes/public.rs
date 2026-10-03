@@ -11,7 +11,7 @@ use crate::{AppState, db};
 pub async fn service_info(State(st): State<AppState>) -> Json<ServiceInfo> {
     Json(ServiceInfo {
         service_id: st.service_id.to_string(),
-        kem_public: st.keys.service_kem_public().to_bytes(),
+        kem_public: st.keys.service_kem_public().to_vec(),
         grant_public: st.keys.grant_public().to_bytes(),
         registry_public: st.keys.registry_public().to_bytes(),
     })
@@ -22,7 +22,7 @@ pub async fn service_record(State(st): State<AppState>) -> Json<SignedServiceRec
     Json(st.keys.sign_service_record(&ServiceRecord {
         v: PROTOCOL_VERSION,
         service_id: st.service_id.to_string(),
-        kem_public: st.keys.service_kem_public().to_bytes(),
+        kem_public: st.keys.service_kem_public().to_vec(),
         grant_public: st.keys.grant_public().to_bytes(),
         issued_at: unix_now(),
     }))

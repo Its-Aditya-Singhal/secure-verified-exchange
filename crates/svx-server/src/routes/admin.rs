@@ -5,9 +5,8 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use serde::Deserialize;
-use svx_core::crypto::{KemPublicKey, VerifyingKey};
 use svx_protocol::admin::{AddAdminRequest, AuditPage, PutKeyRequest};
-use svx_protocol::{KeyEntry, KeyKindWire, KeyStatus, Policy, unix_now};
+use svx_protocol::{KeyEntry, KeyStatus, Policy, unix_now};
 
 use super::require_admin;
 use crate::error::{ApiError, ApiResult};
@@ -20,14 +19,11 @@ pub async fn put_key(
     Json(req): Json<PutKeyRequest>,
 ) -> ApiResult<Json<KeyEntry>> {
     let admin = require_admin(&st, &org, &headers).await?;
-    let key_id = match req.kind {
-        KeyKindWire::Ed25519 => VerifyingKey::from_bytes(&req.public_key)
-            .map_err(|_| ApiError::BadRequest("invalid Ed25519 key".into()))?
-            .key_id(),
-        KeyKindWire::X25519 => KemPublicKey::from_bytes(&req.public_key)
-            .map_err(|_| ApiError::BadRequest("invalid X25519 key".into()))?
-            .key_id(),
-    };
+    // Parses the key with exact-length checks for its kind.
+    let key_id = req
+        .kind
+        .key_id_of(&req.public_key)
+        .ok_or_else(|| ApiError::BadRequest(format!("invalid {} key", req.kind.as_str())))?;
     let now = unix_now();
     let existing = db::keys(&st.db, &org)
         .await?

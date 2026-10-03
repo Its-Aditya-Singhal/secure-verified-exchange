@@ -1,6 +1,8 @@
 //! The recipient organization's key agent.
 //!
-//! It holds the organization's X25519 KEM secret key(s) and releases the
+//! It holds the organization's KEM secret keys (X-Wing, the post-quantum
+//! hybrid of X25519 and ML-KEM-768, for new files; X25519 for older ones)
+//! and releases the
 //! **recipient-org share** of an artifact only when *both*:
 //!
 //! 1. the managed service has authorized the release — proven by a fresh
@@ -24,13 +26,13 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use svx_core::crypto::{
-    KemPublicKey, KemSecretKey, VerifyingKey, header_hash, nonce_binding, os_rng,
-    seal_released_share,
+    KemSecretKey, VerifyingKey, header_hash, nonce_binding, os_rng, seal_released_share,
 };
 use svx_core::format::{EnvelopeRole, Identifier, parse_header_region};
 use svx_oidc::{IssuerConfig, Validator};
 use svx_protocol::{
-    AgentReleaseRequest, AgentReleaseResponse, DenyReason, ErrorBody, SealedShare, unix_now,
+    AgentReleaseRequest, AgentReleaseResponse, DenyReason, ErrorBody, SealedShare,
+    parse_client_key, unix_now,
 };
 
 const MAX_BODY: usize = 3 * 1024 * 1024;
@@ -43,7 +45,8 @@ pub struct AgentState {
     pub service_id: Identifier,
     /// The managed service's grant-signing key, pinned out of band.
     pub service_grant_key: VerifyingKey,
-    /// Current and previous KEM keys (rotation); selected by envelope key ID.
+    /// Current and previous KEM keys (rotation, and X25519 keys for older
+    /// files); selected by envelope key ID.
     pub kem_keys: Arc<Vec<KemSecretKey>>,
     pub oidc: Arc<Validator>,
 }
@@ -138,7 +141,8 @@ async fn release(
             return Err(refuse(&st, a, None, &e.to_string(), DenyReason::NotAuthorized).await);
         }
     };
-    let Ok(client_key) = KemPublicKey::from_bytes(&req.client_key) else {
+    // Only post-quantum hybrid (X-Wing) one-time keys are accepted.
+    let Some(client_key) = parse_client_key(&req.client_key) else {
         return Err(refuse(&st, a, None, "bad client key", DenyReason::InvalidRequest).await);
     };
     // The grant must cover exactly this header, org, service, txn and client key.

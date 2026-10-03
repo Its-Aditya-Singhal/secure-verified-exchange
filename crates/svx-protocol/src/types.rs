@@ -1,8 +1,9 @@
 //! Release request and response bodies.
 
 use serde::{Deserialize, Serialize};
+use svx_core::crypto::{KemPublicKey, KeyKind};
 
-use crate::encoding::{b64, hex_array};
+use crate::encoding::{b64, hex_array, hex_vec};
 use crate::grant::SignedGrant;
 
 /// `POST /v1/release` on the managed service.
@@ -18,9 +19,11 @@ pub struct ReleaseRequest {
     /// ID token from the recipient organization's IdP, issued with
     /// `nonce = nonce_binding(client_key, txn)`.
     pub id_token: String,
-    /// Client's ephemeral X25519 public key for this request.
-    #[serde(with = "hex_array")]
-    pub client_key: [u8; 32],
+    /// Client's one-time X-Wing (X25519 + ML-KEM-768) public key for this
+    /// request (1216 bytes). Classical keys are refused, so a recorded
+    /// release can't be decrypted later by a quantum computer.
+    #[serde(with = "hex_vec")]
+    pub client_key: Vec<u8>,
     /// Random, single-use transaction identifier.
     #[serde(with = "hex_array")]
     pub txn: [u8; 16],
@@ -30,8 +33,9 @@ pub struct ReleaseRequest {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SealedShare {
-    #[serde(with = "hex_array")]
-    pub encapped_key: [u8; 32],
+    /// X-Wing encapsulated key (1120 bytes).
+    #[serde(with = "b64")]
+    pub encapped_key: Vec<u8>,
     #[serde(with = "b64")]
     pub ciphertext: Vec<u8>,
 }
@@ -50,8 +54,9 @@ pub struct AgentReleaseRequest {
     #[serde(with = "b64")]
     pub header_region: Vec<u8>,
     pub id_token: String,
-    #[serde(with = "hex_array")]
-    pub client_key: [u8; 32],
+    /// The same one-time X-Wing key as in [`ReleaseRequest::client_key`].
+    #[serde(with = "hex_vec")]
+    pub client_key: Vec<u8>,
     #[serde(with = "hex_array")]
     pub txn: [u8; 16],
     pub grant: SignedGrant,
@@ -61,6 +66,12 @@ pub struct AgentReleaseRequest {
 #[serde(deny_unknown_fields)]
 pub struct AgentReleaseResponse {
     pub share: SealedShare,
+}
+
+/// Parse a release request's one-time client key. Only X-Wing keys are
+/// accepted.
+pub fn parse_client_key(bytes: &[u8]) -> Option<KemPublicKey> {
+    KemPublicKey::from_kind_bytes(KeyKind::XWingKem, bytes).ok()
 }
 
 /// Deliberately coarse denial reasons. Precise reasons go to the audit log
