@@ -1,0 +1,12 @@
+{
+  "derived_from": "hybrid-valid-basic",
+  "description": "Signed by mallory's hybrid key while claiming sender acme-security.",
+  "expected_result": "reject",
+  "file": "hybrid-invalid-untrusted-signer.svx",
+  "file_sha256": "14b7324832cb7beb0353a297533710bd6469064db2025ff3ef9d50660a91b823",
+  "name": "hybrid-invalid-untrusted-signer",
+  "reject_stage": "verify",
+  "trusted_senders": [
+    "acme-security"
+  ]
+}

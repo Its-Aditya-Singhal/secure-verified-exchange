@@ -1,0 +1,12 @@
+{
+  "derived_from": "hybrid-valid-basic",
+  "description": "One bit flipped in the first X-Wing encapsulated key.",
+  "expected_result": "reject",
+  "file": "hybrid-invalid-envelope-tampered.svx",
+  "file_sha256": "8fa0a93d520ef651d0f0d1baaa847907609bd48980b3cad86fe1cfb5f3b04964",
+  "name": "hybrid-invalid-envelope-tampered",
+  "reject_stage": "verify",
+  "trusted_senders": [
+    "acme-security"
+  ]
+}

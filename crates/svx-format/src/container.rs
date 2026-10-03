@@ -149,6 +149,7 @@ impl<R: Read> Reader<R> {
             .read_exact(&mut header_region[Prelude::LEN..])
             .map_err(map_eof)?;
         let header = Header::decode(&header_region[Prelude::LEN..])?;
+        check_suite_layout(prelude.suite_id, &header)?;
 
         Ok(Reader {
             inner,
@@ -230,15 +231,7 @@ pub struct Writer<W: Write> {
 impl<W: Write> Writer<W> {
     /// Write the prelude and header.
     pub fn new(mut inner: W, suite_id: u16, header: &Header) -> Result<Self> {
-        let hbytes = header.encode()?;
-        let prelude = Prelude {
-            major: FORMAT_MAJOR,
-            minor: FORMAT_MINOR,
-            suite_id,
-            header_len: hbytes.len() as u32,
-        };
-        let mut header_region = prelude.encode().to_vec();
-        header_region.extend_from_slice(&hbytes);
+        let header_region = Self::header_region_for(suite_id, header)?;
         inner.write_all(&header_region)?;
         Ok(Writer {
             inner,
@@ -252,10 +245,11 @@ impl<W: Write> Writer<W> {
     /// Encode prelude ‖ header without writing, e.g. to compute the header
     /// hash before any chunk is encrypted.
     pub fn header_region_for(suite_id: u16, header: &Header) -> Result<Vec<u8>> {
+        check_suite_layout(suite_id, header)?;
         let hbytes = header.encode()?;
         let prelude = Prelude {
             major: FORMAT_MAJOR,
-            minor: FORMAT_MINOR,
+            minor: minor_for_suite(suite_id),
             suite_id,
             header_len: hbytes.len() as u32,
         };
@@ -351,5 +345,7 @@ pub fn parse_header_region(bytes: &[u8]) -> Result<(Prelude, Header)> {
     if body.len() != prelude.header_len as usize {
         return Err(FormatError::Malformed("header region length"));
     }
-    Ok((prelude, Header::decode(body)?))
+    let header = Header::decode(body)?;
+    check_suite_layout(prelude.suite_id, &header)?;
+    Ok((prelude, header))
 }

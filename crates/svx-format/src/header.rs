@@ -26,6 +26,18 @@ pub mod tags {
     pub const KEY_COMMITMENT: u16 = 0x800B;
     pub const KEY_ENVELOPES: u16 = 0x800C;
     pub const ENCRYPTED_MANIFEST: u16 = 0x800D;
+    /// Key envelopes with variable-length encapsulated keys (SVX 1.1,
+    /// required by suite `0x0003`).
+    pub const KEY_ENVELOPES_V2: u16 = 0x800E;
+}
+
+/// How the key envelopes are laid out on the wire.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum EnvelopeLayout {
+    /// Tag `0x800C`: `role ‖ key_id ‖ enc (32) ‖ ct_len ‖ ct` (suite `0x0001`).
+    V1,
+    /// Tag `0x800E`: `role ‖ key_id ‖ enc_len (u16) ‖ enc ‖ ct_len ‖ ct` (suite `0x0003`).
+    V2,
 }
 
 /// The fixed 16-byte prelude that precedes the header.
@@ -109,7 +121,8 @@ impl EnvelopeRole {
 pub struct KeyEnvelope {
     pub role: EnvelopeRole,
     pub key_id: [u8; KEY_ID_LEN],
-    pub encapped_key: [u8; ENCAPPED_KEY_LEN],
+    /// 32 bytes in layout V1; 1..=[`MAX_ENCAPPED_KEY_LEN`] in layout V2.
+    pub encapped_key: Vec<u8>,
     pub ciphertext: Vec<u8>,
 }
 
@@ -138,6 +151,7 @@ pub struct Header {
     pub chunk_size: u32,
     pub nonce_prefix: [u8; NONCE_PREFIX_LEN],
     pub key_commitment: [u8; KEY_COMMITMENT_LEN],
+    pub envelope_layout: EnvelopeLayout,
     pub envelopes: Vec<KeyEnvelope>,
     pub encrypted_manifest: Vec<u8>,
     /// Non-critical fields from a newer minor version, preserved verbatim.
@@ -176,7 +190,12 @@ impl Header {
             (tags::CHUNK_SIZE, self.chunk_size.to_le_bytes().to_vec()),
             (tags::NONCE_PREFIX, self.nonce_prefix.to_vec()),
             (tags::KEY_COMMITMENT, self.key_commitment.to_vec()),
-            (tags::KEY_ENVELOPES, encode_envelopes(&self.envelopes)),
+            match self.envelope_layout {
+                EnvelopeLayout::V1 => (tags::KEY_ENVELOPES, encode_envelopes(&self.envelopes)),
+                EnvelopeLayout::V2 => {
+                    (tags::KEY_ENVELOPES_V2, encode_envelopes_v2(&self.envelopes))
+                }
+            },
             (tags::ENCRYPTED_MANIFEST, self.encrypted_manifest.clone()),
         ];
         if let Some(exp) = self.expires_at {
@@ -290,7 +309,17 @@ impl Header {
                 tags::KEY_COMMITMENT => {
                     key_commitment = Some(fixed::<KEY_COMMITMENT_LEN>(value, "key_commitment")?)
                 }
-                tags::KEY_ENVELOPES => envelopes = Some(decode_envelopes(value)?),
+                tags::KEY_ENVELOPES => {
+                    envelopes = Some((EnvelopeLayout::V1, decode_envelopes(value)?))
+                }
+                // Tags are strictly ascending, so at most one of the two
+                // envelope fields can be present... unless both are; refuse that.
+                tags::KEY_ENVELOPES_V2 => {
+                    if envelopes.is_some() {
+                        return Err(FormatError::Malformed("both key envelope layouts"));
+                    }
+                    envelopes = Some((EnvelopeLayout::V2, decode_envelopes_v2(value)?))
+                }
                 tags::ENCRYPTED_MANIFEST => {
                     if value.len() > MAX_MANIFEST_CT_LEN {
                         return Err(FormatError::LimitExceeded {
@@ -320,7 +349,13 @@ impl Header {
             chunk_size: chunk_size.ok_or(FormatError::MissingField("chunk_size"))?,
             nonce_prefix: nonce_prefix.ok_or(FormatError::MissingField("nonce_prefix"))?,
             key_commitment: key_commitment.ok_or(FormatError::MissingField("key_commitment"))?,
-            envelopes: envelopes.ok_or(FormatError::MissingField("key_envelopes"))?,
+            envelope_layout: envelopes
+                .as_ref()
+                .map(|(l, _)| *l)
+                .ok_or(FormatError::MissingField("key_envelopes"))?,
+            envelopes: envelopes
+                .ok_or(FormatError::MissingField("key_envelopes"))?
+                .1,
             encrypted_manifest: encrypted_manifest
                 .ok_or(FormatError::MissingField("encrypted_manifest"))?,
             unknown,
@@ -362,6 +397,17 @@ impl Header {
             if a.ciphertext.is_empty() || a.ciphertext.len() > MAX_ENVELOPE_CT_LEN {
                 return Err(FormatError::Malformed("key envelope ciphertext length"));
             }
+            let enc_ok = match self.envelope_layout {
+                EnvelopeLayout::V1 => a.encapped_key.len() == ENCAPPED_KEY_LEN,
+                EnvelopeLayout::V2 => {
+                    !a.encapped_key.is_empty() && a.encapped_key.len() <= MAX_ENCAPPED_KEY_LEN
+                }
+            };
+            if !enc_ok {
+                return Err(FormatError::Malformed(
+                    "key envelope encapsulated key length",
+                ));
+            }
         }
         if self.encrypted_manifest.len() < 16 || self.encrypted_manifest.len() > MAX_MANIFEST_CT_LEN
         {
@@ -397,6 +443,55 @@ fn encode_envelopes(envs: &[KeyEnvelope]) -> Vec<u8> {
     out
 }
 
+fn encode_envelopes_v2(envs: &[KeyEnvelope]) -> Vec<u8> {
+    let mut out = vec![envs.len() as u8];
+    for e in envs {
+        out.push(e.role.to_byte());
+        out.extend_from_slice(&e.key_id);
+        out.extend_from_slice(&(e.encapped_key.len() as u16).to_le_bytes());
+        out.extend_from_slice(&e.encapped_key);
+        out.extend_from_slice(&(e.ciphertext.len() as u16).to_le_bytes());
+        out.extend_from_slice(&e.ciphertext);
+    }
+    out
+}
+
+fn decode_envelopes_v2(value: &[u8]) -> Result<Vec<KeyEnvelope>> {
+    let mut c = Cursor::new(value, "key envelopes");
+    let n = c.u8()? as usize;
+    if n == 0 || n > MAX_ENVELOPES {
+        return Err(FormatError::LimitExceeded {
+            what: "envelope count",
+            limit: MAX_ENVELOPES as u64,
+        });
+    }
+    let mut out = Vec::with_capacity(n);
+    for _ in 0..n {
+        let role = EnvelopeRole::from_byte(c.u8()?)?;
+        let key_id = c.array::<KEY_ID_LEN>()?;
+        let enc_len = c.u16()? as usize;
+        if enc_len == 0 || enc_len > MAX_ENCAPPED_KEY_LEN {
+            return Err(FormatError::Malformed(
+                "key envelope encapsulated key length",
+            ));
+        }
+        let encapped_key = c.take(enc_len)?.to_vec();
+        let ct_len = c.u16()? as usize;
+        if ct_len == 0 || ct_len > MAX_ENVELOPE_CT_LEN {
+            return Err(FormatError::Malformed("key envelope ciphertext length"));
+        }
+        let ciphertext = c.take(ct_len)?.to_vec();
+        out.push(KeyEnvelope {
+            role,
+            key_id,
+            encapped_key,
+            ciphertext,
+        });
+    }
+    c.finish()?;
+    Ok(out)
+}
+
 fn decode_envelopes(value: &[u8]) -> Result<Vec<KeyEnvelope>> {
     let mut c = Cursor::new(value, "key envelopes");
     let n = c.u8()? as usize;
@@ -410,7 +505,7 @@ fn decode_envelopes(value: &[u8]) -> Result<Vec<KeyEnvelope>> {
     for _ in 0..n {
         let role = EnvelopeRole::from_byte(c.u8()?)?;
         let key_id = c.array::<KEY_ID_LEN>()?;
-        let encapped_key = c.array::<ENCAPPED_KEY_LEN>()?;
+        let encapped_key = c.array::<ENCAPPED_KEY_LEN>()?.to_vec();
         let ct_len = c.u16()? as usize;
         if ct_len == 0 || ct_len > MAX_ENVELOPE_CT_LEN {
             return Err(FormatError::Malformed("key envelope ciphertext length"));

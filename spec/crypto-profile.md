@@ -6,17 +6,20 @@ SVX does not define new primitives. This profile shows how standard primitives a
 
 ## 1. Suite
 
-SVX 1.0 defines a single suite.
+Two suites are defined.
 
-| `suite_id` | Payload AEAD | Envelope HPKE | Signature | Hash / KDF |
-|-----------|---------------|---------------|-----------|------------|
-| `0x0001` | ChaCha20-Poly1305 (RFC 8439) | RFC 9180 base mode: DHKEM(X25519, HKDF-SHA256) `0x0020`, HKDF-SHA256 `0x0001`, ChaCha20-Poly1305 `0x0003` | Ed25519 (RFC 8032), `sig_alg = 0x0001` | SHA-256, HKDF-SHA256 (RFC 5869) |
+| `suite_id` | Name | Payload AEAD | Envelope HPKE (RFC 9180 base mode, HKDF-SHA256 `0x0001`, ChaCha20-Poly1305 `0x0003`) | Signature | Hash / KDF |
+|-----------|------|---------------|---------------|-----------|------------|
+| `0x0001` | SVX-1 | ChaCha20-Poly1305 (RFC 8439) | KEM DHKEM(X25519, HKDF-SHA256) `0x0020` | Ed25519 (RFC 8032), `sig_alg = 0x0001` | SHA-256, HKDF-SHA256 (RFC 5869) |
+| `0x0003` | SVX-1H (post-quantum hybrid, since 1.1) | ChaCha20-Poly1305 | KEM X-Wing `0x647a` (X25519 + ML-KEM-768, FIPS 203; draft-connolly-cfrg-xwing-kem, draft-ietf-hpke-pq) | Ed25519 **and** ML-DSA-65 (FIPS 204), `sig_alg = 0x0002`, §9.1 | SHA-256, HKDF-SHA256 |
 
-`0x0002` is reserved for a future AES-256-GCM variant and is **not** defined in 1.0.
+`0x0002` is reserved for a future AES-256-GCM variant and is **not** defined.
 
-Readers MUST reject any other `suite_id` or `sig_alg`. There is no negotiation and no fallback.
+Readers MUST reject any other `suite_id`, and any `sig_alg` other than the one listed for the artifact's suite. There is no negotiation and no fallback. Writers SHOULD produce suite `0x0003` for new artifacts; the reference client produces nothing else.
 
-**Rationale.** ChaCha20-Poly1305 runs in constant time in software on every platform, including those without AES-NI. X25519 and Ed25519 have mature, misuse-resistant implementations. A single suite removes downgrade attacks entirely. Post-quantum migration (for example HPKE with X-Wing, or ML-KEM hybrids, together with ML-DSA) will be a new suite ID in a later minor or major version.
+**Rationale.** ChaCha20-Poly1305 runs in constant time in software on every platform, including those without AES-NI. X25519 and Ed25519 have mature, misuse-resistant implementations. SVX-1H adds the NIST post-quantum standards in *hybrid* form: X-Wing combines X25519 and ML-KEM-768 so the shared secret is safe as long as **either** holds, and the composite signature requires **both** Ed25519 and ML-DSA-65 to verify. This protects files recorded today against decryption by a future quantum computer ("harvest now, decrypt later"), without betting everything on the newer algorithms. 256-bit symmetric keys (ChaCha20, HKDF-SHA256) are already quantum-safe and are unchanged.
+
+**Labels.** Every domain-separation label below starts with the suite name: `"SVX-1 …\0"` for `0x0001` and `"SVX-1H …\0"` for `0x0003` (for example `"SVX-1H envelope\0"`). Nothing produced under one suite can be accepted under the other.
 
 ## 2. Notation
 
@@ -37,7 +40,7 @@ The writer MUST draw all of the following from a CSPRNG:
 ## 4. Key schedule
 
 ```text
-salt           = "SVX-1 artifact\0" ‖ artifact_id
+salt           = "<suite> artifact\0" ‖ artifact_id      (<suite> = SVX-1 or SVX-1H)
 prk            = HKDF-Extract(SHA-256, salt, share_svc ‖ share_org)
 payload_key    = HKDF-Expand(prk, "svx/1/payload",    32)
 manifest_key   = HKDF-Expand(prk, "svx/1/manifest",   32)
@@ -48,15 +51,15 @@ key_commitment = HKDF-Expand(prk, "svx/1/commitment", 32)
 
 ## 5. Key envelopes
 
-For each `role` (`0x01` = Service, `0x02` = RecipientOrg), with `pk` being that party's X25519 public key:
+For each `role` (`0x01` = Service, `0x02` = RecipientOrg), with `pk` being that party's KEM public key (X25519 for SVX-1, X-Wing for SVX-1H):
 
 ```text
-info = "SVX-1 envelope\0" ‖ u8(role) ‖ artifact_id ‖ sender_key_id ‖ key_id(pk)
+info = "<suite> envelope\0" ‖ u8(role) ‖ artifact_id ‖ sender_key_id ‖ key_id(pk)
        ‖ lp(sender_org) ‖ lp(recipient_org) ‖ lp(service_id)
 (enc, ct) = HPKE.SealBase(pk, info, aad = "", pt = share_role)
 ```
 
-`ct` is 48 bytes and `enc` is 32 bytes.
+`ct` is 48 bytes. `enc` is 32 bytes (X25519, envelope layout V1) or 1120 bytes (X-Wing, layout V2). A party's key kind MUST match the suite: a writer MUST NOT seal an SVX-1H envelope to an X25519 key.
 
 Because `info` binds the envelope to the artifact, both organizations, the sender's signing key and the role, envelopes cannot be moved to another artifact, re-attributed to another sender, or swapped between roles.
 
@@ -118,9 +121,20 @@ Readers MUST check that:
 
 ```text
 payload_commitment = SHA-256("SVX-1 payload\0" ‖ header_hash ‖ Σ_i (u8(flag_i) ‖ LE32(ct_len_i) ‖ ct_i))
-message            = "SVX-1 signature\0" ‖ header_hash ‖ LE64(chunk_count) ‖ payload_commitment
-signature          = Ed25519.Sign(sender_signing_key, message)
+message            = "<suite> signature\0" ‖ header_hash ‖ LE64(chunk_count) ‖ payload_commitment
+signature          = Ed25519.Sign(sender_signing_key, message)                        (SVX-1)
 ```
+
+### 9.1 Composite signature (SVX-1H)
+
+```text
+signature = Ed25519.Sign(ed_sk, message) ‖ ML-DSA-65.Sign(ml_sk, message, ctx = "SVX-1H")
+          = 64 bytes ‖ 3309 bytes
+```
+
+- The sender's SVX-1H signing key is a pair `(Ed25519, ML-DSA-65)`; its public form is `ed_pk (32) ‖ ml_pk (1952)` and its key ID covers all 1984 bytes.
+- ML-DSA-65 signing SHOULD be hedged (FIPS 204 randomized signing).
+- Verifiers MUST require `sig_len = 3373` and MUST accept only if **both** the strict Ed25519 verification and the ML-DSA-65 verification (FIPS 204 `ML-DSA.Verify` with context `"SVX-1H"`) succeed. There is no "either" mode.
 
 Verifiers MUST:
 
@@ -157,21 +171,25 @@ If any of these fail, the reader MUST discard all output.
 | Function | Rust crate |
 |----------|------------|
 | AEAD | `chacha20poly1305` 0.11 |
-| HPKE | `hpke` 0.14 |
+| HPKE | `hpke` 0.14 (`x25519`, `mlkem` features; X-Wing via RustCrypto `x-wing` / `ml-kem`) |
 | Ed25519 | `ed25519-dalek` 3 (`verify_strict`) |
+| ML-DSA-65 | `ml-dsa` 0.1 (RustCrypto, FIPS 204) |
 | HKDF / SHA-256 | `hkdf` 0.13 / `sha2` 0.11 |
 | Zeroization | `zeroize` |
 
 - All secret types zeroize on drop and redact `Debug`.
 - No primitive is implemented locally.
 - The public API offers purpose-specific operations, not raw primitives.
+- Known-answer tests pin X-Wing HPKE (HPKE PQ draft vectors) and ML-DSA-65 key generation and verification (NIST ACVP) in `crates/svx-crypto/tests/kat.rs`.
+
+**Key identifiers.** `key_id = SHA-256("SVX-1 key-id\0" ‖ kind ‖ public_key)[..16]` with `kind` = `0x01` Ed25519, `0x02` X25519, `0x03` X-Wing, `0x04` Ed25519 + ML-DSA-65.
 
 ## 12. Managed Mode key release
 
-A released share never travels in plaintext, even inside TLS. The releasing party (managed service or recipient key agent) re-seals it to a per-request X25519 key `e_pk` generated by the client:
+A released share never travels in plaintext, even inside TLS. The releasing party (managed service or recipient key agent) re-seals it to a per-request key `e_pk` generated by the client. Current clients use an **X-Wing** `e_pk`, so a recorded release response cannot be decrypted later by a quantum computer; releasing parties accept only X-Wing `e_pk`.
 
 ```text
-info      = "SVX-1 release\0" ‖ u8(role) ‖ artifact_id ‖ txn (16) ‖ key_id(e_pk)
+info      = "<suite> release\0" ‖ u8(role) ‖ artifact_id ‖ txn (16) ‖ key_id(e_pk)
 (enc, ct) = HPKE.SealBase(e_pk, info, aad = "", share)
 ```
 
@@ -180,7 +198,7 @@ info      = "SVX-1 release\0" ‖ u8(role) ‖ artifact_id ‖ txn (16) ‖ key_
 The client binds `e_pk` and `txn` into its OIDC login through the `nonce` parameter:
 
 ```text
-nonce = hex(SHA-256("SVX-1 oidc\0" ‖ e_pk ‖ txn))
+nonce = hex(SHA-256("<suite> oidc\0" ‖ e_pk ‖ txn))        (<suite> = SVX-1H for an X-Wing e_pk)
 ```
 
 Releasing parties MUST require this nonce in the ID token. As a result, a token can only cause shares to be released to the key pair that requested it. A party that captures the token, including a compromised managed service, cannot redirect the release to a key of its own.

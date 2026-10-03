@@ -1,0 +1,12 @@
+{
+  "derived_from": "hybrid-valid-basic",
+  "description": "One bit flipped in the ML-DSA-65 half of the hybrid signature (the Ed25519 half is intact).",
+  "expected_result": "reject",
+  "file": "hybrid-invalid-mldsa-tampered.svx",
+  "file_sha256": "b2e495ba12cee674390317a527974a6e3d69369ce4b0212a39ea8995d66ce55a",
+  "name": "hybrid-invalid-mldsa-tampered",
+  "reject_stage": "verify",
+  "trusted_senders": [
+    "acme-security"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "derived_from": "hybrid-valid-basic",
+  "description": "Prelude suite changed from 0x0003 to 0x0001 (downgrade attempt): layout V2 is not allowed for suite 0x0001.",
+  "expected_result": "reject",
+  "file": "hybrid-invalid-downgraded-suite.svx",
+  "file_sha256": "24313ac34388c3a730c75331f215f2f43b517e739c1f1ed127dbbbcdeb2b947f",
+  "name": "hybrid-invalid-downgraded-suite",
+  "reject_stage": "parse",
+  "trusted_senders": [
+    "acme-security"
+  ]
+}

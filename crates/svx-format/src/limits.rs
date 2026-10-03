@@ -14,6 +14,8 @@ pub const MAX_FIELDS: usize = 64;
 pub const MAX_ENVELOPES: usize = 16;
 /// Maximum ciphertext length inside a single key envelope.
 pub const MAX_ENVELOPE_CT_LEN: usize = 1024;
+/// Maximum encapsulated-key length in envelope layout V2 (X-Wing needs 1120).
+pub const MAX_ENCAPPED_KEY_LEN: usize = 2048;
 /// Maximum length of the encrypted manifest (64 KiB plaintext + AEAD tag).
 pub const MAX_MANIFEST_CT_LEN: usize = 64 * 1024 + 16;
 /// Smallest permitted plaintext chunk size.
@@ -29,4 +31,4 @@ pub const MAX_CHUNKS: u64 = 1 << 32;
 /// Maximum length of an identifier string.
 pub const MAX_IDENTIFIER_LEN: usize = 128;
 /// Maximum length of a signature.
-pub const MAX_SIGNATURE_LEN: usize = 1024;
+pub const MAX_SIGNATURE_LEN: usize = 4096;

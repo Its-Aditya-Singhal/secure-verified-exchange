@@ -1,6 +1,6 @@
-# SVX 1.0 Container Format Specification
+# SVX 1.x Container Format Specification
 
-Status: Draft 1 (Phase 1). Cryptographic operations are defined in [`crypto-profile.md`](crypto-profile.md). The key words MUST, MUST NOT, SHOULD and MAY are used as defined in RFC 2119.
+Status: Draft 2. Covers SVX 1.0 and SVX 1.1, which adds the post-quantum hybrid suite `0x0003` (envelope layout V2, §3.2). Cryptographic operations are defined in [`crypto-profile.md`](crypto-profile.md). The key words MUST, MUST NOT, SHOULD and MAY are used as defined in RFC 2119.
 
 ## 1. Overview
 
@@ -29,8 +29,8 @@ All integers are little-endian unless stated otherwise. The only exception is th
 |-------:|-----:|-------|-------|
 | 0 | 8 | magic | `89 53 56 58 0D 0A 1A 0A` (`\x89SVX\r\n\x1a\n`) |
 | 8 | 1 | major | `1` |
-| 9 | 1 | minor | `0` |
-| 10 | 2 | suite_id | `0x0001` |
+| 9 | 1 | minor | `0` for suite `0x0001`, `1` for suite `0x0003` |
+| 10 | 2 | suite_id | `0x0001` (SVX-1) or `0x0003` (SVX-1H, post-quantum hybrid) |
 | 12 | 4 | header_len | ≤ 1 048 576 |
 
 The magic follows the design of the PNG signature. A high-bit byte, CR LF, SUB and LF detect 7-bit stripping, newline translation and text-mode truncation.
@@ -70,6 +70,9 @@ field = tag (u16) ‖ len (u32) ‖ value (len bytes)
 | `0x800B` | key_commitment | yes | 32 bytes |
 | `0x800C` | key_envelopes | yes | see §3.1 |
 | `0x800D` | encrypted_manifest | yes | 16 ≤ len ≤ 65 552 bytes (AEAD ciphertext and tag) |
+| `0x800E` | key_envelopes_v2 | (suite `0x0003`) | see §3.2. Since 1.1. |
+
+Exactly one of `0x800C` and `0x800E` MUST be present: `0x800C` for suite `0x0001`, `0x800E` for suite `0x0003`. Any other combination MUST be rejected (this also stops a suite downgrade, since the prelude is covered by the header hash and the signature).
 
 Every fixed-size value MUST have exactly its stated length.
 
@@ -85,7 +88,16 @@ Roles:
 - `0x01`: Service.
 - `0x02`: RecipientOrg.
 
-Unknown roles MUST be rejected. Each role MUST appear at most once. In SVX 1.0, both roles MUST be present, and for suite `0x0001`, `ct_len` is 48.
+Unknown roles MUST be rejected. Each role MUST appear at most once. Both roles MUST be present, and `ct_len` is 48.
+
+### 3.2 Key envelopes, layout V2 (SVX 1.1)
+
+```text
+key_envelopes_v2 = count (u8, 1..=16) ‖ envelope_v2{count}
+envelope_v2      = role (u8) ‖ key_id (16) ‖ enc_len (u16, 1..=2048) ‖ enc ‖ ct_len (u16, 1..=1024) ‖ ct
+```
+
+Roles and their rules are as in §3.1. For suite `0x0003`, `enc` is an X-Wing ciphertext and `enc_len` MUST be exactly 1120. The tag is critical, so a 1.0 reader rejects 1.1 hybrid files instead of misreading them.
 
 ## 4. Identifiers
 
@@ -115,8 +127,8 @@ Because the record structure is fixed, every payload length has exactly one vali
 | 4 | `"SVXT"` |
 | 8 | chunk_count (u64), MUST equal the number of chunk records |
 | 32 | payload_commitment |
-| 2 | sig_alg (`0x0001` = Ed25519) |
-| 2 | sig_len (1..=1024; 64 for Ed25519) |
+| 2 | sig_alg (`0x0001` = Ed25519; `0x0002` = Ed25519 + ML-DSA-65) |
+| 2 | sig_len (1..=4096; 64 for Ed25519, 3373 for Ed25519 + ML-DSA-65) |
 | sig_len | signature |
 
 End of input MUST follow immediately. Any trailing byte MUST cause rejection.
@@ -170,6 +182,7 @@ The reference implementation (`svx-format`, `svx-core`) reports these classes. C
 
 - valid artifacts, each with a JSON file giving every intermediate value (header hash, payload commitment, signature, test-only shares, plaintext);
 - invalid artifacts, each with the expected rejection stage (`parse` or `verify`);
-- `keys.json`, which holds **test-only** keys derived from public labels.
+- `keys.json` (suite `0x0001`) and `keys-hybrid.json` (suite `0x0003`), which hold **test-only** keys derived from public labels;
+- `hybrid-*` vectors for SVX 1.1 / suite `0x0003`, including a downgrade attempt and tampering with each half of the hybrid signature.
 
 The vectors are reproducible byte for byte with `cargo run -p svx-testvectors`.

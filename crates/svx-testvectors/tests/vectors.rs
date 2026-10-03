@@ -30,7 +30,10 @@ fn committed_vectors_behave_as_declared() {
     let mut checked = 0;
     for entry in std::fs::read_dir(dir()).unwrap() {
         let path = entry.unwrap().path();
-        if path.extension().and_then(|e| e.to_str()) != Some("json") || path.ends_with("keys.json")
+        if path.extension().and_then(|e| e.to_str()) != Some("json")
+            || path
+                .file_name()
+                .is_some_and(|n| n.to_string_lossy().starts_with("keys"))
         {
             continue;
         }
@@ -47,11 +50,11 @@ fn committed_vectors_behave_as_declared() {
                     hex::encode(v.payload_commitment()),
                     meta["payload_commitment"]
                 );
-                let s = v
-                    .unwrap_share(EnvelopeRole::Service, &keys.service_kem)
-                    .unwrap();
+                assert_eq!(v.prelude.suite_id, meta["header"]["suite_id"]);
+                let (service_kem, example_kem) = keys.kems(v.suite);
+                let s = v.unwrap_share(EnvelopeRole::Service, service_kem).unwrap();
                 let r = v
-                    .unwrap_share(EnvelopeRole::RecipientOrg, &keys.example_kem)
+                    .unwrap_share(EnvelopeRole::RecipientOrg, example_kem)
                     .unwrap();
                 assert_eq!(
                     hex::encode(s.as_bytes()),
@@ -77,5 +80,5 @@ fn committed_vectors_behave_as_declared() {
         }
         checked += 1;
     }
-    assert!(checked >= 15, "only {checked} vectors found");
+    assert!(checked >= 24, "only {checked} vectors found");
 }

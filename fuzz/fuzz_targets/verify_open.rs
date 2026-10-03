@@ -17,9 +17,11 @@ fuzz_target!(|data: &[u8]| {
         (k, t)
     });
     let Ok(v) = svx_core::verify(data, trust) else { return };
+    // Both suites: SVX-1 and the post-quantum hybrid SVX-1H.
+    let (service_kem, example_kem) = keys.kems(v.suite);
     let (Ok(s), Ok(r)) = (
-        v.unwrap_share(EnvelopeRole::Service, &keys.service_kem),
-        v.unwrap_share(EnvelopeRole::RecipientOrg, &keys.example_kem),
+        v.unwrap_share(EnvelopeRole::Service, service_kem),
+        v.unwrap_share(EnvelopeRole::RecipientOrg, example_kem),
     ) else {
         return;
     };
