@@ -15,7 +15,8 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 svx-app = { path = "../../../crates/svx-app", version = "0.1.0" }
-svx-client = { path = "../../../crates/svx-client", version = "0.1.0" }
+# The desktop app keeps signing keys in the OS keychain.
+svx-client = { path = "../../../crates/svx-client", version = "0.1.0", features = ["keychain"] }
 svx-protocol = { path = "../../../crates/svx-protocol", version = "0.1.0" }
 serde = { version = "1", features = ["derive"] }
 tauri = { version = "2", features = [] }

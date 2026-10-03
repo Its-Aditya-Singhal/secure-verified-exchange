@@ -8,6 +8,7 @@ import type { Ctx } from "../main";
 export function settingsScreen(ctx: Ctx, root: HTMLElement): void {
   const s = ctx.state;
   const out = h("div", {});
+  const keyOut = h("div", {});
 
   async function changeOutput() {
     const dir = await api.pick("output_dir").catch(() => null);
@@ -51,6 +52,24 @@ export function settingsScreen(ctx: Ctx, root: HTMLElement): void {
       h("p", { class: "muted" }, "Opened files are private to your user account and never replace an existing file."),
       h("div", { class: "actions" }, button("Change folder…", () => void changeOutput())),
       out,
+    ),
+    card(
+      "Signing key",
+      facts([["Used for sending", h("span", { class: "mono small" }, s.prefs.signing_key ?? "None yet")]]),
+      h("p", { class: "muted" }, "Keys kept in this computer's keychain can't be copied off it as a file. You can move an existing .sign.key file into the keychain; delete the file afterwards."),
+      h("div", { class: "actions" }, button("Move a key file into the keychain…", async () => {
+        clear(keyOut);
+        try {
+          const k = await api.importSigningKey();
+          if (k) {
+            await ctx.refreshState();
+            ctx.go("settings");
+          }
+        } catch (e) {
+          keyOut.appendChild(errorPanel(asAppError(e)));
+        }
+      })),
+      keyOut,
     ),
     card(
       "About",

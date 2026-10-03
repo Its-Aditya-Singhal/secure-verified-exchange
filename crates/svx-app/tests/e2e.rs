@@ -58,7 +58,7 @@ fn send_req(key: &Path, input: &Path) -> SendRequest {
         expires_at: Some(now() + 86_400),
         classification: Some("TLP:AMBER".into()),
         description: Some("  ".into()),
-        signing_key: key.to_path_buf(),
+        signing_key: key.display().to_string(),
         register: true,
     }
 }
@@ -227,4 +227,107 @@ async fn desktop_commands_end_to_end() {
     assert!(example.whoami().await.unwrap().is_none());
 
     w.cleanup().await.unwrap();
+}
+
+/// Phase 5b: a new organization signs up in the app, its admin creates a
+/// keychain signing key, edits a policy, exports the audit trail, and a
+/// file signed with the keychain key opens at Example Corp.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn onboarding_keys_policies_and_audit_export() {
+    use std::sync::Arc;
+    use svx_client::keystore::MemoryStore;
+    use svx_client::onboard::OnboardRequest;
+    use svx_protocol::Policy;
+
+    let w = world!();
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path();
+    let idp = World::spawn_idp("svx-example-labs", &[("dana", &["it"])]).await;
+    let store = Arc::new(MemoryStore::default());
+    let labs = App::with_secret_store(Some(&dir.join("labs/config.toml")), store.clone()).unwrap();
+
+    let pending = labs
+        .onboard_register(OnboardRequest {
+            service_url: w.service_url.clone(),
+            registry_key: w.registry_key_hex(),
+            org_id: "example-labs".into(),
+            display_name: "Example Labs".into(),
+            domain: "example-labs.example".into(),
+            idp_issuer: idp.issuer().into(),
+            idp_client_id: idp.client_id().into(),
+            group_claim: None,
+            key_agent_url: None,
+            dev: true,
+            default_output_dir: None,
+        })
+        .await
+        .unwrap();
+    // The registration survives a restart of the app.
+    let labs = App::with_secret_store(Some(&dir.join("labs/config.toml")), store.clone()).unwrap();
+    assert_eq!(labs.state().prefs.pending_org.as_ref(), Some(&pending));
+    w.dns.set(&pending.txt_name, &pending.txt_value);
+    let (preview, me) = labs.onboard_complete(dev("dana"), false).await.unwrap();
+    assert_eq!(preview.org_id, "example-labs");
+    assert_eq!(me.sub, "dana");
+    let s = labs.state();
+    assert!(s.configured && s.prefs.pending_org.is_none());
+
+    // Keys: a keychain signing key becomes this computer's key.
+    let k = labs.create_signing_key().await.unwrap();
+    assert_eq!(
+        labs.state().prefs.signing_key.as_deref(),
+        Some(k.key_ref.as_str())
+    );
+    let o = labs.admin_overview().await.unwrap();
+    assert_eq!(o.this_computer_key.as_deref(), Some(k.key_id.as_str()));
+    assert!(o.agent.is_none());
+    assert_eq!(o.org.admins[0].subject, "dana");
+
+    // Example Corp's admin edits its policy so Example Labs' file is allowed.
+    let example = configured(&w, EXAMPLE, dir).await;
+    example.login(dev("example-admin")).await.unwrap();
+    let ov = example.admin_overview().await.unwrap();
+    let agent = ov.agent.unwrap();
+    assert!(agent.reachable, "{:?}", agent.error);
+    assert!(
+        agent
+            .key_ids
+            .contains(&hex::encode(w.example_kem.public_key().key_id()))
+    );
+    example
+        .set_policy(
+            "partners",
+            Policy {
+                allow_groups: vec!["incident-response".into()],
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+    // Dana sends with the keychain key; Alice opens it.
+    let input = dir.join("labs-note.txt");
+    std::fs::write(&input, b"FICTIONAL lab results").unwrap();
+    let mut req = send_req(Path::new("unused"), &input);
+    req.signing_key = k.key_ref.clone();
+    req.policy = "partners".into();
+    req.register = false;
+    let sent = labs.send(req).await.unwrap();
+    let r = example
+        .open(&sent.path, None, dev("alice"), &mut |_: Progress| {})
+        .await
+        .unwrap();
+    assert_eq!(std::fs::read(&r.path).unwrap(), b"FICTIONAL lab results");
+
+    // Audit export: CSV with a header and the policy change.
+    let csv = dir.join("audit.csv");
+    let n = example
+        .export_audit_csv(&csv, Some("policy_changed".into()))
+        .await
+        .unwrap();
+    assert!(n >= 1);
+    let text = std::fs::read_to_string(&csv).unwrap();
+    assert!(text.starts_with("seq,time_utc,event"));
+    assert!(text.contains("policy partners"));
+    assert!(example.produced(&csv).is_ok());
 }

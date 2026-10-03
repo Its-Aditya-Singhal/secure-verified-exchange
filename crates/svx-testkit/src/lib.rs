@@ -62,7 +62,7 @@ pub struct World {
     db_names: Vec<String>,
 }
 
-fn copy_kem(k: &KemSecretKey) -> KemSecretKey {
+pub fn copy_kem(k: &KemSecretKey) -> KemSecretKey {
     KemSecretKey::from_kind_bytes(k.kind(), &k.to_bytes()).unwrap()
 }
 
@@ -511,6 +511,48 @@ impl World {
 }
 
 impl World {
+    /// Start another Example Corp key agent holding `kem_keys` (sharing the
+    /// agent database), e.g. after a key rotation. Returns its URL.
+    pub async fn spawn_agent(&self, kem_keys: Vec<KemSecretKey>) -> String {
+        let agent = AgentState {
+            db: self.agent_db.clone(),
+            org_id: Identifier::new(EXAMPLE).unwrap(),
+            idp: IssuerConfig {
+                issuer: self.example_idp.issuer().into(),
+                client_id: self.example_idp.client_id().into(),
+                group_claim: "groups".into(),
+            },
+            service_id: Identifier::new(SERVICE_ID).unwrap(),
+            service_grant_key: self.service_grant.verifying_key(),
+            kem_keys: Arc::new(kem_keys),
+            oidc: Arc::new(Validator::new(true).unwrap()),
+        };
+        serve(svx_keyagent::app(agent).await.unwrap()).await
+    }
+
+    /// A copy of Example Corp's current keys, for [`World::spawn_agent`].
+    pub fn example_kems(&self) -> Vec<KemSecretKey> {
+        vec![
+            copy_kem(&self.example_kem),
+            copy_kem(&self.example_kem_classical),
+        ]
+    }
+
+    /// A dev IdP for a further (fictional) organization; `users` are
+    /// `(sub, groups)`.
+    pub async fn spawn_idp(client_id: &str, users: &[(&str, &[&str])]) -> MockIdp {
+        MockIdp::spawn(
+            Config {
+                client_id: client_id.into(),
+                users: users.iter().map(|(s, g)| user(s, g, None)).collect(),
+                token_ttl_secs: 300,
+            },
+            "127.0.0.1:0".parse().unwrap(),
+        )
+        .await
+        .unwrap()
+    }
+
     /// The registry public key clients must pin (hex).
     pub fn registry_key_hex(&self) -> String {
         hex::encode(self.info.registry_public)

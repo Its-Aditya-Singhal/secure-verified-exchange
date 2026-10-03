@@ -6,8 +6,14 @@ import { type SetupForm, type SetupPreview, api, asAppError } from "../api";
 import { card, errorPanel, facts, note } from "../components";
 import { busy, button, clear, field, h, icon } from "../dom";
 import type { Ctx } from "../main";
+import { onboardScreen } from "./onboard";
 
 export function setupScreen(ctx: Ctx, root: HTMLElement, replace: boolean, initial?: SetupForm): void {
+  // A registration in progress resumes where it stopped.
+  if (ctx.state.prefs.pending_org) {
+    onboardScreen(ctx, root, replace);
+    return;
+  }
   const service = h("input", { type: "url", placeholder: "https://svx.example.com", spellcheck: "false", autocomplete: "off" });
   const key = h("input", { type: "text", placeholder: "64 hex characters", spellcheck: "false", autocomplete: "off", class: "mono" });
   const org = h("input", { type: "text", placeholder: "e.g. example-corp", spellcheck: "false", autocomplete: "off" });
@@ -106,6 +112,12 @@ export function setupScreen(ctx: Ctx, root: HTMLElement, replace: boolean, initi
       h("h1", {}, replace ? "Change setup" : "Set up Secure Verified Exchange"),
       h("p", { class: "lede" },
         "Your administrator gives you these details. The registry key is how the app knows it's talking to the real SVX service, so copy it exactly.")),
+    h("div", { class: "panel panel-info" },
+      h("p", {}, "Setting up SVX for a new organization? ",
+        button("Register a new organization…", () => {
+          clear(root);
+          onboardScreen(ctx, root, replace);
+        }, "link"))),
     card(
       null,
       field("SVX service URL", service),

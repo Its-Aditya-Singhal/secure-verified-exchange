@@ -97,7 +97,11 @@ export function sendScreen(ctx: Ctx, root: HTMLElement): void {
   const classification = h("select", {}, ...CLASSIFICATIONS.map((c) => h("option", { value: c }, c || "None")));
   const description = h("input", { type: "text", placeholder: "Optional note shown to the recipient after opening", maxlength: "500" });
   const register = h("input", { type: "checkbox" });
-  const keyLabel = h("span", { class: "mono small" }, signingKey ?? "No key chosen");
+  const keyText = (k: string | null) =>
+    !k ? "No key chosen"
+      : k.startsWith("keychain:") ? `This computer's keychain key (${k.split("/").pop()?.slice(0, 12)}…)`
+      : k;
+  const keyLabel = h("span", { class: "mono small" }, keyText(signingKey));
   const opts = card(
     "3. Options",
     h("div", { class: "grid2" },
@@ -112,10 +116,10 @@ export function sendScreen(ctx: Ctx, root: HTMLElement): void {
         const p = await api.pick("signing_key").catch(() => null);
         if (p) {
           signingKey = p;
-          keyLabel.textContent = p;
+          keyLabel.textContent = keyText(p);
         }
       })),
-      "The .sign.key file your administrator gave you. Only its location is remembered.",
+      "Your keychain key (created on the Admin page), or a .sign.key file. Only a reference is remembered, never the key.",
     ),
     h("label", { class: "check" }, register, h("span", {}, "Record this file with the SVX service (needs administrator sign-in on the Admin page)")),
   );

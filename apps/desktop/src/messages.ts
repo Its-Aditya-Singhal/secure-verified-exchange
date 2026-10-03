@@ -85,10 +85,18 @@ export function explain(e: AppError): Explained {
     case "not_configured":
       return { tone: "info", title: "Set up needed", body: "Finish setup first.", retry: false };
     case "config":
-      return { tone: "warn", title: "Check the details", body: e.message, retry: false };
+      return { tone: "warn", title: "Check the details", body: sentence(e.message), retry: false };
+    case "invalid":
+      return { tone: "warn", title: "The service didn't accept this", body: sentence(e.message), retry: false };
     case "io":
       return { tone: "warn", title: "A file problem occurred", body: e.message, retry: false };
     default:
       return { tone: "warn", title: "Something went wrong", body: e.message, retry: true };
   }
+}
+
+/** Messages from Rust start lowercase; show them as sentences. */
+function sentence(m: string): string {
+  const t = m.charAt(0).toUpperCase() + m.slice(1);
+  return /[.!?]$/.test(t) ? t : `${t}.`;
 }

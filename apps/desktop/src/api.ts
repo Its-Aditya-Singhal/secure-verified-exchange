@@ -14,8 +14,97 @@ export interface AppError {
 
 export interface Prefs {
   recent_recipients: string[];
+  /** A key file path or `keychain:<org>/<key_id>`. */
   signing_key: string | null;
   last_policy: string | null;
+  pending_org: PendingOrg | null;
+  pending_encryption_key: ExportedKemKey | null;
+}
+
+export interface OnboardRequest {
+  service_url: string;
+  registry_key: string;
+  org_id: string;
+  display_name: string;
+  domain: string;
+  idp_issuer: string;
+  idp_client_id: string;
+  group_claim: string | null;
+  key_agent_url: string | null;
+  dev: boolean;
+  default_output_dir: string | null;
+}
+
+export interface PendingOrg {
+  request: OnboardRequest;
+  txt_name: string;
+  txt_value: string;
+  registered_at: number;
+}
+
+export type KeyKind = "ed25519-mldsa65" | "xwing" | "ed25519" | "x25519";
+export type KeyStatus = "active" | "retired" | "revoked";
+
+export interface KeyDetail {
+  key_id: string;
+  kind: KeyKind;
+  public_key: string;
+  status: KeyStatus;
+  created_at: number;
+  retired_at: number | null;
+  revoked_at: number | null;
+}
+
+export interface KeyEntry {
+  key_id: string;
+  kind: KeyKind;
+  public_key: string;
+  status: KeyStatus;
+}
+
+export interface OrgOverview {
+  org_id: string;
+  display_name: string;
+  domain: string;
+  idp_issuer: string;
+  idp_client_id: string;
+  group_claim: string;
+  key_agent_url: string | null;
+  verified_at: number;
+  admins: { subject: string; added_at: number }[];
+  keys: KeyDetail[];
+}
+
+export interface AgentStatus {
+  url: string;
+  reachable: boolean;
+  error: string | null;
+  key_ids: string[];
+}
+
+export interface ExportedKemKey {
+  key_id: string;
+  secret_file: string;
+  public_file: string;
+}
+
+export interface NewSigningKey {
+  key_ref: string;
+  key_id: string;
+}
+
+export interface AdminOverview {
+  org: OrgOverview;
+  agent: AgentStatus | null;
+  this_computer_key: string | null;
+  signing_key_problem: string | null;
+  pending_encryption_key: ExportedKemKey | null;
+}
+
+export interface OrgSettingsForm {
+  display_name?: string | null;
+  key_agent_url?: string | null;
+  remove_key_agent?: boolean;
 }
 
 export interface AppState {
@@ -145,7 +234,8 @@ export interface Policy {
   allow_groups: string[];
   require_acr: string[];
   max_age_secs: number | null;
-  [key: string]: unknown;
+  not_before: number | null;
+  not_after: number | null;
 }
 
 export type PickKind =
@@ -196,6 +286,27 @@ export const api = {
   revoke: (target: string) => call<string>("revoke", { target }),
   audit: (limit: number) => call<AuditPage>("audit", { limit }),
   policies: () => call<Record<string, Policy>>("policies"),
+  onboardRegister: (req: OnboardRequest) => call<PendingOrg>("onboard_register", { req }),
+  onboardComplete: (devUser: string | null, replace: boolean) =>
+    call<SetupPreview>("onboard_complete", { devUser, replace }),
+  onboardCancel: () => call<void>("onboard_cancel"),
+  adminOverview: () => call<AdminOverview>("admin_overview"),
+  updateOrg: (form: OrgSettingsForm) => call<void>("update_org", { form }),
+  addAdmin: (subject: string) => call<void>("add_admin", { subject }),
+  removeAdmin: (subject: string) => call<void>("remove_admin", { subject }),
+  setPolicy: (name: string, policy: Policy) => call<Policy>("set_policy", { name, policy }),
+  deletePolicy: (name: string) => call<void>("delete_policy", { name }),
+  auditPage: (limit: number, beforeSeq: number | null, event: string | null) =>
+    call<AuditPage>("audit_page", { limit, beforeSeq, event }),
+  exportAudit: (event: string | null) => call<[string, number] | null>("export_audit", { event }),
+  createSigningKey: () => call<NewSigningKey>("create_signing_key"),
+  importSigningKey: () => call<NewSigningKey | null>("import_signing_key"),
+  registerSigningPublic: () => call<KeyEntry | null>("register_signing_public"),
+  exportEncryptionKey: () => call<ExportedKemKey | null>("export_encryption_key"),
+  activateEncryptionKey: () => call<KeyEntry>("activate_encryption_key"),
+  discardPendingEncryptionKey: () => call<void>("discard_pending_encryption_key"),
+  setKeyStatus: (keyId: string, status: KeyStatus) =>
+    call<KeyEntry>("set_key_status", { keyId, status }),
   pick: (kind: PickKind) => call<string | null>("pick", { kind }),
   reveal: (path: string) => call<void>("reveal", { path }),
   openDocument: (path: string) => call<void>("open_document", { path }),

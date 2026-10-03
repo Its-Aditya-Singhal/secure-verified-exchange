@@ -11,6 +11,7 @@ publish = false
 [dependencies]
 svx-client = { path = "../svx-client", version = "0.1.0" }
 svx-protocol = { path = "../svx-protocol", version = "0.1.0" }
+hex = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = "3"

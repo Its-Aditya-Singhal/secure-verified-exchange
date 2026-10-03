@@ -14,14 +14,17 @@ use std::sync::Mutex;
 
 use serde::Deserialize;
 use svx_app::{
-    App, AppError, AppState, OpenResult, Progress, Recipient, SendRequest, SetupForm, StatusView,
+    AdminOverview, App, AppError, AppState, OpenResult, Progress, Recipient, SendRequest,
+    SetupForm, StatusView,
 };
 use svx_client::PackResult;
 use svx_client::account::WhoAmI;
+use svx_client::keyadmin::{ExportedKemKey, NewSigningKey};
 use svx_client::login::system_browser;
+use svx_client::onboard::{OnboardRequest, PendingOrg};
 use svx_client::setup::SetupPreview;
-use svx_protocol::Policy;
 use svx_protocol::admin::AuditPage;
+use svx_protocol::{KeyEntry, KeyStatus, Policy};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
@@ -153,6 +156,189 @@ async fn policies(app: State<'_, App>) -> Result<std::collections::BTreeMap<Stri
     app.policies().await
 }
 
+// ----- Onboarding (Phase 5b) -----
+
+#[tauri::command]
+async fn onboard_register(app: State<'_, App>, req: OnboardRequest) -> Result<PendingOrg> {
+    app.onboard_register(req).await
+}
+
+#[tauri::command]
+async fn onboard_complete(
+    app: State<'_, App>,
+    dev_user: Option<String>,
+    replace: bool,
+) -> Result<SetupPreview> {
+    let (preview, _) = app
+        .onboard_complete(App::login_method(dev_user, system_browser()), replace)
+        .await?;
+    Ok(preview)
+}
+
+#[tauri::command]
+fn onboard_cancel(app: State<'_, App>) {
+    app.onboard_cancel()
+}
+
+// ----- Organization administration (Phase 5b) -----
+
+#[tauri::command]
+async fn admin_overview(app: State<'_, App>) -> Result<AdminOverview> {
+    app.admin_overview().await
+}
+
+#[tauri::command]
+async fn update_org(app: State<'_, App>, form: svx_app::OrgSettingsForm) -> Result<()> {
+    app.update_org(form).await
+}
+
+#[tauri::command]
+async fn add_admin(app: State<'_, App>, subject: String) -> Result<()> {
+    app.add_admin(&subject).await
+}
+
+#[tauri::command]
+async fn remove_admin(app: State<'_, App>, subject: String) -> Result<()> {
+    app.remove_admin(&subject).await
+}
+
+#[tauri::command]
+async fn set_policy(app: State<'_, App>, name: String, policy: Policy) -> Result<Policy> {
+    app.set_policy(&name, policy).await
+}
+
+#[tauri::command]
+async fn delete_policy(app: State<'_, App>, name: String) -> Result<()> {
+    app.delete_policy(&name).await
+}
+
+#[tauri::command]
+async fn audit_page(
+    app: State<'_, App>,
+    limit: u32,
+    before_seq: Option<i64>,
+    event: Option<String>,
+) -> Result<AuditPage> {
+    app.audit_page(limit, before_seq, event).await
+}
+
+/// Ask where to save, then write the audit trail as CSV. The UI never
+/// supplies a path to write to.
+#[tauri::command]
+async fn export_audit(
+    handle: AppHandle,
+    app: State<'_, App>,
+    event: Option<String>,
+) -> Result<Option<(PathBuf, usize)>> {
+    let dir = app.default_export_dir();
+    let Some(path) = dialog(handle, move |d| {
+        d.set_title("Save the audit trail")
+            .set_directory(dir)
+            .set_file_name("svx-audit.csv")
+            .add_filter("CSV", &["csv"])
+            .blocking_save_file()
+    })
+    .await?
+    else {
+        return Ok(None);
+    };
+    let n = app.export_audit_csv(&path, event).await?;
+    Ok(Some((path, n)))
+}
+
+#[tauri::command]
+async fn create_signing_key(app: State<'_, App>) -> Result<NewSigningKey> {
+    app.create_signing_key().await
+}
+
+/// Ask for a signing key file, then move it into the keychain.
+#[tauri::command]
+async fn import_signing_key(
+    handle: AppHandle,
+    app: State<'_, App>,
+) -> Result<Option<NewSigningKey>> {
+    let Some(path) = dialog(handle, |d| {
+        d.set_title("Choose a signing key file to move into the keychain")
+            .add_filter("SVX signing keys", &["key"])
+            .blocking_pick_file()
+    })
+    .await?
+    else {
+        return Ok(None);
+    };
+    app.import_signing_key(&path).map(Some)
+}
+
+/// Ask for another sender's public signing key file, then register it.
+#[tauri::command]
+async fn register_signing_public(
+    handle: AppHandle,
+    app: State<'_, App>,
+) -> Result<Option<KeyEntry>> {
+    let Some(path) = dialog(handle, |d| {
+        d.set_title("Choose a sender's public signing key")
+            .add_filter("SVX public signing keys", &["pub"])
+            .blocking_pick_file()
+    })
+    .await?
+    else {
+        return Ok(None);
+    };
+    app.register_signing_public(&path).await.map(Some)
+}
+
+/// Ask for a folder, then write a new encryption key for the key agent.
+#[tauri::command]
+async fn export_encryption_key(
+    handle: AppHandle,
+    app: State<'_, App>,
+) -> Result<Option<ExportedKemKey>> {
+    let Some(dir) = dialog(handle, |d| {
+        d.set_title("Choose a private folder for the key agent's new key")
+            .blocking_pick_folder()
+    })
+    .await?
+    else {
+        return Ok(None);
+    };
+    app.export_encryption_key(&dir).map(Some)
+}
+
+#[tauri::command]
+async fn activate_encryption_key(app: State<'_, App>) -> Result<KeyEntry> {
+    app.activate_encryption_key().await
+}
+
+#[tauri::command]
+fn discard_pending_encryption_key(app: State<'_, App>) {
+    app.discard_pending_encryption_key()
+}
+
+#[tauri::command]
+async fn set_key_status(
+    app: State<'_, App>,
+    key_id: String,
+    status: KeyStatus,
+) -> Result<KeyEntry> {
+    app.set_key_status(&key_id, status).await
+}
+
+/// Run a blocking native dialog off the main thread.
+async fn dialog(
+    handle: AppHandle,
+    f: impl FnOnce(
+        tauri_plugin_dialog::FileDialogBuilder<tauri::Wry>,
+    ) -> Option<tauri_plugin_dialog::FilePath>
+    + Send
+    + 'static,
+) -> Result<Option<PathBuf>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        f(handle.dialog().file()).and_then(|p| p.into_path().ok())
+    })
+    .await
+    .map_err(|e| AppError::other(e.to_string()))
+}
+
 // ----- Files -----
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -257,6 +443,24 @@ fn main() {
             revoke,
             audit,
             policies,
+            onboard_register,
+            onboard_complete,
+            onboard_cancel,
+            admin_overview,
+            update_org,
+            add_admin,
+            remove_admin,
+            set_policy,
+            delete_policy,
+            audit_page,
+            export_audit,
+            create_signing_key,
+            import_signing_key,
+            register_signing_public,
+            export_encryption_key,
+            activate_encryption_key,
+            discard_pending_encryption_key,
+            set_key_status,
             pick,
             reveal,
             open_document,

@@ -9,6 +9,7 @@
 
 #![forbid(unsafe_code)]
 
+mod admin;
 mod error;
 pub mod prefs;
 
@@ -19,12 +20,14 @@ use std::sync::{Arc, Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use svx_client::account::{LoginMethod, WhoAmI};
 use svx_client::config::{Paths, default_open_dir};
+use svx_client::keystore::{KeyRef, SecretStore};
 use svx_client::login::Opener;
 use svx_client::setup::{self, SetupPreview, SetupRequest};
 use svx_client::{Client, ClientConfig, ClientError, Output, PackOptions, PackResult, Step};
 use svx_protocol::Policy;
 use svx_protocol::admin::AuditPage;
 
+pub use admin::{AdminOverview, AgentStatus, OrgSettingsForm};
 pub use error::{AppError, Result};
 pub use prefs::Prefs;
 
@@ -150,7 +153,8 @@ pub struct SendRequest {
     pub classification: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
-    pub signing_key: PathBuf,
+    /// A key file path or `keychain:<org>/<key_id>`.
+    pub signing_key: String,
     #[serde(default)]
     pub register: bool,
 }
@@ -168,6 +172,7 @@ pub struct Recipient {
 /// The app: configuration paths, the loaded client and preferences.
 pub struct App {
     paths: Paths,
+    secrets: Arc<dyn SecretStore>,
     client: RwLock<Option<Arc<Client>>>,
     config_error: RwLock<Option<String>>,
     prefs: Mutex<Prefs>,
@@ -179,10 +184,16 @@ impl App {
     /// `config`: explicit config path, else `$SVX_CONFIG`, else the platform
     /// default (shared with the `svx` CLI).
     pub fn new(config: Option<&Path>) -> Result<App> {
+        Self::with_secret_store(config, svx_client::keystore::os_keychain())
+    }
+
+    /// [`App::new`] with another store for keychain keys (tests).
+    pub fn with_secret_store(config: Option<&Path>, secrets: Arc<dyn SecretStore>) -> Result<App> {
         let paths = Paths::resolve(config)?;
         let prefs = Prefs::load(&prefs_path(&paths));
         let app = App {
             paths,
+            secrets,
             client: RwLock::new(None),
             config_error: RwLock::new(None),
             prefs: Mutex::new(prefs),
@@ -197,6 +208,7 @@ impl App {
         let (client, err) = if self.paths.config.exists() {
             match ClientConfig::load(&self.paths.config)
                 .and_then(|cfg| Client::with_config(self.paths.clone(), cfg))
+                .map(|c| c.with_secret_store(self.secrets.clone()))
             {
                 Ok(c) => (Some(Arc::new(c)), None),
                 Err(e) => (None, Some(e.to_string())),
@@ -358,13 +370,14 @@ impl App {
 
     pub async fn send(&self, req: SendRequest) -> Result<PackResult> {
         let c = self.client()?;
+        let key = KeyRef::parse(req.signing_key.trim())?;
         let opt = |s: Option<String>| s.map(|s| s.trim().to_owned()).filter(|s| !s.is_empty());
         let r = c
             .pack(PackOptions {
                 input: req.input,
                 output: req.output,
                 overwrite: false,
-                signing_key: req.signing_key.clone(),
+                signing_key: key.clone(),
                 recipient: req.recipient.trim().to_owned(),
                 policy: req.policy.trim().to_owned(),
                 expires_at: req.expires_at,
@@ -376,7 +389,7 @@ impl App {
             .await?;
         self.produced.lock().unwrap().insert(r.path.clone());
         let mut prefs = self.prefs.lock().unwrap();
-        prefs.used(&r.recipient_org, &req.signing_key, &r.policy);
+        prefs.used(&r.recipient_org, &key.to_string(), &r.policy);
         // Preferences are a convenience: failing to save them is not an error.
         let _ = prefs.save(&prefs_path(&self.paths));
         Ok(r)
