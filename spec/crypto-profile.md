@@ -193,5 +193,6 @@ Grants and registry records are signed with Ed25519 over `label ‖ bytes`, wher
 |--------|-------|
 | Release grant | `"SVX-1 grant\0"` |
 | Registry record | `"SVX-1 registry\0"` |
+| Service record | `"SVX-1 service\0"` |
 
 The labels keep these signatures disjoint from each other and from artifact signatures (`"SVX-1 signature\0"`).
