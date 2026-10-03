@@ -109,6 +109,27 @@ and times only. The app keeps names in a local `history.json`.
    once; without it the open becomes final 10 minutes after release (so a
    crash mid-decryption can be retried).
 
+### Relayed sign-in (Apple)
+
+Apple can't send a desktop app's browser back to `127.0.0.1`, and its
+client secret (an ES256 JWT signed with the team's key) must stay on the
+service. So for relayed providers:
+
+1. The app picks the ID-token nonce (binding its keys, as always) and a
+   random 32-byte secret, and sends `POST /v1/auth/relay/start` with the
+   nonce and `SHA-256(secret)`. The service returns the authorization URL
+   (its own `state` and PKCE) and the app opens it in the browser.
+2. Apple form-posts the code to `/v1/auth/relay/callback`. The service
+   exchanges it with its client secret and PKCE verifier and validates the
+   ID token, nonce included. The browser only sees "Return to the app".
+3. The app collects the token with `POST /v1/auth/relay/poll` and the
+   secret, once, then signs up as with Google.
+
+A sign-in lives 10 minutes; the token is handed out once, only for the
+secret, and is useless for keys other than those its nonce binds. Apple
+"Hide my email" addresses work: the directory finds the account by that
+address.
+
 ### Backups
 
 `*.svxbackup`: both private keys, encrypted with ChaCha20-Poly1305 under a
@@ -165,10 +186,13 @@ svx file <file-id> --revoke-for bob@example.test
 
 - **Google:** a "Desktop app" OAuth client ID (and its non-secret client
   secret): `svx-server --personal-idp issuer=https://accounts.google.com,client_id=…,client_secret=…`.
-- **Apple:** an Apple Developer account, a Services ID with an https
-  redirect, and a signing key held by the service. Apple doesn't allow
-  loopback redirects, so the service will relay the sign-in (not built
-  yet).
+- **Apple:** an Apple Developer account, a Services ID (its ID is the
+  `client_id`) with the return URL `https://<service>/v1/auth/relay/callback`
+  and the service's domain registered, and a "Sign in with Apple" key
+  (`AuthKey_<key_id>.p8`):
+  `svx-server --public-url https://<service> --personal-idp issuer=https://appleid.apple.com,client_id=<Services ID> --apple-key team_id=<Team ID>,key_id=<Key ID>,file=AuthKey_<Key ID>.p8`.
+  Apple doesn't allow loopback redirects or secrets in apps, so Apple
+  sign-in is always **relayed** (below).
 - **Email:** an SMTP account: `--smtp-url smtps://user:pass@smtp.example.com --smtp-from "SVX <no-reply@example.com>"`.
 - **The official service** is built into release apps with
   `SVX_OFFICIAL_SERVICE_URL` and `SVX_OFFICIAL_REGISTRY_FINGERPRINT`.

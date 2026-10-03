@@ -151,7 +151,8 @@ Last updated: 2026-10-03.
 - [x] ~~Demo checks 11–16; `svx-demo serve` prints personal accounts and emails~~
 - [x] ~~Docs: `personal.md`, API, architecture, keys, desktop, threat model~~
 - [ ] Google OAuth client ("Desktop app") for real sign-in
-- [ ] Apple Developer setup and the service-side sign-in relay
+- [x] ~~Service-side sign-in relay for Apple (`/v1/auth/relay/*`, ES256 client secret)~~
+- [ ] Apple Developer setup: Services ID, return URL, key
 - [ ] SMTP account for approval emails
 - [ ] Manual test with two app windows against `svx-demo serve`
 

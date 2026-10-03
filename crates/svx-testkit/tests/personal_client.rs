@@ -383,3 +383,50 @@ async fn backup_restore_and_reset() {
     assert!(!d.path().join("phone.toml").exists());
     w.cleanup().await.unwrap();
 }
+
+/// A headless "browser": signs in as `user` at the dev IdP and follows its
+/// redirect to the service's relay callback, as a real browser would.
+fn relay_browser(w: &World, user: &'static str) -> svx_client::login::Opener {
+    let http = w.client.http().clone();
+    Arc::new(move |u: &url::Url| {
+        let mut u = u.clone();
+        u.query_pairs_mut().append_pair("login_hint", user);
+        let http = http.clone();
+        tokio::spawn(async move {
+            let r = http.get(u.as_str()).send().await.unwrap();
+            let to = r.headers()["location"].to_str().unwrap().to_owned();
+            let page = http.get(&to).send().await.unwrap().text().await.unwrap();
+            assert!(page.contains("signed in"), "{page}");
+        });
+        Ok(())
+    })
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn apple_style_sign_in_is_relayed_by_the_service() {
+    let w = world!();
+    let d = tempfile::tempdir().unwrap();
+    let t = target(&w);
+    let providers = personal::providers(&t).await.unwrap();
+    let apple = providers.iter().find(|p| p.name == "Apple").unwrap();
+    assert!(apple.relay);
+    // The relayed provider's client secret is never published.
+    assert!(apple.client_secret.is_none());
+    let (c, info) = personal::sign_up(
+        &paths(d.path(), "mac"),
+        Arc::new(MemoryStore::default()),
+        SignUpOptions {
+            target: t,
+            issuer: Some(apple.issuer.clone()),
+            keys: KeyChoice::New,
+            default_output_dir: None,
+            replace: false,
+        },
+        LoginMethod::Browser(relay_browser(&w, "alice")),
+    )
+    .await
+    .unwrap();
+    assert_eq!(info.email, "alice@privaterelay.example.test");
+    assert_eq!(c.account().await.unwrap().provider, w.relay_idp.issuer());
+    w.cleanup().await.unwrap();
+}

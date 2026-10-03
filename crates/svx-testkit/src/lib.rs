@@ -51,6 +51,8 @@ pub struct World {
     /// "Google" for personal accounts: alice, bob and carol at
     /// `example.test`; eve has no confirmed email.
     pub personal_idp: MockIdp,
+    /// "Apple" for personal accounts, relayed through the service.
+    pub relay_idp: MockIdp,
     /// Approval emails the service sent.
     pub mail: Arc<MemoryNotifier>,
     pub db: sqlx::PgPool,
@@ -123,6 +125,10 @@ async fn fresh_db(admin_url: &str, name: &str) -> sqlx::PgPool {
 
 async fn serve(router: axum::Router) -> String {
     let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    serve_on(l, router)
+}
+
+fn serve_on(l: tokio::net::TcpListener, router: axum::Router) -> String {
     let url = format!("http://{}", l.local_addr().unwrap());
     tokio::spawn(async move {
         let _ = axum::serve(l, router).await;
@@ -201,7 +207,26 @@ impl World {
         )
         .await
         .unwrap();
+        // "Apple": relayed through the service (no loopback redirect for
+        // the app), with Apple-style private relay addresses.
+        let relay_idp = MockIdp::spawn(
+            Config {
+                client_id: "svx-relayed".into(),
+                users: vec![User {
+                    sub: "alice".into(),
+                    email: Some("alice@privaterelay.example.test".into()),
+                    groups: vec![],
+                    acr: None,
+                }],
+                token_ttl_secs: 300,
+            },
+            "127.0.0.1:0".parse().unwrap(),
+        )
+        .await
+        .unwrap();
         let mail = Arc::new(MemoryNotifier::default());
+        let service_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let public_url = format!("http://{}", service_listener.local_addr().unwrap());
 
         // Managed service.
         let mut rng = os_rng();
@@ -230,17 +255,31 @@ impl World {
             ),
             oidc: Arc::new(Validator::new(true).unwrap()),
             dns: Arc::new(dns.clone()),
-            personal_idps: Arc::new(vec![PersonalIdp {
-                name: "Google".into(),
-                issuer: personal_idp.issuer().into(),
-                client_id: personal_idp.client_id().into(),
-                client_secret: None,
-            }]),
+            personal_idps: Arc::new(vec![
+                PersonalIdp {
+                    name: "Google".into(),
+                    issuer: personal_idp.issuer().into(),
+                    client_id: personal_idp.client_id().into(),
+                    client_secret: None,
+                    relay: false,
+                },
+                PersonalIdp {
+                    name: "Apple".into(),
+                    issuer: relay_idp.issuer().into(),
+                    client_id: relay_idp.client_id().into(),
+                    client_secret: Some("dev-relay-secret".into()),
+                    relay: true,
+                },
+            ]),
             notifier: mail.clone(),
             limiter: Arc::new(RateLimiter::default()),
+            relay: Arc::new(svx_server::relay::RelayConfig {
+                redirect_uri: Some(format!("{public_url}/v1/auth/relay/callback")),
+                apple: None,
+            }),
             dev: true,
         };
-        let service_url = serve(svx_server::app(state).await.unwrap()).await;
+        let service_url = serve_on(service_listener, svx_server::app(state).await.unwrap());
 
         // Example Corp's key agent.
         let example_kem = KemSecretKey::generate_hybrid(&mut rng);
@@ -274,6 +313,7 @@ impl World {
             example_idp,
             dns,
             personal_idp,
+            relay_idp,
             mail,
             db,
             acme_sign: SigningKey::generate_hybrid(&mut rng),
@@ -730,6 +770,13 @@ impl World {
                 .iter()
                 .map(|u| (u.sub.clone(), u.email.clone()))
                 .collect(),
+            relay_issuer: self.relay_idp.issuer().into(),
+            relay_users: self
+                .relay_idp
+                .users()
+                .iter()
+                .map(|u| (u.sub.clone(), u.email.clone()))
+                .collect(),
         };
         let json = serde_json::to_vec_pretty(&state).map_err(std::io::Error::other)?;
         std::fs::write(dir.join("state.json"), json)?;
@@ -753,6 +800,9 @@ pub struct State {
     /// Personal accounts' dev sign-in ("Google"): user and email.
     pub personal_issuer: String,
     pub personal_users: Vec<(String, Option<String>)>,
+    /// The relayed dev "Apple" and its users.
+    pub relay_issuer: String,
+    pub relay_users: Vec<(String, Option<String>)>,
 }
 
 #[derive(Clone, Debug, Serialize)]

@@ -181,6 +181,10 @@ async fn run(cli: Cli) -> Result<ExitCode> {
                     None => println!("  {user:<6} (no confirmed email: sign-up is refused)"),
                 }
             }
+            println!("Dev \"Apple\" (relayed through the service, like real Apple sign-in):");
+            for (user, email) in &state.relay_users {
+                println!("  {user:<6} {}", email.as_deref().unwrap_or("-"));
+            }
             println!("Run the desktop app against this stack (sign in with a test account):");
             println!(
                 "  SVX_SERVICE_URL={} SVX_REGISTRY_FINGERPRINT={} SVX_DEV=1 SVX_CONFIG=/tmp/svx-alice/config.toml npm run tauri dev",

@@ -31,7 +31,18 @@ pub async fn service_record(State(st): State<AppState>) -> ApiResult<Json<Signed
             kem_public: st.keys.service_kem_public().to_vec(),
             grant_public: st.keys.grant_public().to_vec(),
             issued_at: unix_now(),
-            personal_idps: st.personal_idps.as_ref().clone(),
+            // A relayed provider's client secret stays on the service.
+            personal_idps: st
+                .personal_idps
+                .iter()
+                .cloned()
+                .map(|mut p| {
+                    if p.relay {
+                        p.client_secret = None;
+                    }
+                    p
+                })
+                .collect(),
         })
         .map_err(|e| ApiError::Internal(format!("signing the service record: {e}")))?;
     Ok(Json(signed))

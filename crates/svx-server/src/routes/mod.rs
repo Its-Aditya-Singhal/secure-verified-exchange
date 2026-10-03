@@ -2,6 +2,7 @@ mod admin;
 mod orgs;
 mod personal;
 mod public;
+mod relay;
 mod release;
 
 use axum::Router;
@@ -41,6 +42,12 @@ pub fn router(state: AppState) -> Router {
             post(admin::revoke),
         )
         .route("/v1/admin/orgs/{org}/audit", get(admin::audit))
+        .route("/v1/auth/relay/start", post(relay::start))
+        .route(
+            "/v1/auth/relay/callback",
+            get(relay::callback_get).post(relay::callback_post),
+        )
+        .route("/v1/auth/relay/poll", post(relay::poll))
         .route("/v1/accounts", post(personal::sign_up))
         .route("/v1/me", get(personal::me))
         .route("/v1/directory", get(personal::directory))

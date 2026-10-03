@@ -21,6 +21,7 @@ pub mod error;
 pub mod keys;
 pub mod notify;
 pub mod policy;
+pub mod relay;
 mod routes;
 
 use std::collections::HashMap;
@@ -50,6 +51,8 @@ pub struct AppState {
     /// Sends approval-request emails.
     pub notifier: Arc<dyn notify::Notifier>,
     pub limiter: Arc<RateLimiter>,
+    /// Relayed sign-in (Apple): the callback URL and Apple's key.
+    pub relay: Arc<relay::RelayConfig>,
     /// Allows plain-http loopback IdPs and key agents. Never in production.
     pub dev: bool,
 }

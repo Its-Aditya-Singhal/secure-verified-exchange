@@ -160,6 +160,7 @@ Personal accounts sign in with Google or Apple once per device, then sign each r
 - **One-time limits.** One-time stops re-opening and forwarding the `.svx` (the service won't release again), not copies of plaintext already decrypted. A 10-minute window after release allows a retry after a crash, unless the receipt already made it final.
 - **Service sees metadata.** Who sent to whom and when, not file names or contents (names stay in the app's local `history.json`). Emails go through the configured SMTP provider over TLS.
 - **Apple private-relay emails** are per-app addresses; the directory finds such an account only by that address.
+- **Relayed sign-in (Apple).** The service receives the provider's callback and holds the ID token for at most 10 minutes. Only the holder of the app's random secret (the service stores its hash) can collect it, once; the nonce still binds the app's own keys, so a token taken from the service can't register other keys. The callback page reflects nothing from the request (CSP `default-src 'none'`), each `state` completes once, and Apple's client secret never leaves the service (tests `relayed_sign_in`, `refused_or_forged_callbacks`, `apple_style_sign_in_is_relayed_by_the_service`).
 
 ## 5. Security claims we will make (after review)
 

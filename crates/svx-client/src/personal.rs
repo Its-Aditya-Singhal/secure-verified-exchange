@@ -33,7 +33,7 @@ use crate::config::{AccountConfig, ClientConfig, Paths, default_open_dir};
 use crate::defaults::ServiceTarget;
 use crate::error::{ClientError, Result};
 use crate::keystore::{self, KeyRef, SecretStore};
-use crate::login::{Authenticator, BrowserLogin, DevLogin};
+use crate::login::{Authenticator, BrowserLogin, DevLogin, RelayLogin};
 use crate::open::{OpenOutcome, Output, Step, write_output};
 use crate::registry::{Registry, active_hybrid_kem_key};
 
@@ -151,6 +151,7 @@ pub async fn providers(target: &ServiceTarget) -> Result<Vec<PersonalIdp>> {
 
 fn authenticator(
     http: &ManagedClient,
+    service_url: &str,
     idp: &PersonalIdp,
     dev: bool,
     login: LoginMethod,
@@ -169,6 +170,15 @@ fn authenticator(
                 user,
             })
         }
+        // Apple and other relayed providers: the service receives the
+        // provider's callback.
+        LoginMethod::Browser(opener) if idp.relay => Box::new(RelayLogin {
+            client: http.clone(),
+            service_url: service_url.to_owned(),
+            issuer: idp.issuer.clone(),
+            opener,
+            timeout: LOGIN_TIMEOUT,
+        }),
         LoginMethod::Browser(opener) => Box::new(BrowserLogin {
             client: http.clone(),
             issuer: idp.issuer.clone(),
@@ -213,7 +223,7 @@ pub async fn sign_up(
     };
     let signing_public = keys.signing.verifying_key().to_vec();
     let kem_public = keys.kem.public_key().to_vec();
-    let auth = authenticator(&http, &idp, t.dev, login)?;
+    let auth = authenticator(&http, &t.service_url, &idp, t.dev, login)?;
     let id_token = auth
         .id_token(&signup_nonce(&signing_public, &kem_public))
         .await?;

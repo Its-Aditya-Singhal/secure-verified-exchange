@@ -179,6 +179,16 @@ The key must be an active `ed25519-mldsa65` key of the account, the time within 
 
 The company `POST /v1/release` refuses personal and multi-recipient files.
 
+### Relayed sign-in (Apple)
+
+| Endpoint | What |
+|----------|------|
+| `POST /v1/auth/relay/start` | `{issuer, nonce, secret_hash}` for a provider with `relay: true` → `{relay_id, authorize_url, expires_at}`. The URL carries the service's `state`, PKCE challenge and `response_mode=form_post`. |
+| `GET`/`POST /v1/auth/relay/callback` | The provider's return (query or form post). Exchanges the code with the service's client secret (Apple: ES256 JWT) and validates the ID token with the app's nonce. Shows a plain page; each `state` completes once. |
+| `POST /v1/auth/relay/poll` | `{relay_id, secret}` (`SHA-256(secret)` must match) → `{"status": "pending"}`, `{"status": "done", id_token}` (once) or `{"status": "failed", reason}`. Wrong secret → 401. Sign-ins expire after 10 minutes. |
+
+Relayed providers' client secrets are never published in the service record.
+
 ## Key agent
 
 ### `POST /v1/agent/release`

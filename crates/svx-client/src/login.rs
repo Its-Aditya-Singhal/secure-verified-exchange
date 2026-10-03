@@ -226,6 +226,71 @@ impl Authenticator for BrowserLogin {
     }
 }
 
+/// Sign-in relayed through the SVX service, for providers that don't
+/// allow desktop apps' loopback redirects (Apple). The service receives the
+/// provider's callback; this side keeps a random secret (only its hash is
+/// sent) and collects the ID token with it. The token's `nonce` is still
+/// chosen here, so it binds this device's keys as with any other sign-in.
+pub struct RelayLogin {
+    pub client: ManagedClient,
+    pub service_url: String,
+    pub issuer: String,
+    pub opener: Opener,
+    pub timeout: Duration,
+}
+
+#[async_trait]
+impl Authenticator for RelayLogin {
+    async fn id_token(&self, nonce: &str) -> Result<String> {
+        use svx_protocol::personal::{
+            RelayPollRequest, RelayPollResponse, RelayStartRequest, RelayStartResponse,
+            relay_secret_hash,
+        };
+        let secret = zeroize::Zeroizing::new(random_bytes::<32>());
+        let start: RelayStartResponse = self
+            .client
+            .post_json(
+                &self.service_url,
+                "/v1/auth/relay/start",
+                &RelayStartRequest {
+                    issuer: self.issuer.clone(),
+                    nonce: nonce.to_owned(),
+                    secret_hash: relay_secret_hash(&secret),
+                },
+                None,
+            )
+            .await?;
+        // Only ever send the person to an https sign-in page.
+        let url = svx_protocol::check_url(&start.authorize_url, self.client.allow_dev_http())
+            .map_err(|_| ClientError::Login("the service gave an insecure sign-in URL".into()))?;
+        (self.opener)(&url).map_err(ClientError::Login)?;
+        let deadline = tokio::time::Instant::now() + self.timeout;
+        loop {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            let r: RelayPollResponse = self
+                .client
+                .post_json(
+                    &self.service_url,
+                    "/v1/auth/relay/poll",
+                    &RelayPollRequest {
+                        relay_id: start.relay_id,
+                        secret: *secret,
+                    },
+                    None,
+                )
+                .await?;
+            match r {
+                RelayPollResponse::Done { id_token } => return Ok(id_token),
+                RelayPollResponse::Failed { reason } => return Err(ClientError::Login(reason)),
+                RelayPollResponse::Pending if tokio::time::Instant::now() >= deadline => {
+                    return Err(ClientError::Login("timed out waiting for sign-in".into()));
+                }
+                RelayPollResponse::Pending => {}
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
