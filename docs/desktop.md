@@ -24,7 +24,9 @@ The installers register `.svx` (MIME type `application/vnd.svx`, macOS UTI `org.
 
 ## First run
 
-Your administrator gives you four values: the service URL, the registry key (the service's public key, 64 hex characters), your organization ID and the sign-in client ID. Enter them and press **Verify**. The app checks the service record and your organization's record against the registry key before anything is saved; **Save** verifies again and writes the configuration.
+**A new organization** chooses **Register a new organization…**: enter the service URL and registry key, your organization's name, ID and domain, and your company sign-in. The app shows a DNS TXT record to add to your domain; once it exists, **Verify and sign in** proves you control both the domain and the sign-in, and makes you the first administrator. The registration is remembered if you close the app while DNS updates. Then create this computer's signing key, and you can send.
+
+**Joining an existing organization:** your administrator gives you four values: the service URL, the registry key (the service's public key, 64 hex characters), your organization ID and the sign-in client ID. Enter them and press **Verify**. The app checks the service record and your organization's record against the registry key before anything is saved; **Save** verifies again and writes the configuration.
 
 **Import config file…** fills the form from an existing `config.toml` (for example one written by `svx init` or `svx-demo serve`). It is verified the same way.
 
@@ -34,7 +36,7 @@ The app and the `svx` CLI share the configuration and the admin session (`~/Libr
 
 1. Choose or drop a **file or folder**. A folder is zipped and marked as a folder inside the encrypted manifest; the recipient gets the folder back.
 2. Enter the recipient **organization ID** and press **Check**. The app shows the organization's name from its registry record, verified with the pinned key, and whether it can receive. Recent recipients are offered as shortcuts.
-3. Choose the recipient's **policy**, an **expiry**, an optional **classification** and **note**, and your organization's **signing key** file (only its location is remembered).
+3. Choose the recipient's **policy**, an **expiry**, an optional **classification** and **note**. Files are signed with this computer's **keychain key** (created on the Admin page), or a `.sign.key` file you choose; only a reference is remembered.
 4. Optionally **record the file with the service** (needs an administrator sign-in on the Admin page).
 
 **Protect file** writes `<name>.svx` next to the original. New files are always post-quantum hybrid; the result shows the protection level. Send it any way you like: email, chat, a file share.
@@ -66,17 +68,25 @@ Opened files go to `~/SVX` by default (Settings → **Change folder…**), owner
 
 ## Admin
 
-For your organization's SVX administrators:
+All administration happens here (there is no web portal). Sign in with your company login; the session is short-lived and can never open files. Every change is authorized by the SVX service and recorded in the audit trail.
 
-- **Account:** sign in (browser), see who you are and when the session ends, sign out. The session is short-lived and can never open files.
+- **Organization:** details, display name, the key agent URL, and whether the key agent is reachable.
+- **Keys:** every registered key with its status, which one this computer signs with, and which encryption keys the key agent holds.
+  - *Signing keys:* **Create a new signing key** makes a post-quantum key in this computer's keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service) and registers it. It never leaves the device and is never shown. **Register another sender's key…** adds a colleague's `.sign.pub`.
+  - *Encryption key:* **Create a new encryption key…** writes it, owner-only, to a folder you choose for the key agent. After installing it on the agent, **Activate** checks that the agent holds it before switching new files to it, then retires the old key. See [key-agent.md](key-agent.md).
+  - **Retire** (no new files; existing ones still work) or **Revoke** (compromised; refused from now on) any key.
+- **Policies:** create, edit and delete who may open files sent to you: allowed groups and users, required sign-in strength, maximum file age.
+- **Administrators:** add and remove (the last administrator can't be removed).
+- **Audit trail:** filter by event, load older records, **Export CSV…** (spreadsheet-safe), with the hash-chain check.
 - **Revoke a file** by artifact ID or by choosing the `.svx`. Revocation stops all future access; it cannot recall copies already opened.
-- **Audit trail:** the most recent 200 events, with the hash-chain check.
-- **Policies:** read-only. Editing comes to this screen in Phase 5b.
+
+**Settings → Signing key → Move a key file into the keychain…** imports an existing `.sign.key`; delete the file afterwards.
 
 ## Security notes
 
 - The web view loads only the bundled UI under a strict Content Security Policy (no remote content, no inline script). All values are rendered as text, never as HTML.
-- The UI has no file-system or shell permissions of its own. File pickers, **Show in Finder** and **Open** are app commands, and the last two only accept paths the app itself produced in this session.
+- The UI has no file-system or shell permissions of its own. File pickers, **Show in Finder** and **Open** are app commands, and the last two only accept paths the app itself produced in this session. Commands that write files (key export, audit export) open their own save dialog; the UI never supplies a path to write to.
+- Signing keys created in the app live in the OS keychain and are used inside the Rust layer; they never reach the UI.
 - Sign-in uses the system browser with a loopback redirect (RFC 8252) and a nonce bound to a fresh one-time X-Wing key per open, exactly as in the CLI. Connections to the service and key agent use post-quantum TLS (X25519MLKEM768).
 - Development mode (local stacks only) allows plain http and test users; the app shows a **dev** badge. Never use it with real data.
 
@@ -112,11 +122,11 @@ cargo test -p svx-app -p svx-desktop
 
 Workspace-wide `cargo build/test/clippy` works without Node: the shell's build script writes a placeholder page if the UI has not been built. The CI `test` job excludes `svx-desktop` (it needs the WebKitGTK libraries on Linux); the `desktop` job builds, lints, tests and packages it on all three platforms.
 
-## Known limitations (Phase 5a)
+## Known limitations
 
 - Builds are unsigned; no auto-update (Phase 6).
 - Recipients are entered by organization ID; there is no directory search yet.
-- Signing keys are files (KMS/HSM later).
+- Keychain keys are software keys protected by the OS keychain; hardware-backed keys (Secure Enclave, TPM) come later.
 - macOS builds are per architecture (Apple silicon from CI), not universal.
 - No device-code sign-in; the browser must be on the same machine.
-- Policies are read-only in the app.
+- A policy's access window (`not_before`/`not_after`) is kept but not editable in the app yet.

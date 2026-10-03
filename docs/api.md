@@ -91,12 +91,19 @@ All admin endpoints share the same rules:
 
 | Method and path | Body | Effect |
 |-----------------|------|--------|
+| `GET /v1/admin/orgs/{org}` | none | Overview: settings, administrators (`{subject, added_at}`), keys with their lifecycle times |
+| `PATCH /v1/admin/orgs/{org}` | `{display_name?, key_agent_url?, remove_key_agent?}` | Change the display name or key agent URL. The IdP can't be changed (it would hand over the org). |
 | `PUT /v1/admin/orgs/{org}/keys` | `{kind, public_key, status}` | Add a key or change its status. `key_id` is derived by the server. Allowed transitions: active→retired→revoked, and active→revoked. Revocation is terminal. |
 | `POST /v1/admin/orgs/{org}/admins` | `{subject}` | Add an administrator |
+| `DELETE /v1/admin/orgs/{org}/admins/{subject}` | none | Remove an administrator; the last one can't be removed (409) |
 | `PUT /v1/admin/orgs/{org}/policies/{name}` | `Policy` | Create or replace a policy |
+| `DELETE /v1/admin/orgs/{org}/policies/{name}` | none | Delete a policy; files naming it are denied from then on |
 | `POST /v1/admin/orgs/{org}/artifacts/{artifact_id}/revoke` | none | Revoke future access. Effective only if this org is the sender or recipient in the artifact's signed header. |
 | `GET /v1/admin/orgs/{org}/policies` | none | All policies, as `{name: Policy}` |
-| `GET /v1/admin/orgs/{org}/audit?limit=N` | none | The latest N records (maximum 1000), returned with `chain_valid` |
+| `GET /v1/admin/orgs/{org}/audit?limit=N&before_seq=S&event=E` | none | The latest N records (maximum 1000), optionally older than `S` and of one event kind, with `chain_valid` (record hashes, and links between records when not filtered) |
+
+Admin and registration errors carry a human-readable `detail` (for example
+"the last administrator can't be removed"); release errors never do.
 
 `Policy`:
 ```json
@@ -156,3 +163,6 @@ The agent checks:
 4. **Replay.** `txn` has not been used at this agent.
 
 On success it returns `{"share": {...}}`, the recipient-org share HPKE-sealed to `client_key`.
+
+### `GET /v1/agent/keys`
+The KEM keys the agent holds: `{"org_id": "...", "keys": [{"key_id": "<hex16>", "kind": "xwing"}]}`. Public information, no authentication. Administrators' apps use it to activate a new encryption key only once the agent holds it. See [key-agent.md](key-agent.md).

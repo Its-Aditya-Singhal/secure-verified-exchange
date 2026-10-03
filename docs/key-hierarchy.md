@@ -44,8 +44,8 @@ Per release (ephemeral)
 
 | Key | Phase 1 | Production target |
 |-----|---------|-------------------|
-| Org signing key | JSON key file, mode 0600 | KMS/HSM (sign API); key never leaves it |
-| Org KEM key | JSON key file, mode 0600 | Key agent backed by KMS/HSM (decapsulation in the HSM where supported, otherwise a confidential enclave) |
+| Org signing key | OS keychain on each sender's device (desktop app), or a JSON key file, mode 0600 (CLI/SDKs) | Hardware-backed (Secure Enclave, TPM) or KMS/HSM sign API |
+| Org KEM key | JSON key file, mode 0600, on the key agent (systemd credential or container secret; the agent refuses readable files) | Key agent backed by KMS/HSM (decapsulation in the HSM where supported, otherwise a confidential enclave) |
 | Service KEM key | test file | HSM; unwrap only after the policy decision |
 | Registry key | n/a | Offline root + online HSM intermediate |
 | Shares, artifact keys | memory only, zeroized | same |

@@ -194,6 +194,80 @@ jobs:
             target/release/bundle/appimage/*.AppImage
             target/release/bundle/deb/*.deb
 
+  keyagent-package:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: svx
+          POSTGRES_PASSWORD: svx
+          POSTGRES_DB: svx_agent
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U svx"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build the key agent image (not pushed)
+        run: docker build -f deploy/keyagent/Dockerfile -t svx-keyagent:ci .
+      - name: Smoke test the image (check, serve, healthcheck, key listing)
+        run: |
+          set -eux
+          cargo build -p svx-cli
+          mkdir -p smoke/keys
+          cd smoke/keys
+          ../../target/debug/svx keygen --kind kem --owner example-corp --out example | tee kem.txt
+          ../../target/debug/svx keygen --kind service-sign --owner svx.example --out grant
+          cd ..
+          cat > agent.toml <<'TOML'
+          org_id = "example-corp"
+          idp_issuer = "http://127.0.0.1:8082"
+          idp_client_id = "svx"
+          service_id = "svx.example"
+          service_grant_key = "/etc/svx/keys/grant.sign.pub"
+          kem_keys = ["/etc/svx/keys/example.kem.key"]
+          listen = "127.0.0.1:9443"
+          dev = true
+          TOML
+          run() {
+            docker run --rm --network host --user "$(id -u):$(id -g)" \
+              -e DATABASE_URL=postgres://svx:svx@127.0.0.1:5432/svx_agent \
+              -v "$PWD/agent.toml:/etc/svx/agent.toml:ro" -v "$PWD/keys:/etc/svx/keys:ro" "$@"
+          }
+          run svx-keyagent:ci check
+          run -d --name agent svx-keyagent:ci serve
+          for i in $(seq 30); do
+            docker exec agent /usr/local/bin/svx-keyagent healthcheck && break
+            sleep 1
+          done
+          docker exec agent /usr/local/bin/svx-keyagent healthcheck
+          key_id=$(sed -n 's/^Key ID: //p' keys/kem.txt)
+          curl -fsS http://127.0.0.1:9443/v1/agent/keys | tee keys.json
+          grep -q "$key_id" keys.json
+          grep -q '"xwing"' keys.json
+          # A world-readable secret key is refused.
+          chmod 644 keys/example.kem.key
+          if run svx-keyagent:ci check; then echo "readable key accepted" >&2; exit 1; fi
+          docker rm -f agent
+      - name: Linux tarball (binary, systemd unit, sample config, installer)
+        run: |
+          set -eux
+          cargo build --release --locked -p svx-keyagent
+          d=svx-keyagent-linux-x86_64
+          mkdir -p "$d"
+          cp target/release/svx-keyagent deploy/keyagent/svx-keyagent.service \
+             deploy/keyagent/agent.toml.example deploy/keyagent/install.sh docs/key-agent.md "$d"/
+          tar czf "$d.tar.gz" "$d"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: svx-keyagent-linux-x86_64
+          path: svx-keyagent-linux-x86_64.tar.gz
+
   large-file:
     runs-on: ubuntu-latest
     steps:

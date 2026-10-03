@@ -20,7 +20,8 @@ A `.svx` file is a passive, signed and encrypted container. Its contents stay en
 | [`docs/running-locally.md`](docs/running-locally.md) | Run the service, key agent and dev IdPs locally |
 | [`docs/client.md`](docs/client.md) | The `svx` client: setup, open flow, admin commands, exit codes, limitations |
 | [`docs/demo.md`](docs/demo.md) | The Acme Security → Example Corp demo and the one-command dev stack |
-| [`docs/desktop.md`](docs/desktop.md) | The Secure Verified Exchange desktop app (macOS, Windows, Linux) |
+| [`docs/desktop.md`](docs/desktop.md) | The Secure Verified Exchange desktop app (macOS, Windows, Linux), including all organization administration |
+| [`docs/key-agent.md`](docs/key-agent.md) | Running the key agent (Docker or systemd), key rotation, monitoring |
 | [`docs/sdk-python.md`](docs/sdk-python.md), [`docs/sdk-node.md`](docs/sdk-node.md) | Python and Node.js/TypeScript SDKs |
 | `crates/svx-format` | Strict, bounded, crypto-free parser and writer |
 | `crates/svx-crypto` | STREAM ChaCha20-Poly1305, HPKE key envelopes (X-Wing: X25519 + ML-KEM-768), HKDF key schedule, Ed25519 + ML-DSA-65 signatures |

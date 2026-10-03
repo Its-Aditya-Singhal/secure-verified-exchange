@@ -98,8 +98,14 @@ Status key: ✅ enforced and tested (test names in parentheses). 🔜 designed h
 
 ### T12. Compromised recipient-org key agent
 - **Outcome:** the agent alone holds only one share. It still needs the service share, which is released only after policy checks. ✅ (crypto property)
+- **Hardening:** the packaged agent runs as an unprivileged user (container: distroless, read-only, no capabilities; systemd: dynamic user, strict sandbox, keys as credentials), refuses world-readable key files and refuses to start without a post-quantum key. Its `GET /v1/agent/keys` lists only public key IDs. ✅ (`keys_are_checked`, `readable_secret_keys_are_refused`, CI `keyagent-package`)
+- **Rotation safety:** a new encryption key is activated in the registry only after the agent reports holding it, so no file is sealed to a key the agent can't use. ✅ (`encryption_key_rotation_waits_for_the_agent`)
+
+### T12a. Administration abuse
+- **Outcome:** every admin action is authorized by the service against the org's own IdP and admin list, and audited. An organization can't be left without an administrator, its IdP can't be swapped through the API, and admin error details never appear on release endpoints. ✅ (`admins_settings_policies_and_audit`)
 
 ### T13. Sender signing-key compromise
+- **Storage:** keys created in the desktop app live in the OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service) and are only used inside the Rust client layer; the UI never sees them. Each sender's device has its own registered key, so one lost device means revoking one key. ✅ (`keychain_signing_key_signs_files`)
 - **Outcome:** an attacker can create artifacts that look like they came from Acme. Response: revoke the key in the registry (key status `revoked`, with a `not_after` timestamp) so verifiers reject it, then rotate. Retired keys still verify artifacts created before retirement. Revoked keys never do. ✅ (`revoked_sender_key_is_rejected`) See `docs/key-hierarchy.md`.
 
 ### T14. Recipient KEM-key or service-key compromise
