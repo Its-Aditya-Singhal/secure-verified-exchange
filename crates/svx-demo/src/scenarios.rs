@@ -446,7 +446,7 @@ pub async fn run_all(w: &World, dir: &Path, ui: &Ui) -> Result<()> {
 }
 
 #[cfg(unix)]
-fn private(p: &PathBuf) -> bool {
+fn private(p: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     std::fs::metadata(p)
         .map(|m| m.permissions().mode() & 0o077 == 0)
@@ -454,6 +454,6 @@ fn private(p: &PathBuf) -> bool {
 }
 
 #[cfg(not(unix))]
-fn private(p: &PathBuf) -> bool {
+fn private(p: &Path) -> bool {
     p.exists()
 }
