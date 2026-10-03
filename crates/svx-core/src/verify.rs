@@ -2,9 +2,9 @@ use std::io::{Read, Write};
 
 use svx_crypto::{
     ArtifactKeys, EnvelopeContext, HeaderHash, KemSecretKey, PayloadHasher, Share, StreamDecryptor,
-    VerifyingKey, check_suite, header_hash, open_manifest, open_share, verify_transcript,
+    Suite, VerifyingKey, check_suite, header_hash, open_manifest, open_share, verify_transcript,
 };
-use svx_format::{EnvelopeRole, Header, KeyEnvelope, Prelude, Reader, Trailer};
+use svx_format::{EnvelopeLayout, EnvelopeRole, Header, KeyEnvelope, Prelude, Reader, Trailer};
 
 use crate::error::{CoreError, Result};
 use crate::manifest::Manifest;
@@ -25,6 +25,8 @@ pub fn inspect<R: Read>(input: R) -> Result<(Prelude, Header)> {
 #[derive(Clone, Debug)]
 pub struct VerifiedHead {
     pub prelude: Prelude,
+    /// The verified cipher suite (from the prelude, bound by the header hash).
+    pub suite: Suite,
     pub header: Header,
     pub header_region: Vec<u8>,
     pub trailer: Trailer,
@@ -48,11 +50,33 @@ impl std::ops::Deref for VerifiedArtifact {
     }
 }
 
-fn check_head(prelude: &Prelude, header: &Header, trust: &TrustStore) -> Result<VerifyingKey> {
-    check_suite(prelude.suite_id)?;
+fn check_head(
+    prelude: &Prelude,
+    header: &Header,
+    trust: &TrustStore,
+) -> Result<(Suite, VerifyingKey)> {
+    let suite = check_suite(prelude.suite_id)?;
+    // The format layer already ties the suite to the envelope layout; check
+    // again here so the suite used below can never disagree with the header.
+    if suite_for_header(header) != suite {
+        return Err(CoreError::InvalidRequest(
+            "suite and envelope layout disagree".into(),
+        ));
+    }
     required_envelope(header, EnvelopeRole::Service)?;
     required_envelope(header, EnvelopeRole::RecipientOrg)?;
-    Ok(*trust.resolve(&header.sender_org, &header.sender_key_id)?)
+    let key = trust.resolve(&header.sender_org, &header.sender_key_id)?;
+    Ok((suite, key.clone()))
+}
+
+/// The suite implied by a header's envelope layout. For an authentic header
+/// the format layer guarantees this equals the prelude's suite (layout V1 ⇔
+/// SVX-1, layout V2 ⇔ SVX-1H).
+pub fn suite_for_header(h: &Header) -> Suite {
+    match h.envelope_layout {
+        EnvelopeLayout::V1 => Suite::Svx1,
+        EnvelopeLayout::V2 => Suite::Svx1H,
+    }
 }
 
 /// Verify an artifact end to end without any decryption keys:
@@ -62,13 +86,14 @@ fn check_head(prelude: &Prelude, header: &Header, trust: &TrustStore) -> Result<
 /// 3. required key envelopes present,
 /// 4. sender `(org, key_id)` present in the trust store,
 /// 5. payload commitment recomputed over every chunk and matched to the trailer,
-/// 6. Ed25519 signature over the transcript.
+/// 6. signature over the transcript: Ed25519 (SVX-1), or Ed25519 **and**
+///    ML-DSA-65 (SVX-1H).
 pub fn verify<R: Read>(input: R, trust: &TrustStore) -> Result<VerifiedArtifact> {
     let mut reader = Reader::new(input)?;
     let prelude = *reader.prelude();
     let header = reader.header().clone();
     // Resolve the sender before reading the payload so untrusted input fails fast.
-    let sender_key = check_head(&prelude, &header, trust)?;
+    let (suite, sender_key) = check_head(&prelude, &header, trust)?;
 
     let header_region = reader.header_region().to_vec();
     let hh = header_hash(&header_region);
@@ -83,6 +108,7 @@ pub fn verify<R: Read>(input: R, trust: &TrustStore) -> Result<VerifiedArtifact>
         return Err(CoreError::CommitmentMismatch);
     }
     verify_transcript(
+        suite,
         &sender_key,
         &hh,
         chunk_count,
@@ -94,6 +120,7 @@ pub fn verify<R: Read>(input: R, trust: &TrustStore) -> Result<VerifiedArtifact>
     Ok(VerifiedArtifact {
         head: VerifiedHead {
             prelude,
+            suite,
             header,
             header_region,
             trailer,
@@ -115,10 +142,11 @@ pub fn verify_head(
     trust: &TrustStore,
 ) -> Result<VerifiedHead> {
     let (prelude, header) = svx_format::parse_header_region(header_region)?;
-    let sender_key = check_head(&prelude, &header, trust)?;
+    let (suite, sender_key) = check_head(&prelude, &header, trust)?;
     let trailer = Trailer::decode(trailer)?;
     let hh = header_hash(header_region);
     verify_transcript(
+        suite,
         &sender_key,
         &hh,
         trailer.chunk_count,
@@ -128,6 +156,7 @@ pub fn verify_head(
     )?;
     Ok(VerifiedHead {
         prelude,
+        suite,
         header,
         header_region: header_region.to_vec(),
         trailer,
@@ -171,6 +200,7 @@ pub fn unwrap_envelope(
         return Err(CoreError::WrongKey(role_name(role)));
     }
     Ok(open_share(
+        suite_for_header(header),
         role,
         secret,
         &envelope_context(header),
@@ -200,6 +230,18 @@ impl VerifiedHead {
     /// recipient organization's key agent (role `RecipientOrg`), after
     /// authorization — never on an unauthenticated client.
     pub fn unwrap_share(&self, role: EnvelopeRole, secret: &KemSecretKey) -> Result<Share> {
+        unwrap_envelope(&self.header, role, secret)
+    }
+
+    /// [`unwrap_share`](Self::unwrap_share) with a key ring (for example a
+    /// classical key for older files and a hybrid key for new ones): the
+    /// key is chosen by the envelope's key ID.
+    pub fn unwrap_share_from(&self, role: EnvelopeRole, ring: &[KemSecretKey]) -> Result<Share> {
+        let env = required_envelope(&self.header, role)?;
+        let secret = ring
+            .iter()
+            .find(|k| k.public_key().key_id() == env.key_id)
+            .ok_or(CoreError::WrongKey(role_name(role)))?;
         unwrap_envelope(&self.header, role, secret)
     }
 }
@@ -234,7 +276,12 @@ impl VerifiedArtifact {
             return Err(CoreError::ArtifactChanged);
         }
         let h = &self.header;
-        let keys = ArtifactKeys::derive(&h.artifact_id, service_share, recipient_share);
+        let keys = ArtifactKeys::derive(
+            self.head.suite,
+            &h.artifact_id,
+            service_share,
+            recipient_share,
+        );
         keys.check_commitment(&h.key_commitment)?;
         let manifest_bytes =
             zeroize::Zeroizing::new(open_manifest(&keys, &h.artifact_id, &h.encrypted_manifest)?);

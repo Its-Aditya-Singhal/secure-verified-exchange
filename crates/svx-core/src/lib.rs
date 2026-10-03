@@ -26,7 +26,9 @@ pub use error::{CoreError, Result};
 pub use manifest::{FileEntry, MANIFEST_VERSION, Manifest};
 pub use pack::{PackRequest, PackSummary, pack};
 pub use trust::TrustStore;
-pub use verify::{VerifiedArtifact, VerifiedHead, inspect, unwrap_envelope, verify, verify_head};
+pub use verify::{
+    VerifiedArtifact, VerifiedHead, inspect, suite_for_header, unwrap_envelope, verify, verify_head,
+};
 
 pub use svx_crypto as crypto;
 pub use svx_format as format;

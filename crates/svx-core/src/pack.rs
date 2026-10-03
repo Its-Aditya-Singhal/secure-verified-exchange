@@ -1,11 +1,11 @@
 use std::io::{Read, Write};
 
 use svx_crypto::{
-    ArtifactKeys, CryptoRng, EnvelopeContext, KemPublicKey, PayloadHasher, SUITE_SVX1, Share,
-    SigningKey, StreamEncryptor, header_hash, seal_manifest, seal_share, sign_transcript,
+    ArtifactKeys, CryptoRng, EnvelopeContext, KemPublicKey, PayloadHasher, Share, SigningKey,
+    StreamEncryptor, Suite, header_hash, seal_manifest, seal_share, sign_transcript,
 };
 use svx_format::limits::{DEFAULT_CHUNK_SIZE, MAX_CHUNK_SIZE, MIN_CHUNK_SIZE};
-use svx_format::{EnvelopeRole, Header, Identifier, KeyEnvelope, Trailer, Writer};
+use svx_format::{EnvelopeLayout, EnvelopeRole, Header, Identifier, KeyEnvelope, Trailer, Writer};
 
 use crate::error::{CoreError, Result};
 use crate::manifest::Manifest;
@@ -14,6 +14,9 @@ use crate::manifest::Manifest;
 /// organization and the managed service come from the organization registry
 /// (Phase 2) or local key files (Phase 1).
 pub struct PackRequest<'a> {
+    /// [`Suite::Svx1H`] (post-quantum hybrid) for new artifacts; the key
+    /// kinds below must match it.
+    pub suite: Suite,
     pub sender_org: Identifier,
     pub signing_key: &'a SigningKey,
     pub recipient_org: Identifier,
@@ -33,6 +36,7 @@ pub struct PackRequest<'a> {
 /// Public facts about a newly created artifact (safe to log).
 #[derive(Clone, Debug)]
 pub struct PackSummary {
+    pub suite: Suite,
     pub artifact_id: [u8; 16],
     pub chunk_count: u64,
     pub plaintext_len: u64,
@@ -55,6 +59,17 @@ pub fn pack<R: Read, W: Write>(
             "chunk size must be {MIN_CHUNK_SIZE}..={MAX_CHUNK_SIZE}"
         )));
     }
+    let suite = req.suite;
+    if req.signing_key.kind() != suite.signing_kind()
+        || req.recipient_key.kind() != suite.kem_kind()
+        || req.service_key.kind() != suite.kem_kind()
+    {
+        return Err(CoreError::InvalidRequest(format!(
+            "keys do not match suite {:#06x} ({})",
+            suite.id(),
+            suite.description()
+        )));
+    }
     let manifest_bytes = zeroize::Zeroizing::new(req.manifest.to_bytes()?);
 
     let mut artifact_id = [0u8; 16];
@@ -63,7 +78,7 @@ pub fn pack<R: Read, W: Write>(
     rng.fill_bytes(&mut nonce_prefix);
     let service_share = Share::generate(rng);
     let recipient_share = Share::generate(rng);
-    let keys = ArtifactKeys::derive(&artifact_id, &service_share, &recipient_share);
+    let keys = ArtifactKeys::derive(suite, &artifact_id, &service_share, &recipient_share);
 
     let sender_key_id = req.signing_key.verifying_key().key_id();
     let ctx = EnvelopeContext {
@@ -82,7 +97,7 @@ pub fn pack<R: Read, W: Write>(
             &recipient_share,
         ),
     ] {
-        let (encapped_key, ciphertext) = seal_share(role, pk, &ctx, share, rng)?;
+        let (encapped_key, ciphertext) = seal_share(suite, role, pk, &ctx, share, rng)?;
         envelopes.push(KeyEnvelope {
             role,
             key_id: pk.key_id(),
@@ -105,12 +120,16 @@ pub fn pack<R: Read, W: Write>(
         chunk_size,
         nonce_prefix,
         key_commitment: keys.key_commitment(),
+        envelope_layout: match suite {
+            Suite::Svx1 => EnvelopeLayout::V1,
+            Suite::Svx1H => EnvelopeLayout::V2,
+        },
         envelopes,
         encrypted_manifest: seal_manifest(&keys, &artifact_id, &manifest_bytes)?,
         unknown: Vec::new(),
     };
 
-    let mut writer = Writer::new(output, SUITE_SVX1, &header)?;
+    let mut writer = Writer::new(output, suite.id(), &header)?;
     let hh = header_hash(writer.header_region());
     let mut enc = StreamEncryptor::new(&keys, nonce_prefix, &hh);
     let mut hasher = PayloadHasher::new(&hh);
@@ -144,8 +163,14 @@ pub fn pack<R: Read, W: Write>(
     }
 
     let (chunk_count, payload_commitment) = hasher.finalize();
-    let (sig_alg, signature) =
-        sign_transcript(req.signing_key, &hh, chunk_count, &payload_commitment);
+    let (sig_alg, signature) = sign_transcript(
+        suite,
+        req.signing_key,
+        &hh,
+        chunk_count,
+        &payload_commitment,
+        rng,
+    )?;
     writer.finish(&Trailer {
         chunk_count,
         payload_commitment,
@@ -154,6 +179,7 @@ pub fn pack<R: Read, W: Write>(
     })?;
 
     Ok(PackSummary {
+        suite,
         artifact_id,
         chunk_count,
         plaintext_len: total,

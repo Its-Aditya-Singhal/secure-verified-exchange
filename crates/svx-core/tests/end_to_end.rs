@@ -5,11 +5,12 @@ use std::io::Cursor;
 
 use chacha20::ChaCha20Rng;
 use rand_core::SeedableRng;
-use svx_core::crypto::{KemSecretKey, SigningKey};
+use svx_core::crypto::{KemSecretKey, SigningKey, Suite};
 use svx_core::format::{EnvelopeRole, Identifier};
 use svx_core::*;
 
 struct World {
+    suite: Suite,
     acme_sign: SigningKey,
     mallory_sign: SigningKey,
     example_kem: KemSecretKey,
@@ -23,15 +24,34 @@ fn id(s: &str) -> Identifier {
 }
 
 impl World {
+    /// Classical suite SVX-1.
     fn new() -> Self {
+        Self::with_suite(Suite::Svx1)
+    }
+
+    /// Post-quantum hybrid suite SVX-1H.
+    fn hybrid() -> Self {
+        Self::with_suite(Suite::Svx1H)
+    }
+
+    fn both() -> [World; 2] {
+        [Self::new(), Self::hybrid()]
+    }
+
+    fn with_suite(suite: Suite) -> Self {
         let mut rng = ChaCha20Rng::from_seed([42; 32]);
-        let acme_sign = SigningKey::generate(&mut rng);
-        let mallory_sign = SigningKey::generate(&mut rng);
-        let example_kem = KemSecretKey::generate(&mut rng);
-        let service_kem = KemSecretKey::generate(&mut rng);
+        let signer = |rng: &mut ChaCha20Rng| match suite {
+            Suite::Svx1 => SigningKey::generate(rng),
+            Suite::Svx1H => SigningKey::generate_hybrid(rng),
+        };
+        let acme_sign = signer(&mut rng);
+        let mallory_sign = signer(&mut rng);
+        let example_kem = Self::kem_for(suite, &mut rng);
+        let service_kem = Self::kem_for(suite, &mut rng);
         let mut trust = TrustStore::new();
         trust.add(id("acme-security"), acme_sign.verifying_key());
         World {
+            suite,
             acme_sign,
             mallory_sign,
             example_kem,
@@ -41,10 +61,22 @@ impl World {
         }
     }
 
+    fn kem_for(suite: Suite, rng: &mut ChaCha20Rng) -> KemSecretKey {
+        match suite {
+            Suite::Svx1 => KemSecretKey::generate(rng),
+            Suite::Svx1H => KemSecretKey::generate_hybrid(rng),
+        }
+    }
+
+    fn copy(k: &SigningKey) -> SigningKey {
+        SigningKey::from_secret_bytes(k.kind(), &k.to_secret_bytes()).unwrap()
+    }
+
     fn pack_with(&mut self, signer: &SigningKey, sender: &str, data: &[u8], chunk: u32) -> Vec<u8> {
         let mut manifest = Manifest::single_file("secret.txt", data.len() as u64);
         manifest.classification = Some("TLP:RED".into());
         let req = PackRequest {
+            suite: self.suite,
             sender_org: id(sender),
             signing_key: signer,
             recipient_org: id("example-corp"),
@@ -64,7 +96,7 @@ impl World {
     }
 
     fn pack(&mut self, data: &[u8]) -> Vec<u8> {
-        let k = SigningKey::from_bytes(&self.acme_sign.to_bytes());
+        let k = Self::copy(&self.acme_sign);
         self.pack_with(&k, "acme-security", data, 64)
     }
 
@@ -83,189 +115,201 @@ const SECRET: &[u8] =
 
 #[test]
 fn authorized_round_trip() {
-    let mut w = World::new();
-    for len in [0usize, 1, 63, 64, 65, 128, 1000] {
-        let data: Vec<u8> = SECRET.iter().copied().cycle().take(len).collect();
-        let file = w.pack(&data);
-        let (m, out) = w.open(&file).unwrap();
-        assert_eq!(out, data, "len {len}");
-        assert_eq!(m.files[0].name, "secret.txt");
-        assert_eq!(m.classification.as_deref(), Some("TLP:RED"));
+    for mut w in World::both() {
+        for len in [0usize, 1, 63, 64, 65, 128, 1000] {
+            let data: Vec<u8> = SECRET.iter().copied().cycle().take(len).collect();
+            let file = w.pack(&data);
+            let (m, out) = w.open(&file).unwrap();
+            assert_eq!(out, data, "len {len}");
+            assert_eq!(m.files[0].name, "secret.txt");
+            assert_eq!(m.classification.as_deref(), Some("TLP:RED"));
+        }
     }
 }
 
 #[test]
 fn intercepted_file_reveals_no_plaintext_or_private_metadata() {
-    let mut w = World::new();
-    let file = w.pack(SECRET);
-    let hay = String::from_utf8_lossy(&file);
-    for needle in ["FICTIONAL", "203.0.113.7", "secret.txt", "TLP:RED"] {
-        assert!(!hay.contains(needle), "{needle} visible in ciphertext");
+    for mut w in World::both() {
+        let file = w.pack(SECRET);
+        let hay = String::from_utf8_lossy(&file);
+        for needle in ["FICTIONAL", "203.0.113.7", "secret.txt", "TLP:RED"] {
+            assert!(!hay.contains(needle), "{needle} visible in ciphertext");
+        }
+        // Only opaque routing identifiers are public.
+        let (_, h) = inspect(Cursor::new(&file)).unwrap();
+        assert_eq!(h.recipient_org.as_str(), "example-corp");
     }
-    // Only opaque routing identifiers are public.
-    let (_, h) = inspect(Cursor::new(&file)).unwrap();
-    assert_eq!(h.recipient_org.as_str(), "example-corp");
 }
 
 #[test]
 fn file_alone_is_insufficient_one_share_is_insufficient() {
-    let mut w = World::new();
-    let file = w.pack(SECRET);
-    let v = verify(Cursor::new(&file), &w.trust).unwrap();
-    let svc = v
-        .unwrap_share(EnvelopeRole::Service, &w.service_kem)
-        .unwrap();
-    let org = v
-        .unwrap_share(EnvelopeRole::RecipientOrg, &w.example_kem)
-        .unwrap();
-    let guess = svx_core::crypto::Share::generate(&mut w.rng);
+    for mut w in World::both() {
+        let file = w.pack(SECRET);
+        let v = verify(Cursor::new(&file), &w.trust).unwrap();
+        let svc = v
+            .unwrap_share(EnvelopeRole::Service, &w.service_kem)
+            .unwrap();
+        let org = v
+            .unwrap_share(EnvelopeRole::RecipientOrg, &w.example_kem)
+            .unwrap();
+        let guess = svx_core::crypto::Share::generate(&mut w.rng);
 
-    // Service alone (compromised service) or org agent alone cannot decrypt.
-    for (a, b) in [(&svc, &guess), (&guess, &org), (&org, &svc)] {
-        let mut out = Vec::new();
-        let err = v.decrypt(Cursor::new(&file), a, b, &mut out).unwrap_err();
-        assert!(matches!(
-            err,
-            CoreError::Crypto(svx_core::crypto::CryptoError::KeyCommitmentMismatch)
-        ));
-        assert!(out.is_empty());
+        // Service alone (compromised service) or org agent alone cannot decrypt.
+        for (a, b) in [(&svc, &guess), (&guess, &org), (&org, &svc)] {
+            let mut out = Vec::new();
+            let err = v.decrypt(Cursor::new(&file), a, b, &mut out).unwrap_err();
+            assert!(matches!(
+                err,
+                CoreError::Crypto(svx_core::crypto::CryptoError::KeyCommitmentMismatch)
+            ));
+            assert!(out.is_empty());
+        }
+        // Each party's key opens only its own envelope.
+        assert!(
+            v.unwrap_share(EnvelopeRole::Service, &w.example_kem)
+                .is_err()
+        );
+        assert!(
+            v.unwrap_share(EnvelopeRole::RecipientOrg, &w.service_kem)
+                .is_err()
+        );
+        let eve = World::kem_for(w.suite, &mut w.rng);
+        assert!(v.unwrap_share(EnvelopeRole::RecipientOrg, &eve).is_err());
     }
-    // Each party's key opens only its own envelope.
-    assert!(
-        v.unwrap_share(EnvelopeRole::Service, &w.example_kem)
-            .is_err()
-    );
-    assert!(
-        v.unwrap_share(EnvelopeRole::RecipientOrg, &w.service_kem)
-            .is_err()
-    );
-    let eve = KemSecretKey::generate(&mut w.rng);
-    assert!(v.unwrap_share(EnvelopeRole::RecipientOrg, &eve).is_err());
 }
 
 #[test]
 fn any_single_byte_modification_is_rejected() {
-    let mut w = World::new();
-    let file = w.pack(&SECRET[..80]);
-    for i in 0..file.len() {
-        let mut t = file.clone();
-        t[i] ^= 0x01;
-        assert!(
-            verify(Cursor::new(&t), &w.trust).is_err(),
-            "flip at byte {i} accepted"
-        );
+    for mut w in World::both() {
+        let file = w.pack(&SECRET[..80]);
+        for i in 0..file.len() {
+            let mut t = file.clone();
+            t[i] ^= 0x01;
+            assert!(
+                verify(Cursor::new(&t), &w.trust).is_err(),
+                "flip at byte {i} accepted"
+            );
+        }
     }
 }
 
 #[test]
 fn truncation_and_extension_rejected() {
-    let mut w = World::new();
-    let file = w.pack(SECRET);
-    for cut in [1, 10, 50, file.len() / 2, file.len() - 1] {
-        assert!(verify(Cursor::new(&file[..cut]), &w.trust).is_err());
+    for mut w in World::both() {
+        let file = w.pack(SECRET);
+        for cut in [1, 10, 50, file.len() / 2, file.len() - 1] {
+            assert!(verify(Cursor::new(&file[..cut]), &w.trust).is_err());
+        }
+        let mut ext = file.clone();
+        ext.extend_from_slice(b"extra");
+        assert!(verify(Cursor::new(&ext), &w.trust).is_err());
     }
-    let mut ext = file.clone();
-    ext.extend_from_slice(b"extra");
-    assert!(verify(Cursor::new(&ext), &w.trust).is_err());
 }
 
 #[test]
 fn chunk_reorder_rejected() {
-    let mut w = World::new();
-    let data = vec![0x41u8; 64 * 3 + 10];
-    let file = w.pack(&data);
-    let c = format::parse(&file).unwrap();
-    // Swap the first two (equal-length) chunk records and re-serialize.
-    let mut wtr = format::Writer::new(Vec::new(), c.prelude.suite_id, &c.header).unwrap();
-    let order = [1usize, 0, 2, 3];
-    for &i in &order {
-        let (info, ct) = &c.chunks[i];
-        wtr.write_chunk(info.is_final, ct).unwrap();
+    for mut w in World::both() {
+        let data = vec![0x41u8; 64 * 3 + 10];
+        let file = w.pack(&data);
+        let c = format::parse(&file).unwrap();
+        // Swap the first two (equal-length) chunk records and re-serialize.
+        let mut wtr = format::Writer::new(Vec::new(), c.prelude.suite_id, &c.header).unwrap();
+        let order = [1usize, 0, 2, 3];
+        for &i in &order {
+            let (info, ct) = &c.chunks[i];
+            wtr.write_chunk(info.is_final, ct).unwrap();
+        }
+        let swapped = wtr.finish(&c.trailer).unwrap();
+        assert!(verify(Cursor::new(&swapped), &w.trust).is_err());
     }
-    let swapped = wtr.finish(&c.trailer).unwrap();
-    assert!(verify(Cursor::new(&swapped), &w.trust).is_err());
 }
 
 #[test]
 fn untrusted_or_impersonating_sender_rejected() {
-    let mut w = World::new();
-    let mallory = SigningKey::from_bytes(&w.mallory_sign.to_bytes());
-    // Mallory signs with her own key but claims to be Acme.
-    let forged = w.pack_with(&mallory, "acme-security", SECRET, 64);
-    assert!(matches!(
-        verify(Cursor::new(&forged), &w.trust),
-        Err(CoreError::UntrustedSender { .. })
-    ));
-    // Mallory's key trusted for a different org is still not Acme.
-    let mut t = w.trust.clone();
-    t.add(id("mallory-inc"), mallory.verifying_key());
-    assert!(matches!(
-        verify(Cursor::new(&forged), &t),
-        Err(CoreError::UntrustedSender { .. })
-    ));
+    for mut w in World::both() {
+        let mallory = World::copy(&w.mallory_sign);
+        // Mallory signs with her own key but claims to be Acme.
+        let forged = w.pack_with(&mallory, "acme-security", SECRET, 64);
+        assert!(matches!(
+            verify(Cursor::new(&forged), &w.trust),
+            Err(CoreError::UntrustedSender { .. })
+        ));
+        // Mallory's key trusted for a different org is still not Acme.
+        let mut t = w.trust.clone();
+        t.add(id("mallory-inc"), mallory.verifying_key());
+        assert!(matches!(
+            verify(Cursor::new(&forged), &t),
+            Err(CoreError::UntrustedSender { .. })
+        ));
+    }
 }
 
 #[test]
 fn unsupported_suite_rejected_no_downgrade() {
-    let mut w = World::new();
-    let mut file = w.pack(SECRET);
-    file[10..12].copy_from_slice(&2u16.to_le_bytes());
-    assert!(matches!(
-        verify(Cursor::new(&file), &w.trust),
-        Err(CoreError::Crypto(
-            svx_core::crypto::CryptoError::UnsupportedSuite(2)
-        ))
-    ));
+    for mut w in World::both() {
+        let mut file = w.pack(SECRET);
+        file[10..12].copy_from_slice(&2u16.to_le_bytes());
+        assert!(matches!(
+            verify(Cursor::new(&file), &w.trust),
+            Err(CoreError::Crypto(
+                svx_core::crypto::CryptoError::UnsupportedSuite(2)
+            ))
+        ));
+    }
 }
 
 #[test]
 fn artifact_swapped_between_verify_and_decrypt() {
-    let mut w = World::new();
-    let a = w.pack(SECRET);
-    let b = w.pack(SECRET);
-    let v = verify(Cursor::new(&a), &w.trust).unwrap();
-    let s = v
-        .unwrap_share(EnvelopeRole::Service, &w.service_kem)
-        .unwrap();
-    let r = v
-        .unwrap_share(EnvelopeRole::RecipientOrg, &w.example_kem)
-        .unwrap();
-    let mut out = Vec::new();
-    assert!(matches!(
-        v.decrypt(Cursor::new(&b), &s, &r, &mut out),
-        Err(CoreError::ArtifactChanged)
-    ));
+    for mut w in World::both() {
+        let a = w.pack(SECRET);
+        let b = w.pack(SECRET);
+        let v = verify(Cursor::new(&a), &w.trust).unwrap();
+        let s = v
+            .unwrap_share(EnvelopeRole::Service, &w.service_kem)
+            .unwrap();
+        let r = v
+            .unwrap_share(EnvelopeRole::RecipientOrg, &w.example_kem)
+            .unwrap();
+        let mut out = Vec::new();
+        assert!(matches!(
+            v.decrypt(Cursor::new(&b), &s, &r, &mut out),
+            Err(CoreError::ArtifactChanged)
+        ));
+    }
 }
 
 #[test]
 fn expiry_is_reported() {
-    let mut w = World::new();
-    let file = w.pack(SECRET);
-    let v = verify(Cursor::new(&file), &w.trust).unwrap();
-    assert!(!v.is_expired(1_790_000_001));
-    assert!(v.is_expired(1_790_604_800));
+    for mut w in World::both() {
+        let file = w.pack(SECRET);
+        let v = verify(Cursor::new(&file), &w.trust).unwrap();
+        assert!(!v.is_expired(1_790_000_001));
+        assert!(v.is_expired(1_790_604_800));
+    }
 }
 
 #[test]
 fn length_mismatch_rejected_on_pack() {
-    let mut w = World::new();
-    let req = PackRequest {
-        sender_org: id("acme-security"),
-        signing_key: &w.acme_sign,
-        recipient_org: id("example-corp"),
-        recipient_key: w.example_kem.public_key(),
-        service_id: id("svx.example"),
-        service_key: w.service_kem.public_key(),
-        policy_ref: id("incident-response"),
-        created_at: 1_790_000_000,
-        expires_at: None,
-        chunk_size: None,
-        manifest: Manifest::single_file("x.bin", 5),
-    };
-    assert!(matches!(
-        pack(&req, &b"123"[..], Vec::new(), &mut w.rng),
-        Err(CoreError::LengthMismatch)
-    ));
+    for mut w in World::both() {
+        let req = PackRequest {
+            suite: w.suite,
+            sender_org: id("acme-security"),
+            signing_key: &w.acme_sign,
+            recipient_org: id("example-corp"),
+            recipient_key: w.example_kem.public_key(),
+            service_id: id("svx.example"),
+            service_key: w.service_kem.public_key(),
+            policy_ref: id("incident-response"),
+            created_at: 1_790_000_000,
+            expires_at: None,
+            chunk_size: None,
+            manifest: Manifest::single_file("x.bin", 5),
+        };
+        assert!(matches!(
+            pack(&req, &b"123"[..], Vec::new(), &mut w.rng),
+            Err(CoreError::LengthMismatch)
+        ));
+    }
 }
 
 /// 1 GiB streaming round trip with bounded memory. Run with `--ignored`.
@@ -276,6 +320,7 @@ fn large_streaming_round_trip() {
     let mut w = World::new();
     const LEN: u64 = 1 << 30;
     let req = PackRequest {
+        suite: w.suite,
         sender_org: id("acme-security"),
         signing_key: &w.acme_sign,
         recipient_org: id("example-corp"),
@@ -319,23 +364,126 @@ fn large_streaming_round_trip() {
 
 #[test]
 fn verify_head_without_payload() {
-    let mut w = World::new();
-    let file = w.pack(SECRET);
-    let v = verify(Cursor::new(&file), &w.trust).unwrap();
-    let trailer = v.trailer.encode().unwrap();
-    let head = verify_head(&v.header_region, &trailer, &w.trust).unwrap();
-    assert_eq!(head.header_hash(), v.header_hash());
-    // Service can unwrap its share from the head alone.
-    head.unwrap_share(EnvelopeRole::Service, &w.service_kem)
-        .unwrap();
+    for mut w in World::both() {
+        let file = w.pack(SECRET);
+        let v = verify(Cursor::new(&file), &w.trust).unwrap();
+        let trailer = v.trailer.encode().unwrap();
+        let head = verify_head(&v.header_region, &trailer, &w.trust).unwrap();
+        assert_eq!(head.header_hash(), v.header_hash());
+        // Service can unwrap its share from the head alone.
+        head.unwrap_share(EnvelopeRole::Service, &w.service_kem)
+            .unwrap();
 
-    let mut bad_region = v.header_region.clone();
-    let n = bad_region.len();
-    bad_region[n - 1] ^= 1;
-    assert!(verify_head(&bad_region, &trailer, &w.trust).is_err());
-    let mut bad_trailer = trailer.clone();
-    bad_trailer[10] ^= 1;
-    assert!(verify_head(&v.header_region, &bad_trailer, &w.trust).is_err());
-    assert!(verify_head(&v.header_region[..n - 1], &trailer, &w.trust).is_err());
-    assert!(verify_head(&v.header_region, &trailer, &TrustStore::new()).is_err());
+        let mut bad_region = v.header_region.clone();
+        let n = bad_region.len();
+        bad_region[n - 1] ^= 1;
+        assert!(verify_head(&bad_region, &trailer, &w.trust).is_err());
+        let mut bad_trailer = trailer.clone();
+        bad_trailer[10] ^= 1;
+        assert!(verify_head(&v.header_region, &bad_trailer, &w.trust).is_err());
+        assert!(verify_head(&v.header_region[..n - 1], &trailer, &w.trust).is_err());
+        assert!(verify_head(&v.header_region, &trailer, &TrustStore::new()).is_err());
+    }
+}
+
+#[test]
+fn hybrid_cannot_be_downgraded_or_mixed() {
+    let mut w = World::hybrid();
+    let file = w.pack(SECRET);
+    // Claiming the classical suite in the prelude is refused.
+    let mut down = file.clone();
+    down[10..12].copy_from_slice(&1u16.to_le_bytes());
+    assert!(verify(Cursor::new(&down), &w.trust).is_err());
+    let v = verify(Cursor::new(&file), &w.trust).unwrap();
+    assert_eq!(v.suite, Suite::Svx1H);
+    assert_eq!(v.prelude.minor, 1);
+
+    // Keys of the wrong kind for the requested suite are refused before writing.
+    let classical = World::new();
+    let req = PackRequest {
+        suite: Suite::Svx1H,
+        sender_org: id("acme-security"),
+        signing_key: &classical.acme_sign,
+        recipient_org: id("example-corp"),
+        recipient_key: w.example_kem.public_key(),
+        service_id: id("svx.example"),
+        service_key: w.service_kem.public_key(),
+        policy_ref: id("incident-response"),
+        created_at: 1_790_000_000,
+        expires_at: None,
+        chunk_size: None,
+        manifest: Manifest::single_file("x.bin", 1),
+    };
+    assert!(matches!(
+        pack(&req, &b"1"[..], Vec::new(), &mut w.rng),
+        Err(CoreError::InvalidRequest(_))
+    ));
+    let req = PackRequest {
+        signing_key: &w.acme_sign,
+        recipient_key: classical.example_kem.public_key(),
+        ..req
+    };
+    assert!(matches!(
+        pack(&req, &b"1"[..], Vec::new(), &mut w.rng),
+        Err(CoreError::InvalidRequest(_))
+    ));
+
+    // A classical key can't open a hybrid envelope, even with a matching key ID claim.
+    assert!(
+        v.unwrap_share(EnvelopeRole::Service, &classical.service_kem)
+            .is_err()
+    );
+}
+
+#[test]
+fn hybrid_overhead_is_small() {
+    let mut c = World::new();
+    let mut h = World::hybrid();
+    let extra = h.pack(SECRET).len() - c.pack(SECRET).len();
+    // Two X-Wing envelopes (+2 x 1090 B) and the ML-DSA-65 signature (+3309 B).
+    assert!(extra < 6_000, "{extra}");
+}
+
+#[test]
+fn hybrid_key_files_round_trip() {
+    let mut rng = ChaCha20Rng::from_seed([5; 32]);
+    let dir = tempfile::tempdir().unwrap();
+    let owner = id("acme-security");
+    for (name, sk, kem) in [
+        (
+            "classical",
+            SigningKey::generate(&mut rng),
+            KemSecretKey::generate(&mut rng),
+        ),
+        (
+            "hybrid",
+            SigningKey::generate_hybrid(&mut rng),
+            KemSecretKey::generate_hybrid(&mut rng),
+        ),
+    ] {
+        let prefix = dir.path().join(name);
+        keyfile::write_signing_pair(&prefix, &owner, &sk).unwrap();
+        keyfile::write_kem_pair(&prefix, &owner, &kem).unwrap();
+        let (o, sk2) =
+            keyfile::load_signing_key(&dir.path().join(format!("{name}.sign.key"))).unwrap();
+        assert_eq!(o, owner);
+        assert_eq!(sk2.verifying_key(), sk.verifying_key());
+        let (_, vk) =
+            keyfile::load_verifying_key(&dir.path().join(format!("{name}.sign.pub"))).unwrap();
+        assert_eq!(vk, sk.verifying_key());
+        let (_, k2) =
+            keyfile::load_kem_secret(&dir.path().join(format!("{name}.kem.key"))).unwrap();
+        assert_eq!(k2.public_key(), kem.public_key());
+        let (_, pk) =
+            keyfile::load_kem_public(&dir.path().join(format!("{name}.kem.pub"))).unwrap();
+        assert_eq!(&pk, kem.public_key());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let m = std::fs::metadata(dir.path().join(format!("{name}.sign.key"))).unwrap();
+            assert_eq!(m.permissions().mode() & 0o777, 0o600);
+        }
+    }
+    // A public key file is not accepted as a secret key.
+    assert!(keyfile::load_signing_key(&dir.path().join("hybrid.sign.pub")).is_err());
 }

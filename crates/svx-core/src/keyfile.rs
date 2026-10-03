@@ -4,7 +4,15 @@
 //! {"svx_key":1,"type":"ed25519-public","owner":"acme-security","key_id":"…","key":"…"}
 //! ```
 //!
-//! Types: `ed25519-secret`, `ed25519-public`, `x25519-secret`, `x25519-public`.
+//! Types:
+//!
+//! | Type | Key |
+//! |------|-----|
+//! | `ed25519-secret` / `ed25519-public` | Ed25519 signing key (suite SVX-1) |
+//! | `ed25519-mldsa65-secret` / `ed25519-mldsa65-public` | hybrid Ed25519 + ML-DSA-65 signing key (suite SVX-1H) |
+//! | `x25519-secret` / `x25519-public` | X25519 KEM key (suite SVX-1) |
+//! | `xwing-secret` / `xwing-public` | X-Wing (X25519 + ML-KEM-768) KEM key (suite SVX-1H) |
+//!
 //! Secret files are created with mode 0600 on Unix. In production, long-term
 //! secret keys belong in a KMS/HSM rather than files (`docs/key-hierarchy.md`).
 
@@ -13,7 +21,7 @@ use std::io::Write;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
-use svx_crypto::{KemPublicKey, KemSecretKey, SigningKey, VerifyingKey};
+use svx_crypto::{KemPublicKey, KemSecretKey, KeyKind, SigningKey, VerifyingKey};
 use svx_format::Identifier;
 use zeroize::Zeroizing;
 
@@ -25,16 +33,52 @@ pub enum KeyType {
     Ed25519Secret,
     #[serde(rename = "ed25519-public")]
     Ed25519Public,
+    #[serde(rename = "ed25519-mldsa65-secret")]
+    HybridSigningSecret,
+    #[serde(rename = "ed25519-mldsa65-public")]
+    HybridSigningPublic,
     #[serde(rename = "x25519-secret")]
     X25519Secret,
     #[serde(rename = "x25519-public")]
     X25519Public,
+    #[serde(rename = "xwing-secret")]
+    XWingSecret,
+    #[serde(rename = "xwing-public")]
+    XWingPublic,
 }
 
 impl KeyType {
     #[cfg_attr(not(unix), allow(dead_code))]
     fn is_secret(self) -> bool {
-        matches!(self, KeyType::Ed25519Secret | KeyType::X25519Secret)
+        matches!(
+            self,
+            KeyType::Ed25519Secret
+                | KeyType::HybridSigningSecret
+                | KeyType::X25519Secret
+                | KeyType::XWingSecret
+        )
+    }
+
+    fn kind(self) -> KeyKind {
+        match self {
+            KeyType::Ed25519Secret | KeyType::Ed25519Public => KeyKind::Ed25519Signing,
+            KeyType::HybridSigningSecret | KeyType::HybridSigningPublic => KeyKind::HybridSigning,
+            KeyType::X25519Secret | KeyType::X25519Public => KeyKind::X25519Kem,
+            KeyType::XWingSecret | KeyType::XWingPublic => KeyKind::XWingKem,
+        }
+    }
+
+    fn of(kind: KeyKind, secret: bool) -> KeyType {
+        match (kind, secret) {
+            (KeyKind::Ed25519Signing, true) => KeyType::Ed25519Secret,
+            (KeyKind::Ed25519Signing, false) => KeyType::Ed25519Public,
+            (KeyKind::HybridSigning, true) => KeyType::HybridSigningSecret,
+            (KeyKind::HybridSigning, false) => KeyType::HybridSigningPublic,
+            (KeyKind::X25519Kem, true) => KeyType::X25519Secret,
+            (KeyKind::X25519Kem, false) => KeyType::X25519Public,
+            (KeyKind::XWingKem, true) => KeyType::XWingSecret,
+            (KeyKind::XWingKem, false) => KeyType::XWingPublic,
+        }
     }
 }
 
@@ -55,9 +99,17 @@ impl Drop for KeyFile {
     }
 }
 
-const MAX_KEYFILE_LEN: u64 = 4096;
+/// Large enough for a hybrid public key (1984 bytes, hex encoded).
+const MAX_KEYFILE_LEN: u64 = 8192;
 
-fn read(path: &Path, expected: KeyType) -> Result<(Identifier, Zeroizing<[u8; 32]>, String)> {
+struct Loaded {
+    owner: Identifier,
+    key_type: KeyType,
+    key: Zeroizing<Vec<u8>>,
+    key_id: String,
+}
+
+fn read(path: &Path, accepted: &[KeyType]) -> Result<Loaded> {
     let meta = fs::metadata(path)?;
     if meta.len() > MAX_KEYFILE_LEN {
         return Err(CoreError::KeyFile("file too large".into()));
@@ -70,18 +122,23 @@ fn read(path: &Path, expected: KeyType) -> Result<(Identifier, Zeroizing<[u8; 32
             kf.svx_key
         )));
     }
-    if kf.key_type != expected {
+    if !accepted.contains(&kf.key_type) {
         return Err(CoreError::KeyFile(format!(
-            "expected {expected:?} key, found {:?}",
+            "expected one of {accepted:?}, found {:?}",
             kf.key_type
         )));
     }
     let owner =
         Identifier::new(&kf.owner).map_err(|_| CoreError::KeyFile("invalid owner".into()))?;
-    let mut key = Zeroizing::new([0u8; 32]);
-    hex::decode_to_slice(&kf.key, key.as_mut())
-        .map_err(|_| CoreError::KeyFile("invalid key encoding".into()))?;
-    Ok((owner, key, kf.key_id.clone()))
+    let key = Zeroizing::new(
+        hex::decode(&kf.key).map_err(|_| CoreError::KeyFile("invalid key encoding".into()))?,
+    );
+    Ok(Loaded {
+        owner,
+        key_type: kf.key_type,
+        key,
+        key_id: kf.key_id.clone(),
+    })
 }
 
 fn check_id(stated: &str, actual: &[u8; 16]) -> Result<()> {
@@ -91,12 +148,16 @@ fn check_id(stated: &str, actual: &[u8; 16]) -> Result<()> {
     Ok(())
 }
 
+fn bad_key() -> CoreError {
+    CoreError::KeyFile("invalid key".into())
+}
+
 fn write(
     path: &Path,
     key_type: KeyType,
     owner: &Identifier,
     key_id: &[u8; 16],
-    key: &[u8; 32],
+    key: &[u8],
 ) -> Result<()> {
     let kf = KeyFile {
         svx_key: 1,
@@ -122,32 +183,43 @@ fn write(
     Ok(())
 }
 
+/// Load a signing key (Ed25519 or hybrid Ed25519 + ML-DSA-65).
 pub fn load_signing_key(path: &Path) -> Result<(Identifier, SigningKey)> {
-    let (owner, key, id) = read(path, KeyType::Ed25519Secret)?;
-    let sk = SigningKey::from_bytes(&key);
-    check_id(&id, &sk.verifying_key().key_id())?;
-    Ok((owner, sk))
+    let l = read(
+        path,
+        &[KeyType::Ed25519Secret, KeyType::HybridSigningSecret],
+    )?;
+    let sk = SigningKey::from_secret_bytes(l.key_type.kind(), &l.key).map_err(|_| bad_key())?;
+    check_id(&l.key_id, &sk.verifying_key().key_id())?;
+    Ok((l.owner, sk))
 }
 
+/// Load a verification key (Ed25519 or hybrid).
 pub fn load_verifying_key(path: &Path) -> Result<(Identifier, VerifyingKey)> {
-    let (owner, key, id) = read(path, KeyType::Ed25519Public)?;
-    let vk = VerifyingKey::from_bytes(&key)?;
-    check_id(&id, &vk.key_id())?;
-    Ok((owner, vk))
+    let l = read(
+        path,
+        &[KeyType::Ed25519Public, KeyType::HybridSigningPublic],
+    )?;
+    let vk = VerifyingKey::from_kind_bytes(l.key_type.kind(), &l.key)?;
+    check_id(&l.key_id, &vk.key_id())?;
+    Ok((l.owner, vk))
 }
 
+/// Load a KEM secret key (X25519 or X-Wing).
 pub fn load_kem_secret(path: &Path) -> Result<(Identifier, KemSecretKey)> {
-    let (owner, key, id) = read(path, KeyType::X25519Secret)?;
-    let sk = KemSecretKey::from_bytes(&key)?;
-    check_id(&id, &sk.public_key().key_id())?;
-    Ok((owner, sk))
+    let l = read(path, &[KeyType::X25519Secret, KeyType::XWingSecret])?;
+    let bytes: &[u8; 32] = l.key.as_slice().try_into().map_err(|_| bad_key())?;
+    let sk = KemSecretKey::from_kind_bytes(l.key_type.kind(), bytes)?;
+    check_id(&l.key_id, &sk.public_key().key_id())?;
+    Ok((l.owner, sk))
 }
 
+/// Load a KEM public key (X25519 or X-Wing).
 pub fn load_kem_public(path: &Path) -> Result<(Identifier, KemPublicKey)> {
-    let (owner, key, id) = read(path, KeyType::X25519Public)?;
-    let pk = KemPublicKey::from_bytes(&key)?;
-    check_id(&id, &pk.key_id())?;
-    Ok((owner, pk))
+    let l = read(path, &[KeyType::X25519Public, KeyType::XWingPublic])?;
+    let pk = KemPublicKey::from_kind_bytes(l.key_type.kind(), &l.key)?;
+    check_id(&l.key_id, &pk.key_id())?;
+    Ok((l.owner, pk))
 }
 
 /// Write a signing key pair to `<prefix>.sign.key` (secret) and `<prefix>.sign.pub`.
@@ -155,17 +227,17 @@ pub fn write_signing_pair(prefix: &Path, owner: &Identifier, sk: &SigningKey) ->
     let vk = sk.verifying_key();
     write(
         &with_suffix(prefix, "sign.key"),
-        KeyType::Ed25519Secret,
+        KeyType::of(sk.kind(), true),
         owner,
         &vk.key_id(),
-        &sk.to_bytes(),
+        &sk.to_secret_bytes(),
     )?;
     write(
         &with_suffix(prefix, "sign.pub"),
-        KeyType::Ed25519Public,
+        KeyType::of(vk.kind(), false),
         owner,
         &vk.key_id(),
-        &vk.to_bytes(),
+        &vk.to_vec(),
     )
 }
 
@@ -174,17 +246,17 @@ pub fn write_kem_pair(prefix: &Path, owner: &Identifier, sk: &KemSecretKey) -> R
     let pk = sk.public_key();
     write(
         &with_suffix(prefix, "kem.key"),
-        KeyType::X25519Secret,
+        KeyType::of(sk.kind(), true),
         owner,
         &pk.key_id(),
-        &sk.to_bytes(),
+        sk.to_bytes().as_ref(),
     )?;
     write(
         &with_suffix(prefix, "kem.pub"),
-        KeyType::X25519Public,
+        KeyType::of(pk.kind(), false),
         owner,
         &pk.key_id(),
-        &pk.to_bytes(),
+        &pk.to_vec(),
     )
 }
 
