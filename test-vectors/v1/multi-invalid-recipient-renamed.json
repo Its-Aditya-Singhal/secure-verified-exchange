@@ -1,0 +1,12 @@
+{
+  "derived_from": "multi-valid-two-recipients",
+  "description": "The second entry of the signed recipients list changed (u.…b0b to u.…b0c).",
+  "expected_result": "reject",
+  "file": "multi-invalid-recipient-renamed.svx",
+  "file_sha256": "b1329ad3e16d496ace1047277b47f486c96c7a0544da70d10e0dd8c819fade48",
+  "name": "multi-invalid-recipient-renamed",
+  "reject_stage": "verify",
+  "trusted_senders": [
+    "acme-security"
+  ]
+}

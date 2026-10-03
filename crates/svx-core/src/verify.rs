@@ -190,13 +190,24 @@ fn envelope_context(h: &Header) -> EnvelopeContext<'_> {
 /// Unwrap one key-share envelope from a header that the caller has
 /// authenticated by other means (the recipient key agent authenticates the
 /// header through the service's signed grant, which commits to its hash).
+/// For a recipient, the envelope is the one sealed to `secret` (an artifact
+/// may have several recipients).
 pub fn unwrap_envelope(
     header: &Header,
     role: EnvelopeRole,
     secret: &KemSecretKey,
 ) -> Result<Share> {
-    let env = required_envelope(header, role)?;
-    if env.key_id != secret.public_key().key_id() {
+    let key_id = secret.public_key().key_id();
+    let env = match role {
+        EnvelopeRole::RecipientOrg => {
+            required_envelope(header, role)?;
+            header
+                .recipient_envelope(&key_id)
+                .ok_or(CoreError::WrongKey(role_name(role)))?
+        }
+        EnvelopeRole::Service => required_envelope(header, role)?,
+    };
+    if env.key_id != key_id {
         return Err(CoreError::WrongKey(role_name(role)));
     }
     Ok(open_share(
@@ -237,10 +248,16 @@ impl VerifiedHead {
     /// classical key for older files and a hybrid key for new ones): the
     /// key is chosen by the envelope's key ID.
     pub fn unwrap_share_from(&self, role: EnvelopeRole, ring: &[KemSecretKey]) -> Result<Share> {
-        let env = required_envelope(&self.header, role)?;
+        required_envelope(&self.header, role)?;
         let secret = ring
             .iter()
-            .find(|k| k.public_key().key_id() == env.key_id)
+            .find(|k| {
+                let id = k.public_key().key_id();
+                self.header
+                    .envelopes
+                    .iter()
+                    .any(|e| e.role == role && e.key_id == id)
+            })
             .ok_or(CoreError::WrongKey(role_name(role)))?;
         unwrap_envelope(&self.header, role, secret)
     }

@@ -146,6 +146,7 @@ pub async fn pack(
             signing_key: req.signing_key,
             recipient_org: req.recipient_org,
             recipient_key: &recipient_key,
+            more_recipients: vec![],
             service_id,
             service_key: &service_key,
             policy_ref: req.policy,

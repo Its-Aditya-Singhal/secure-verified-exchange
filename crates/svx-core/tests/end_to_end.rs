@@ -81,6 +81,7 @@ impl World {
             signing_key: signer,
             recipient_org: id("example-corp"),
             recipient_key: self.example_kem.public_key(),
+            more_recipients: vec![],
             service_id: id("svx.example"),
             service_key: self.service_kem.public_key(),
             policy_ref: id("incident-response"),
@@ -297,6 +298,7 @@ fn length_mismatch_rejected_on_pack() {
             signing_key: &w.acme_sign,
             recipient_org: id("example-corp"),
             recipient_key: w.example_kem.public_key(),
+            more_recipients: vec![],
             service_id: id("svx.example"),
             service_key: w.service_kem.public_key(),
             policy_ref: id("incident-response"),
@@ -325,6 +327,7 @@ fn large_streaming_round_trip() {
         signing_key: &w.acme_sign,
         recipient_org: id("example-corp"),
         recipient_key: w.example_kem.public_key(),
+        more_recipients: vec![],
         service_id: id("svx.example"),
         service_key: w.service_kem.public_key(),
         policy_ref: id("incident-response"),
@@ -406,6 +409,7 @@ fn hybrid_cannot_be_downgraded_or_mixed() {
         signing_key: &classical.acme_sign,
         recipient_org: id("example-corp"),
         recipient_key: w.example_kem.public_key(),
+        more_recipients: vec![],
         service_id: id("svx.example"),
         service_key: w.service_kem.public_key(),
         policy_ref: id("incident-response"),
@@ -486,4 +490,56 @@ fn hybrid_key_files_round_trip() {
     }
     // A public key file is not accepted as a secret key.
     assert!(keyfile::load_signing_key(&dir.path().join("hybrid.sign.pub")).is_err());
+}
+
+#[test]
+fn several_recipients_each_open_with_their_own_key() {
+    let mut w = World::hybrid();
+    let bob = KemSecretKey::generate_hybrid(&mut w.rng);
+    let carol = KemSecretKey::generate_hybrid(&mut w.rng);
+    let eve = KemSecretKey::generate_hybrid(&mut w.rng);
+    let signer = World::copy(&w.acme_sign);
+    let req = PackRequest {
+        suite: Suite::Svx1H,
+        sender_org: id("acme-security"),
+        signing_key: &signer,
+        recipient_org: id("example-corp"),
+        recipient_key: w.example_kem.public_key(),
+        more_recipients: vec![
+            (id("u.0000000000000b0b"), bob.public_key()),
+            (id("u.00000000000ca401"), carol.public_key()),
+        ],
+        service_id: id("svx.example"),
+        service_key: w.service_kem.public_key(),
+        policy_ref: id("personal"),
+        created_at: 1_790_000_000,
+        expires_at: None,
+        chunk_size: Some(64),
+        manifest: Manifest::single_file("secret.txt", SECRET.len() as u64),
+    };
+    let mut file = Vec::new();
+    pack(&req, SECRET, &mut file, &mut w.rng).unwrap();
+    let v = verify(Cursor::new(&file), &w.trust).unwrap();
+    assert_eq!(v.prelude.minor, 2);
+    assert_eq!(v.header.all_recipients().len(), 3);
+    let s = v
+        .unwrap_share(EnvelopeRole::Service, &w.service_kem)
+        .unwrap();
+    for k in [&w.example_kem, &bob, &carol] {
+        let r = v.unwrap_share(EnvelopeRole::RecipientOrg, k).unwrap();
+        let mut out = Vec::new();
+        v.decrypt(Cursor::new(&file), &s, &r, &mut out).unwrap();
+        assert_eq!(out, SECRET);
+    }
+    // Someone not named has no envelope.
+    assert!(matches!(
+        v.unwrap_share(EnvelopeRole::RecipientOrg, &eve),
+        Err(CoreError::WrongKey(_))
+    ));
+    // A key ring picks the right envelope.
+    let ring = [eve, carol];
+    assert!(
+        v.unwrap_share_from(EnvelopeRole::RecipientOrg, &ring)
+            .is_ok()
+    );
 }

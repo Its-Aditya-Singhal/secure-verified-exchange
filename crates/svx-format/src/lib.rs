@@ -36,6 +36,9 @@ pub const FORMAT_MAJOR: u8 = 1;
 pub const FORMAT_MINOR: u8 = 0;
 /// Minor format version written for suite `0x0003` (SVX 1.1: envelope layout V2).
 pub const FORMAT_MINOR_HYBRID: u8 = 1;
+/// Minor format version written for multi-recipient artifacts (SVX 1.2:
+/// the critical `recipients` field).
+pub const FORMAT_MINOR_RECIPIENTS: u8 = 2;
 
 /// Suite `0x0001` (SVX-1): envelope layout V1.
 pub const SUITE_ID_SVX1: u16 = 0x0001;
@@ -73,9 +76,11 @@ pub fn check_suite_layout(suite_id: u16, header: &Header) -> Result<()> {
     }
 }
 
-/// The minor version a writer emits for `suite_id`.
-pub fn minor_for_suite(suite_id: u16) -> u8 {
-    if suite_id == SUITE_ID_SVX1H {
+/// The minor version a writer emits for `suite_id` and `header`.
+pub fn minor_for(suite_id: u16, header: &Header) -> u8 {
+    if !header.recipients.is_empty() {
+        FORMAT_MINOR_RECIPIENTS
+    } else if suite_id == SUITE_ID_SVX1H {
         FORMAT_MINOR_HYBRID
     } else {
         FORMAT_MINOR

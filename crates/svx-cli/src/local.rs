@@ -117,6 +117,7 @@ pub fn pack(input: &Path, output: Option<PathBuf>, o: PackOpts) -> Result<ExitCo
         signing_key: &signing_key,
         recipient_org: recipient_org.clone(),
         recipient_key: &recipient_key,
+        more_recipients: vec![],
         service_id: service_id.clone(),
         service_key: &service_key,
         policy_ref: policy_ref.clone(),

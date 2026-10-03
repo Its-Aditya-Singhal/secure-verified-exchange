@@ -9,6 +9,7 @@ fn sample_header() -> Header {
         sender_org: Identifier::new("acme-security").unwrap(),
         sender_key_id: [2; 16],
         recipient_org: Identifier::new("example-corp").unwrap(),
+        recipients: vec![],
         service_id: Identifier::new("svx.example").unwrap(),
         policy_ref: Identifier::new("incident-response").unwrap(),
         chunk_size: 64,
@@ -270,4 +271,110 @@ proptest! {
         let expected = if len == 0 { 1 } else { len.div_ceil(64) };
         prop_assert_eq!(c.chunks.len(), expected);
     }
+}
+
+/// A hybrid header with three recipients (SVX 1.2).
+fn multi_header() -> Header {
+    let mut h = hybrid_header();
+    h.recipients = ["example-corp", "u.0123456789abcdef", "u.fedcba9876543210"]
+        .iter()
+        .map(|s| Identifier::new(s).unwrap())
+        .collect();
+    for (i, k) in [[12u8; 16], [13; 16]].into_iter().enumerate() {
+        h.envelopes.push(KeyEnvelope {
+            role: EnvelopeRole::RecipientOrg,
+            key_id: k,
+            encapped_key: vec![14 + i as u8; HYBRID_ENCAPPED_KEY_LEN],
+            ciphertext: vec![16; 48],
+        });
+    }
+    h
+}
+
+#[test]
+fn multi_recipient_round_trip() {
+    let h = multi_header();
+    let bytes = build_suite(SUITE_ID_SVX1H, &h, 300);
+    let c = parse(&bytes).unwrap();
+    assert_eq!(c.prelude.minor, FORMAT_MINOR_RECIPIENTS);
+    assert_eq!(c.header, h);
+    assert_eq!(c.header.all_recipients().len(), 3);
+    assert_eq!(
+        c.header.recipient_envelope(&[13; 16]).unwrap().encapped_key[0],
+        15
+    );
+    assert!(c.header.recipient_envelope(&[99; 16]).is_none());
+    // Single-recipient headers keep the 1.1 layout and minor version.
+    let single = hybrid_header();
+    assert_eq!(
+        single.all_recipients(),
+        std::slice::from_ref(&single.recipient_org)
+    );
+    assert_eq!(
+        parse(&build_suite(SUITE_ID_SVX1H, &single, 10))
+            .unwrap()
+            .prelude
+            .minor,
+        FORMAT_MINOR_HYBRID
+    );
+}
+
+#[test]
+fn multi_recipient_rules() {
+    let refuse = |h: Header| {
+        assert!(
+            Writer::new(Vec::new(), SUITE_ID_SVX1H, &h).is_err(),
+            "{:?}",
+            h.recipients
+        )
+    };
+    // The first recipient must be recipient_org.
+    let mut h = multi_header();
+    h.recipients.swap(0, 1);
+    refuse(h);
+    // Duplicate recipients.
+    let mut h = multi_header();
+    h.recipients[2] = h.recipients[1].clone();
+    refuse(h);
+    // A recipient without an envelope.
+    let mut h = multi_header();
+    h.envelopes.pop();
+    refuse(h);
+    // Two recipient envelopes for the same key.
+    let mut h = multi_header();
+    let k = h.envelopes[1].key_id;
+    h.envelopes[2].key_id = k;
+    refuse(h);
+    // A second service envelope.
+    let mut h = multi_header();
+    h.envelopes[3].role = EnvelopeRole::Service;
+    refuse(h);
+    // A one-entry list (single recipients use the 1.1 layout).
+    let mut h = hybrid_header();
+    h.recipients = vec![h.recipient_org.clone()];
+    refuse(h);
+    // Classical suite: no recipients list.
+    let mut h = sample_header();
+    h.recipients = multi_header().recipients;
+    h.envelopes.push(KeyEnvelope {
+        role: EnvelopeRole::RecipientOrg,
+        key_id: [12; 16],
+        encapped_key: vec![1; 32],
+        ciphertext: vec![1; 48],
+    });
+    assert!(Writer::new(Vec::new(), SUITE_ID_SVX1, &h).is_err());
+    // Without the list, two recipient envelopes are still refused.
+    let mut h = multi_header();
+    h.recipients.clear();
+    refuse(h);
+}
+
+#[test]
+fn old_readers_refuse_multi_recipient_files() {
+    // The recipients field is critical: a reader that doesn't know tag
+    // 0x800F must refuse the file rather than pick one recipient.
+    let bytes = build_suite(SUITE_ID_SVX1H, &multi_header(), 10);
+    let needle = tags::RECIPIENTS.to_le_bytes();
+    assert!(bytes.windows(2).any(|w| w == needle));
+    assert_ne!(tags::RECIPIENTS & tags::CRITICAL, 0);
 }

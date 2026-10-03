@@ -1,6 +1,6 @@
 # SVX 1.x Container Format Specification
 
-Status: Draft 2. Covers SVX 1.0 and SVX 1.1, which adds the post-quantum hybrid suite `0x0003` (envelope layout V2, §3.2). Cryptographic operations are defined in [`crypto-profile.md`](crypto-profile.md). The key words MUST, MUST NOT, SHOULD and MAY are used as defined in RFC 2119.
+Status: Draft 3. Covers SVX 1.0, SVX 1.1, which adds the post-quantum hybrid suite `0x0003` (envelope layout V2, §3.2), and SVX 1.2, which adds artifacts with several recipients (§3.3). Cryptographic operations are defined in [`crypto-profile.md`](crypto-profile.md). The key words MUST, MUST NOT, SHOULD and MAY are used as defined in RFC 2119.
 
 ## 1. Overview
 
@@ -71,6 +71,7 @@ field = tag (u16) ‖ len (u32) ‖ value (len bytes)
 | `0x800C` | key_envelopes | yes | see §3.1 |
 | `0x800D` | encrypted_manifest | yes | 16 ≤ len ≤ 65 552 bytes (AEAD ciphertext and tag) |
 | `0x800E` | key_envelopes_v2 | (suite `0x0003`) | see §3.2. Since 1.1. |
+| `0x800F` | recipients | no | see §3.3. Since 1.2; suite `0x0003` only. |
 
 Exactly one of `0x800C` and `0x800E` MUST be present: `0x800C` for suite `0x0001`, `0x800E` for suite `0x0003`. Any other combination MUST be rejected (this also stops a suite downgrade, since the prelude is covered by the header hash and the signature).
 
@@ -88,7 +89,7 @@ Roles:
 - `0x01`: Service.
 - `0x02`: RecipientOrg.
 
-Unknown roles MUST be rejected. Each role MUST appear at most once. Both roles MUST be present, and `ct_len` is 48.
+Unknown roles MUST be rejected. Each role MUST appear at most once, except RecipientOrg in an artifact with a recipients list (§3.3). Both roles MUST be present, and `ct_len` is 48.
 
 ### 3.2 Key envelopes, layout V2 (SVX 1.1)
 
@@ -98,6 +99,20 @@ envelope_v2      = role (u8) ‖ key_id (16) ‖ enc_len (u16, 1..=2048) ‖ enc
 ```
 
 Roles and their rules are as in §3.1. For suite `0x0003`, `enc` is an X-Wing ciphertext and `enc_len` MUST be exactly 1120. The tag is critical, so a 1.0 reader rejects 1.1 hybrid files instead of misreading them.
+
+### 3.3 Several recipients (SVX 1.2)
+
+```text
+recipients = count (u8, 2..=15) ‖ { len (u8, 1..=128) ‖ identifier }{count}
+```
+
+An artifact for more than one recipient carries this critical field. Writers MUST set the prelude minor version to 2 and MUST NOT write the field for a single recipient (that is written as in 1.1). When it is present, readers MUST check that:
+
+- the envelope layout is V2 (suite `0x0003`);
+- the identifiers are distinct and the first equals `recipient_org`;
+- there is exactly one Service envelope and exactly `count` RecipientOrg envelopes, with pairwise distinct `key_id`s.
+
+Each RecipientOrg envelope seals the **same** recipient share to a different recipient key; its HPKE `info` (crypto profile) already binds the envelope's `key_id`. A recipient finds its envelope by its own key ID. Because the field is critical and part of the signed header, a 1.1 reader rejects such artifacts, and no recipient can be added or removed without breaking the signature. The managed service releases its share only to an authenticated account named in this list.
 
 ## 4. Identifiers
 
@@ -183,6 +198,7 @@ The reference implementation (`svx-format`, `svx-core`) reports these classes. C
 - valid artifacts, each with a JSON file giving every intermediate value (header hash, payload commitment, signature, test-only shares, plaintext);
 - invalid artifacts, each with the expected rejection stage (`parse` or `verify`);
 - `keys.json` (suite `0x0001`) and `keys-hybrid.json` (suite `0x0003`), which hold **test-only** keys derived from public labels;
-- `hybrid-*` vectors for SVX 1.1 / suite `0x0003`, including a downgrade attempt and tampering with each half of the hybrid signature.
+- `hybrid-*` vectors for SVX 1.1 / suite `0x0003`, including a downgrade attempt and tampering with each half of the hybrid signature;
+- `multi-*` vectors for SVX 1.2: two recipients that each open the file, and a renamed recipient that fails verification.
 
 The vectors are reproducible byte for byte with `cargo run -p svx-testvectors`.

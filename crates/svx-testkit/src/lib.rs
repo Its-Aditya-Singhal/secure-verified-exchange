@@ -447,6 +447,7 @@ impl World {
             signing_key: signer,
             recipient_org: Identifier::new(EXAMPLE).unwrap(),
             recipient_key: recipient,
+            more_recipients: vec![],
             service_id: Identifier::new(SERVICE_ID).unwrap(),
             service_key: &svc,
             policy_ref: Identifier::new(policy).unwrap(),

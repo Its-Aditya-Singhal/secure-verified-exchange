@@ -29,6 +29,9 @@ pub mod tags {
     /// Key envelopes with variable-length encapsulated keys (SVX 1.1,
     /// required by suite `0x0003`).
     pub const KEY_ENVELOPES_V2: u16 = 0x800E;
+    /// Every recipient of a multi-recipient artifact (SVX 1.2, suite
+    /// `0x0003` only): `count (u8) ‖ { len (u8) ‖ identifier }*`.
+    pub const RECIPIENTS: u16 = 0x800F;
 }
 
 /// How the key envelopes are laid out on the wire.
@@ -145,6 +148,10 @@ pub struct Header {
     pub sender_org: Identifier,
     pub sender_key_id: [u8; KEY_ID_LEN],
     pub recipient_org: Identifier,
+    /// Every recipient, in envelope order, for a multi-recipient artifact
+    /// (SVX 1.2): `recipients[0] == recipient_org` and there is one
+    /// recipient envelope per entry. Empty for single-recipient artifacts.
+    pub recipients: Vec<Identifier>,
     pub service_id: Identifier,
     /// Opaque reference to a policy held by the managed service. Never the policy text.
     pub policy_ref: Identifier,
@@ -159,9 +166,28 @@ pub struct Header {
 }
 
 impl Header {
-    /// Look up the envelope for `role`. The parser guarantees at most one per role.
+    /// Look up the envelope for `role`. The parser guarantees exactly one
+    /// service envelope, and one recipient envelope unless the artifact has
+    /// several recipients (then this is the first; see
+    /// [`recipient_envelope`](Self::recipient_envelope)).
     pub fn envelope(&self, role: EnvelopeRole) -> Option<&KeyEnvelope> {
         self.envelopes.iter().find(|e| e.role == role)
+    }
+
+    /// The recipient envelope sealed to the key `key_id`.
+    pub fn recipient_envelope(&self, key_id: &[u8; KEY_ID_LEN]) -> Option<&KeyEnvelope> {
+        self.envelopes
+            .iter()
+            .find(|e| e.role == EnvelopeRole::RecipientOrg && &e.key_id == key_id)
+    }
+
+    /// Every recipient: the `recipients` list, or just `recipient_org`.
+    pub fn all_recipients(&self) -> &[Identifier] {
+        if self.recipients.is_empty() {
+            std::slice::from_ref(&self.recipient_org)
+        } else {
+            &self.recipients
+        }
     }
 
     /// Encode to canonical bytes (fields in ascending tag order).
@@ -200,6 +226,9 @@ impl Header {
         ];
         if let Some(exp) = self.expires_at {
             fields.push((tags::EXPIRES_AT, exp.to_le_bytes().to_vec()));
+        }
+        if !self.recipients.is_empty() {
+            fields.push((tags::RECIPIENTS, encode_recipients(&self.recipients)));
         }
         for u in &self.unknown {
             if u.tag & tags::CRITICAL != 0 {
@@ -251,6 +280,7 @@ impl Header {
         let mut sender_org = None;
         let mut sender_key_id = None;
         let mut recipient_org = None;
+        let mut recipients = Vec::new();
         let mut service_id = None;
         let mut policy_ref = None;
         let mut chunk_size = None;
@@ -329,6 +359,7 @@ impl Header {
                     }
                     encrypted_manifest = Some(value.to_vec());
                 }
+                tags::RECIPIENTS => recipients = decode_recipients(value)?,
                 t if t & tags::CRITICAL != 0 => return Err(FormatError::UnknownCriticalField(t)),
                 t => unknown.push(UnknownField {
                     tag: t,
@@ -344,6 +375,7 @@ impl Header {
             sender_org: sender_org.ok_or(FormatError::MissingField("sender_org"))?,
             sender_key_id: sender_key_id.ok_or(FormatError::MissingField("sender_key_id"))?,
             recipient_org: recipient_org.ok_or(FormatError::MissingField("recipient_org"))?,
+            recipients,
             service_id: service_id.ok_or(FormatError::MissingField("service_id"))?,
             policy_ref: policy_ref.ok_or(FormatError::MissingField("policy_ref"))?,
             chunk_size: chunk_size.ok_or(FormatError::MissingField("chunk_size"))?,
@@ -389,9 +421,14 @@ impl Header {
                 limit: MAX_ENVELOPES as u64,
             });
         }
-        // At most one envelope per role in SVX 1.0.
+        self.check_recipients()?;
         for (i, a) in self.envelopes.iter().enumerate() {
-            if self.envelopes[..i].iter().any(|b| b.role == a.role) {
+            // One envelope per role, except one recipient envelope per
+            // recipient key in a multi-recipient artifact.
+            let dup = self.envelopes[..i].iter().any(|b| {
+                b.role == a.role && (a.role == EnvelopeRole::Service || self.recipients.is_empty())
+            });
+            if dup {
                 return Err(FormatError::Malformed("key envelopes (duplicate role)"));
             }
             if a.ciphertext.is_empty() || a.ciphertext.len() > MAX_ENVELOPE_CT_LEN {
@@ -415,6 +452,87 @@ impl Header {
         }
         Ok(())
     }
+}
+
+impl Header {
+    /// Rules for the `recipients` list (SVX 1.2).
+    fn check_recipients(&self) -> Result<()> {
+        if self.recipients.is_empty() {
+            return Ok(());
+        }
+        if self.envelope_layout != EnvelopeLayout::V2 {
+            return Err(FormatError::Malformed(
+                "recipients list requires key envelope layout V2",
+            ));
+        }
+        // A single recipient is written without the list (canonical form).
+        if self.recipients.len() < 2 {
+            return Err(FormatError::Malformed("recipients (fewer than two)"));
+        }
+        if self.recipients.len() > MAX_RECIPIENTS {
+            return Err(FormatError::LimitExceeded {
+                what: "recipient count",
+                limit: MAX_RECIPIENTS as u64,
+            });
+        }
+        if self.recipients[0] != self.recipient_org {
+            return Err(FormatError::Malformed(
+                "recipients (first entry must be recipient_org)",
+            ));
+        }
+        for (i, r) in self.recipients.iter().enumerate() {
+            if self.recipients[..i].contains(r) {
+                return Err(FormatError::Malformed("recipients (duplicate)"));
+            }
+        }
+        let keys: Vec<_> = self
+            .envelopes
+            .iter()
+            .filter(|e| e.role == EnvelopeRole::RecipientOrg)
+            .map(|e| e.key_id)
+            .collect();
+        if keys.len() != self.recipients.len() {
+            return Err(FormatError::Malformed(
+                "recipients (one recipient envelope per recipient)",
+            ));
+        }
+        for (i, k) in keys.iter().enumerate() {
+            if keys[..i].contains(k) {
+                return Err(FormatError::Malformed(
+                    "recipient envelopes (duplicate key)",
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+fn encode_recipients(ids: &[Identifier]) -> Vec<u8> {
+    let mut out = vec![ids.len() as u8];
+    for id in ids {
+        // Identifiers are at most 128 bytes, so the length fits in a u8.
+        out.push(id.as_str().len() as u8);
+        out.extend_from_slice(id.as_str().as_bytes());
+    }
+    out
+}
+
+fn decode_recipients(value: &[u8]) -> Result<Vec<Identifier>> {
+    let mut c = Cursor::new(value, "recipients");
+    let n = c.u8()? as usize;
+    if !(2..=MAX_RECIPIENTS).contains(&n) {
+        return Err(FormatError::LimitExceeded {
+            what: "recipient count",
+            limit: MAX_RECIPIENTS as u64,
+        });
+    }
+    let mut out = Vec::with_capacity(n);
+    for _ in 0..n {
+        let len = c.u8()? as usize;
+        out.push(Identifier::from_wire(c.take(len)?, "recipients")?);
+    }
+    c.finish()?;
+    Ok(out)
 }
 
 fn fixed<const N: usize>(value: &[u8], what: &'static str) -> Result<[u8; N]> {

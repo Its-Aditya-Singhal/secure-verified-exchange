@@ -12,6 +12,9 @@ pub const MAX_FIELD_LEN: u32 = 256 * 1024;
 pub const MAX_FIELDS: usize = 64;
 /// Maximum number of key envelopes in one artifact.
 pub const MAX_ENVELOPES: usize = 16;
+/// Maximum number of recipients of one artifact (SVX 1.2): one service
+/// envelope plus one recipient envelope each must fit in [`MAX_ENVELOPES`].
+pub const MAX_RECIPIENTS: usize = MAX_ENVELOPES - 1;
 /// Maximum ciphertext length inside a single key envelope.
 pub const MAX_ENVELOPE_CT_LEN: usize = 1024;
 /// Maximum encapsulated-key length in envelope layout V2 (X-Wing needs 1120).

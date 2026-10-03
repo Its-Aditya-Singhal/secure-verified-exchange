@@ -1,0 +1,34 @@
+{
+  "description": "Two recipients (SVX 1.2 recipients list): each opens with its own X-Wing key.",
+  "expected_result": "accept",
+  "file": "multi-valid-two-recipients.svx",
+  "file_sha256": "7ad93029d10263074b52ae29bd846728a3a9496670d7dba571d8dde076be7380",
+  "header": {
+    "format_version": "1.2",
+    "recipient_key_ids": [
+      "fc147f3504aac59ea5a78b2309e8ac7e",
+      "bfb990533d0a53c1aa451012acf2ef71"
+    ],
+    "recipients": [
+      "example-corp",
+      "u.0000000000000b0b"
+    ],
+    "suite_id": 3
+  },
+  "header_hash": "1928fa449a3a33e3ebd0d22ec6a783b46e0d681b1db67f528e6bbec505cedc5a",
+  "name": "multi-valid-two-recipients",
+  "payload_commitment": "845a2caab73d7b3ba085e66048d68ba7713207e4caa19840be3da7429b967aa3",
+  "plaintext_hex": "46494354494f4e414c20544553542044415441202d20696e64696361746f72203230332e302e3131332e37207365656e206f6e20686f737420746573742d30312e6578616d706c652e2054686973206973206e6f742061207265616c2073656372657420616e6420657869737473206f6e6c7920746f2065786572636973652053565820696d706c656d656e746174696f6e732e0a",
+  "rng_seed": "SHA-256(\"multi-valid-two-recipients\")",
+  "second_recipient_test_only": {
+    "key_id": "bfb990533d0a53c1aa451012acf2ef71",
+    "xwing_secret": "2a7949a887032b97ca1d90567fa0a2e5b07bc601e2b2c653a767607b809b7e27"
+  },
+  "shares_test_only": {
+    "recipient": "48f65019726ef379b7fea534e2458e7c2e725b835cd5ab3b0859c445030763be",
+    "service": "af15562279785a54ef14b1304437efb7977411a3cc256536a73d8fc38891b2d3"
+  },
+  "trusted_senders": [
+    "acme-security"
+  ]
+}

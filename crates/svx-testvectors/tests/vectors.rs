@@ -63,6 +63,19 @@ fn committed_vectors_behave_as_declared() {
                 let mut pt = Vec::new();
                 v.decrypt(Cursor::new(&svx), &s, &r, &mut pt).unwrap();
                 assert_eq!(hex::encode(&pt), meta["plaintext_hex"], "{name}");
+                // Multi-recipient vectors: the second recipient opens it too.
+                if let Some(sec) = meta["second_recipient_test_only"]["xwing_secret"].as_str() {
+                    let mut seed = [0u8; 32];
+                    hex::decode_to_slice(sec, &mut seed).unwrap();
+                    let k = svx_core::crypto::KemSecretKey::from_kind_bytes(
+                        svx_core::crypto::KeyKind::XWingKem,
+                        &seed,
+                    )
+                    .unwrap();
+                    let r2 = v.unwrap_share(EnvelopeRole::RecipientOrg, &k).unwrap();
+                    assert_eq!(r2.as_bytes(), r.as_bytes(), "{name}");
+                    assert_eq!(v.prelude.minor, 2, "{name}");
+                }
             }
             "reject" => {
                 let parsed = svx_core::format::parse(&svx);

@@ -249,7 +249,7 @@ impl<W: Write> Writer<W> {
         let hbytes = header.encode()?;
         let prelude = Prelude {
             major: FORMAT_MAJOR,
-            minor: minor_for_suite(suite_id),
+            minor: minor_for(suite_id, header),
             suite_id,
             header_len: hbytes.len() as u32,
         };

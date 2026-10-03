@@ -21,6 +21,9 @@ pub struct PackRequest<'a> {
     pub signing_key: &'a SigningKey,
     pub recipient_org: Identifier,
     pub recipient_key: &'a KemPublicKey,
+    /// Further recipients (SVX 1.2, suite SVX-1H only). Each gets its own
+    /// envelope sealing the same recipient share; empty for one recipient.
+    pub more_recipients: Vec<(Identifier, &'a KemPublicKey)>,
     pub service_id: Identifier,
     pub service_key: &'a KemPublicKey,
     pub policy_ref: Identifier,
@@ -63,6 +66,10 @@ pub fn pack<R: Read, W: Write>(
     if req.signing_key.kind() != suite.signing_kind()
         || req.recipient_key.kind() != suite.kem_kind()
         || req.service_key.kind() != suite.kem_kind()
+        || req
+            .more_recipients
+            .iter()
+            .any(|(_, k)| k.kind() != suite.kem_kind())
     {
         return Err(CoreError::InvalidRequest(format!(
             "keys do not match suite {:#06x} ({})",
@@ -88,15 +95,14 @@ pub fn pack<R: Read, W: Write>(
         recipient_org: &req.recipient_org,
         service_id: &req.service_id,
     };
-    let mut envelopes = Vec::with_capacity(2);
-    for (role, pk, share) in [
-        (EnvelopeRole::Service, req.service_key, &service_share),
-        (
-            EnvelopeRole::RecipientOrg,
-            req.recipient_key,
-            &recipient_share,
-        ),
-    ] {
+    let mut envelopes = Vec::with_capacity(2 + req.more_recipients.len());
+    let recipient_keys = std::iter::once(req.recipient_key)
+        .chain(req.more_recipients.iter().map(|(_, k)| *k))
+        .map(|k| (EnvelopeRole::RecipientOrg, k, &recipient_share));
+    for (role, pk, share) in
+        std::iter::once((EnvelopeRole::Service, req.service_key, &service_share))
+            .chain(recipient_keys)
+    {
         let (encapped_key, ciphertext) = seal_share(suite, role, pk, &ctx, share, rng)?;
         envelopes.push(KeyEnvelope {
             role,
@@ -115,6 +121,13 @@ pub fn pack<R: Read, W: Write>(
         sender_org: req.sender_org.clone(),
         sender_key_id,
         recipient_org: req.recipient_org.clone(),
+        recipients: if req.more_recipients.is_empty() {
+            Vec::new()
+        } else {
+            std::iter::once(req.recipient_org.clone())
+                .chain(req.more_recipients.iter().map(|(id, _)| id.clone()))
+                .collect()
+        },
         service_id: req.service_id.clone(),
         policy_ref: req.policy_ref.clone(),
         chunk_size,
