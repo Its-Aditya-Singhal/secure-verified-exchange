@@ -6,11 +6,12 @@ use std::process::ExitCode;
 
 use anyhow::{Context, Result, anyhow, bail};
 use svx_client::account::{self, LoginMethod};
-use svx_client::config::{Paths, parse_registry_key};
+use svx_client::config::Paths;
 use svx_client::login::{Authenticator, print_url, system_browser};
 use svx_client::pack::ManagedPack;
 use svx_client::registry::Registry;
 use svx_client::session::{self, Session};
+use svx_client::setup::{self, SetupRequest};
 use svx_client::{ClientConfig, ClientError, Output, Step, admin};
 use svx_core::format::Identifier;
 use svx_core::keyfile;
@@ -97,42 +98,24 @@ pub async fn init(config: Option<&Path>, a: InitArgs) -> Result<ExitCode> {
             paths.config.display()
         );
     }
-    let key = parse_registry_key(&a.registry_key)?;
-    let client = ManagedClient::new(a.dev)?;
-    svx_protocol::check_url(&a.service, a.dev).map_err(|e| anyhow!("{e}"))?;
-    // Both lookups verify signatures with the pinned key: a wrong pin fails here.
-    let service = client
-        .service_record(&a.service, &key)
-        .await
-        .map_err(ClientError::from)
-        .context("verifying the service record with the given registry key")?;
-    let org = client
-        .org_record(&a.service, &a.org, &key)
-        .await
-        .map_err(ClientError::from)
-        .with_context(|| format!("fetching the verified registry record for {}", a.org))?;
-    let cfg = ClientConfig {
+    let p = setup::verify(SetupRequest {
         service_url: a.service,
-        registry_key: hex::encode(key.to_bytes()),
+        registry_key: a.registry_key,
         org_id: a.org,
-        idp_issuer: org.idp_issuer.clone(),
         idp_client_id: a.client_id,
-        group_claim: "groups".into(),
         dev: a.dev,
         default_output_dir: a.output_dir,
-    };
-    cfg.save(&paths.config)?;
+    })
+    .await?;
+    setup::write(&paths, &p.config, a.force)?;
     println!("Wrote {}", paths.config.display());
-    println!(
-        "Service:       {} ({})",
-        service.service_id, cfg.service_url
-    );
-    println!("Organization:  {} — {}", org.org_id, org.display_name);
-    println!("Identity:      {}", org.idp_issuer);
-    if org.key_agent_url.is_none() {
+    println!("Service:       {} ({})", p.service_id, p.service_url);
+    println!("Organization:  {} — {}", p.org_id, p.org_display_name);
+    println!("Identity:      {}", p.idp_issuer);
+    if !p.can_receive {
         println!(
             "Note: {} has no key agent, so it can send but not receive artifacts.",
-            org.org_id
+            p.org_id
         );
     }
     Ok(ExitCode::SUCCESS)

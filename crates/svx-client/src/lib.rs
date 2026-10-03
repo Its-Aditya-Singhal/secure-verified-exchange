@@ -14,6 +14,7 @@
 //! * [`account`] — login method, admin session, `whoami`.
 //! * [`info`] — inspect, verify and status without key release.
 //! * [`keys`] — key file generation.
+//! * [`setup`] — first-run setup verified against the pinned registry key.
 
 #![forbid(unsafe_code)]
 
@@ -29,6 +30,7 @@ mod open;
 pub mod pack;
 pub mod registry;
 pub mod session;
+pub mod setup;
 
 pub use client::{Client, PackOptions, PackResult};
 pub use config::ClientConfig;
