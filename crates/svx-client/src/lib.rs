@@ -15,7 +15,10 @@
 //! * [`account`] — login method, admin session, `whoami`.
 //! * [`info`] — inspect, verify and status without key release.
 //! * [`keys`] — key file generation.
+//! * [`keyadmin`] — creating, activating and retiring organization keys.
+//! * [`keystore`] — signing keys in a file or the OS keychain.
 //! * [`setup`] — first-run setup verified against the pinned registry key.
+//! * [`onboard`] — signing up a new organization.
 
 #![forbid(unsafe_code)]
 
@@ -26,8 +29,11 @@ pub mod config;
 mod error;
 pub mod folder;
 pub mod info;
+pub mod keyadmin;
 pub mod keys;
+pub mod keystore;
 pub mod login;
+pub mod onboard;
 mod open;
 pub mod pack;
 pub mod registry;

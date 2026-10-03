@@ -233,7 +233,7 @@ impl NativeClient {
                 input,
                 output,
                 overwrite,
-                signing_key,
+                signing_key: signing_key.into(),
                 recipient,
                 policy,
                 expires_at,

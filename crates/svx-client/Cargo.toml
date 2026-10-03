@@ -23,8 +23,15 @@ tokio = { version = "1", features = ["net", "io-util", "time", "rt", "macros"] }
 toml = "1"
 url = "2"
 webbrowser = "1"
+zeroize = "1"
+# OS keychain for signing keys (macOS Keychain, Windows Credential Manager,
+# Linux Secret Service over pure-Rust D-Bus). Enabled by the desktop app.
+keyring = { version = "4", optional = true }
 # Folders: deflate only, no other codecs or encryption.
 zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[features]
+keychain = ["dep:keyring"]
 
 [dev-dependencies]
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }

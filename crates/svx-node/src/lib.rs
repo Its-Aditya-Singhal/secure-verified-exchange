@@ -259,7 +259,7 @@ impl NativeClient {
                 input: o.input.into(),
                 output: o.output.map(PathBuf::from),
                 overwrite: o.overwrite.unwrap_or(false),
-                signing_key: o.signing_key.into(),
+                signing_key: PathBuf::from(o.signing_key).into(),
                 recipient: o.recipient,
                 policy: o.policy,
                 expires_at: o.expires_at,

@@ -26,6 +26,9 @@ pub enum ClientError {
     NotLoggedIn,
     #[error("{} already exists (use --overwrite or choose another directory)", .0.display())]
     OutputExists(PathBuf),
+    /// The service refused an administrative request and said why.
+    #[error("{0}")]
+    Invalid(String),
     #[error("{0}")]
     Other(String),
 }
@@ -45,6 +48,7 @@ pub enum ErrorKind {
     Login,
     NotLoggedIn,
     OutputExists,
+    Invalid,
     Other,
 }
 
@@ -61,6 +65,7 @@ impl ErrorKind {
             ErrorKind::Login => "login",
             ErrorKind::NotLoggedIn => "not_logged_in",
             ErrorKind::OutputExists => "output_exists",
+            ErrorKind::Invalid => "invalid",
             ErrorKind::Other => "other",
         }
     }
@@ -79,6 +84,7 @@ impl ClientError {
             ClientError::Login(_) => ErrorKind::Login,
             ClientError::NotLoggedIn => ErrorKind::NotLoggedIn,
             ClientError::OutputExists(_) => ErrorKind::OutputExists,
+            ClientError::Invalid(_) => ErrorKind::Invalid,
             ClientError::Other(_) => ErrorKind::Other,
         }
     }
@@ -117,6 +123,7 @@ impl From<ProtocolError> for ClientError {
                 ClientError::Unavailable("service reported unavailable".into())
             }
             ProtocolError::Denied(r) => ClientError::Denied(r),
+            ProtocolError::Invalid(d) => ClientError::Invalid(d),
             ProtocolError::Http(e) => ClientError::Unavailable(e.to_string()),
             ProtocolError::Status(s) if s >= 500 => ClientError::Unavailable(format!("HTTP {s}")),
             ProtocolError::InsecureUrl(u) => ClientError::Config(format!("insecure URL {u}")),

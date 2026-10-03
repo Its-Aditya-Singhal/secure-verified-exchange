@@ -4,25 +4,28 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use serde::Serialize;
 use svx_core::format::Identifier;
-use svx_core::keyfile;
-use svx_protocol::admin::AuditPage;
-use svx_protocol::{ManagedClient, OrgRecord, Policy};
+use svx_protocol::admin::{AuditPage, OrgOverview, UpdateOrgRequest};
+use svx_protocol::{AgentKeys, KeyEntry, KeyStatus, ManagedClient, OrgRecord, Policy};
 
 use crate::account::{self, LoginMethod, WhoAmI};
 use crate::config::{ClientConfig, Paths, default_open_dir};
 use crate::error::{ClientError, Result};
+use crate::keystore::{KeyRef, SecretStore};
 use crate::open::{OpenOutcome, Output, Step};
 use crate::pack::ManagedPack;
 use crate::registry::Registry;
-use crate::{admin, info, session};
+use crate::{admin, info, keyadmin, session};
 
 pub struct Client {
     pub paths: Paths,
     pub cfg: ClientConfig,
     pub http: ManagedClient,
+    /// Where keychain signing keys live (the OS keychain by default).
+    pub secrets: Arc<dyn SecretStore>,
 }
 
 /// Options for [`Client::pack`].
@@ -32,8 +35,9 @@ pub struct PackOptions {
     /// Default: `input` with the extension `.svx` (`<folder>.svx` for a folder).
     pub output: Option<PathBuf>,
     pub overwrite: bool,
-    /// `*.sign.key` file of the sending organization.
-    pub signing_key: PathBuf,
+    /// The sending organization's signing key: a `*.sign.key` file or a
+    /// keychain key.
+    pub signing_key: KeyRef,
     pub recipient: String,
     pub policy: String,
     pub expires_at: Option<i64>,
@@ -72,7 +76,18 @@ impl Client {
     pub fn with_config(paths: Paths, cfg: ClientConfig) -> Result<Client> {
         cfg.validate()?;
         let http = ManagedClient::new(cfg.dev)?;
-        Ok(Client { paths, cfg, http })
+        Ok(Client {
+            paths,
+            cfg,
+            http,
+            secrets: crate::keystore::os_keychain(),
+        })
+    }
+
+    /// Use another secret store for keychain keys (tests).
+    pub fn with_secret_store(mut self, secrets: Arc<dyn SecretStore>) -> Self {
+        self.secrets = secrets;
+        self
     }
 
     pub async fn status(&self, path: &Path) -> Result<info::Status> {
@@ -103,8 +118,8 @@ impl Client {
     }
 
     pub async fn pack(&self, o: PackOptions) -> Result<PackResult> {
-        let (sender_org, signing_key) = keyfile::load_signing_key(&o.signing_key)
-            .map_err(|e| ClientError::Config(format!("loading signing key: {e}")))?;
+        let (sender_org, signing_key) =
+            crate::keystore::load_signing(self.secrets.as_ref(), &o.signing_key)?;
         let input = crate::pack::prepare_input(&o.input, o.name)?;
         let output = o.output.unwrap_or_else(|| input.default_output.clone());
         let id = |s: &str, what: &str| {
@@ -192,6 +207,75 @@ impl Client {
     pub async fn audit(&self, limit: u32) -> Result<AuditPage> {
         let bearer = account::bearer(&self.paths.session)?;
         admin::audit(&self.cfg, &self.http, &bearer, limit).await
+    }
+
+    pub async fn audit_page(&self, q: &admin::AuditQuery) -> Result<AuditPage> {
+        let bearer = account::bearer(&self.paths.session)?;
+        admin::audit_page(&self.cfg, &self.http, &bearer, q).await
+    }
+
+    /// Settings, administrators and keys of this organization. Admin.
+    pub async fn org_overview(&self) -> Result<OrgOverview> {
+        let bearer = account::bearer(&self.paths.session)?;
+        admin::overview(&self.cfg, &self.http, &bearer).await
+    }
+
+    pub async fn update_org(&self, req: &UpdateOrgRequest) -> Result<()> {
+        let bearer = account::bearer(&self.paths.session)?;
+        admin::update_org(&self.cfg, &self.http, &bearer, req).await
+    }
+
+    pub async fn add_admin(&self, subject: &str) -> Result<()> {
+        let subject = subject.trim();
+        if subject.is_empty() {
+            return Err(ClientError::Config("enter the person's user ID".into()));
+        }
+        let bearer = account::bearer(&self.paths.session)?;
+        admin::add_admin(&self.cfg, &self.http, &bearer, subject).await
+    }
+
+    pub async fn remove_admin(&self, subject: &str) -> Result<()> {
+        let bearer = account::bearer(&self.paths.session)?;
+        admin::remove_admin(&self.cfg, &self.http, &bearer, subject).await
+    }
+
+    pub async fn delete_policy(&self, name: &str) -> Result<()> {
+        let bearer = account::bearer(&self.paths.session)?;
+        admin::delete_policy(&self.cfg, &self.http, &bearer, name).await
+    }
+
+    /// Create this computer's signing key in the keychain and register it.
+    pub async fn create_signing_key(&self) -> Result<keyadmin::NewSigningKey> {
+        let bearer = account::bearer(&self.paths.session)?;
+        keyadmin::create_signing_key(&self.cfg, &self.http, &bearer, self.secrets.as_ref()).await
+    }
+
+    pub async fn register_signing_public(&self, path: &Path) -> Result<KeyEntry> {
+        let bearer = account::bearer(&self.paths.session)?;
+        keyadmin::register_signing_public(&self.cfg, &self.http, &bearer, path).await
+    }
+
+    pub fn export_encryption_key(&self, dir: &Path) -> Result<keyadmin::ExportedKemKey> {
+        keyadmin::export_encryption_key(&self.cfg, dir)
+    }
+
+    pub async fn activate_encryption_key(&self, public_file: &Path) -> Result<KeyEntry> {
+        let bearer = account::bearer(&self.paths.session)?;
+        keyadmin::activate_encryption_key(&self.cfg, &self.http, &bearer, public_file).await
+    }
+
+    pub async fn set_key_status(&self, key_id: &str, status: KeyStatus) -> Result<KeyEntry> {
+        let bearer = account::bearer(&self.paths.session)?;
+        keyadmin::set_key_status(&self.cfg, &self.http, &bearer, key_id, status).await
+    }
+
+    pub fn import_signing_key(&self, path: &Path) -> Result<keyadmin::NewSigningKey> {
+        keyadmin::import_signing_key(&self.cfg, self.secrets.as_ref(), path)
+    }
+
+    /// The keys the organization's key agent holds (public; no login).
+    pub async fn agent_keys(&self, agent_url: &str) -> Result<AgentKeys> {
+        admin::agent_keys(&self.http, agent_url).await
     }
 
     /// The registry record of `org`, verified with the pinned key.

@@ -82,8 +82,19 @@ pub async fn login(
     // A fresh random nonce prevents replaying an older token into this login.
     let nonce = hex::encode(svx_core::crypto::random_bytes::<16>());
     let token = auth.id_token(&nonce).await?;
+    save_session(cfg, token, &nonce, session_path).await
+}
+
+/// Validate a freshly obtained ID token (issued for `nonce`) and cache it as
+/// the admin session.
+pub(crate) async fn save_session(
+    cfg: &ClientConfig,
+    token: String,
+    nonce: &str,
+    session_path: &Path,
+) -> Result<WhoAmI> {
     let id = validator(cfg)?
-        .validate(&cfg.issuer_config(), &token, Some(&nonce))
+        .validate(&cfg.issuer_config(), &token, Some(nonce))
         .await
         .map_err(|e| ClientError::Login(format!("the IdP returned an invalid token: {e}")))?;
     let exp =

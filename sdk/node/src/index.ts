@@ -37,6 +37,7 @@ export type ErrorKind =
   | "login"
   | "not_logged_in"
   | "output_exists"
+  | "invalid"
   | "other";
 
 /** Coarse reason reported by the service for {@link AccessDeniedError}. */
@@ -257,7 +258,7 @@ export interface AuditPage {
 
 export interface KeyEntry {
   key_id: string;
-  kind: "ed25519" | "x25519";
+  kind: "ed25519-mldsa65" | "xwing" | "ed25519" | "x25519";
   public_key: string;
   status: "active" | "retired" | "revoked";
 }
