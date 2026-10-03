@@ -1,21 +1,19 @@
 //! HPKE key envelopes.
 //!
 //! Each share is sealed with RFC 9180 single-shot HPKE (base mode) to one
-//! party's X25519 key. The HPKE `info` string binds the envelope to the
+//! party's KEM key: X25519 in suite SVX-1, X-Wing (X25519 + ML-KEM-768) in
+//! suite SVX-1H. The HPKE `info` string binds the envelope to the suite, the
 //! artifact, both organizations, the sender's signing key, the service and
 //! the envelope's role, so an envelope lifted into a different artifact, or
-//! presented for a different role, fails to open.
+//! presented for a different role or suite, fails to open.
 
-use hpke::{Deserializable, OpModeR, OpModeS, Serializable};
 use svx_format::{EnvelopeRole, Identifier};
 
 use crate::SEALED_SHARE_LEN;
 use crate::error::{CryptoError, Result};
-use crate::keys::{HpkeKem, KemPublicKey, KemSecretKey};
+use crate::keys::{KemPublicKey, KemSecretKey, hpke_ops};
 use crate::schedule::Share;
-
-type HpkeAead = hpke::aead::ChaCha20Poly1305;
-type HpkeKdf = hpke::kdf::HkdfSha256;
+use crate::suite::Suite;
 
 /// Header fields every envelope is bound to.
 #[derive(Clone, Debug)]
@@ -28,12 +26,11 @@ pub struct EnvelopeContext<'a> {
 }
 
 impl EnvelopeContext<'_> {
-    /// `"SVX-1 envelope\0" ‖ role ‖ artifact_id ‖ sender_key_id ‖ key_id
+    /// `"<suite> envelope\0" ‖ role ‖ artifact_id ‖ sender_key_id ‖ key_id
     ///  ‖ lp(sender_org) ‖ lp(recipient_org) ‖ lp(service_id)`
     /// where `lp(x) = u8(len(x)) ‖ x`.
-    fn info(&self, role: EnvelopeRole, key_id: &[u8; 16]) -> Vec<u8> {
-        let mut v = Vec::with_capacity(512);
-        v.extend_from_slice(b"SVX-1 envelope\0");
+    fn info(&self, suite: Suite, role: EnvelopeRole, key_id: &[u8; 16]) -> Vec<u8> {
+        let mut v = suite.label("envelope");
         v.push(role.to_byte());
         v.extend_from_slice(self.artifact_id);
         v.extend_from_slice(self.sender_key_id);
@@ -47,54 +44,40 @@ impl EnvelopeContext<'_> {
     }
 }
 
-/// Seal `share` to `recipient`. Returns `(encapsulated_key, ciphertext)`.
+/// Seal `share` to `recipient`, whose key kind must match `suite`.
+/// Returns `(encapsulated_key, ciphertext)`.
 pub fn seal_share(
+    suite: Suite,
     role: EnvelopeRole,
     recipient: &KemPublicKey,
     ctx: &EnvelopeContext<'_>,
     share: &Share,
     rng: &mut impl rand_core::CryptoRng,
-) -> Result<([u8; 32], Vec<u8>)> {
-    let info = ctx.info(role, &recipient.key_id());
-    let (enc, ct) = hpke::single_shot_seal_with_rng::<HpkeAead, HpkeKdf, HpkeKem>(
-        &OpModeS::Base,
-        recipient.inner(),
-        &info,
-        share.as_bytes(),
-        b"",
-        rng,
-    )
-    .map_err(|_| CryptoError::Encryption)?;
-    let mut enc_bytes = [0u8; 32];
-    enc_bytes.copy_from_slice(&enc.to_bytes());
-    Ok((enc_bytes, ct))
+) -> Result<(Vec<u8>, Vec<u8>)> {
+    if recipient.kind() != suite.kem_kind() {
+        return Err(CryptoError::InvalidKey);
+    }
+    let info = ctx.info(suite, role, &recipient.key_id());
+    hpke_ops::seal(recipient, &info, share.as_bytes(), rng)
 }
 
 /// Open an envelope with the holder's secret key.
 pub fn open_share(
+    suite: Suite,
     role: EnvelopeRole,
     secret: &KemSecretKey,
     ctx: &EnvelopeContext<'_>,
-    encapped_key: &[u8; 32],
+    encapped_key: &[u8],
     ciphertext: &[u8],
 ) -> Result<Share> {
-    if ciphertext.len() != SEALED_SHARE_LEN {
+    if secret.kind() != suite.kem_kind()
+        || encapped_key.len() != suite.enc_len()
+        || ciphertext.len() != SEALED_SHARE_LEN
+    {
         return Err(CryptoError::EnvelopeOpen);
     }
-    let info = ctx.info(role, &secret.public_key().key_id());
-    let enc = <HpkeKem as hpke::Kem>::EncappedKey::from_bytes(encapped_key)
-        .map_err(|_| CryptoError::EnvelopeOpen)?;
-    let pt = zeroize::Zeroizing::new(
-        hpke::single_shot_open::<HpkeAead, HpkeKdf, HpkeKem>(
-            &OpModeR::Base,
-            secret.inner(),
-            &enc,
-            &info,
-            ciphertext,
-            b"",
-        )
-        .map_err(|_| CryptoError::EnvelopeOpen)?,
-    );
+    let info = ctx.info(suite, role, &secret.public_key().key_id());
+    let pt = hpke_ops::open(secret, encapped_key, &info, ciphertext)?;
     let arr: [u8; 32] = pt
         .as_slice()
         .try_into()

@@ -3,7 +3,9 @@
 //! ```text
 //! header_hash        = SHA-256("SVX-1 header\0"  ‖ prelude ‖ header)
 //! payload_commitment = SHA-256("SVX-1 payload\0" ‖ header_hash ‖ Σ (flag ‖ LE32(ct_len) ‖ ct_i))
-//! signature          = Ed25519(sender, "SVX-1 signature\0" ‖ header_hash ‖ LE64(chunk_count) ‖ payload_commitment)
+//! message            = "<suite> signature\0" ‖ header_hash ‖ LE64(chunk_count) ‖ payload_commitment
+//! signature          = Ed25519(message)                       (SVX-1)
+//!                    | Ed25519(message) ‖ ML-DSA-65(message)  (SVX-1H, both required)
 //! ```
 
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
@@ -11,10 +13,10 @@ use chacha20poly1305::{ChaCha20Poly1305, Nonce};
 use sha2::{Digest, Sha256};
 use svx_format::ChunkInfo;
 
-use crate::SIG_ALG_ED25519;
 use crate::error::{CryptoError, Result};
 use crate::keys::{SigningKey, VerifyingKey};
 use crate::schedule::ArtifactKeys;
+use crate::suite::Suite;
 
 /// SHA-256 over the prelude and header bytes, domain separated.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,31 +64,40 @@ impl PayloadHasher {
 
 /// The exact message the sender signs.
 pub fn signature_message(
+    suite: Suite,
     header_hash: &HeaderHash,
     chunk_count: u64,
     commitment: &[u8; 32],
 ) -> Vec<u8> {
-    let mut m = Vec::with_capacity(16 + 32 + 8 + 32);
-    m.extend_from_slice(b"SVX-1 signature\0");
+    let mut m = suite.label("signature");
     m.extend_from_slice(header_hash.as_bytes());
     m.extend_from_slice(&chunk_count.to_le_bytes());
     m.extend_from_slice(commitment);
     m
 }
 
-/// Sign the transcript. Returns `(sig_alg, signature)`.
+/// Sign the transcript with a key of the suite's signing kind. Returns
+/// `(sig_alg, signature)`. `rng` hedges the ML-DSA half (SVX-1H).
 pub fn sign_transcript(
+    suite: Suite,
     key: &SigningKey,
     header_hash: &HeaderHash,
     chunk_count: u64,
     commitment: &[u8; 32],
-) -> (u16, Vec<u8>) {
-    let msg = signature_message(header_hash, chunk_count, commitment);
-    (SIG_ALG_ED25519, key.sign_raw(&msg).to_vec())
+    rng: &mut impl rand_core::CryptoRng,
+) -> Result<(u16, Vec<u8>)> {
+    if key.kind() != suite.signing_kind() {
+        return Err(CryptoError::InvalidKey);
+    }
+    let msg = signature_message(suite, header_hash, chunk_count, commitment);
+    Ok((suite.sig_alg(), key.sign_raw(&msg, rng)?))
 }
 
-/// Verify the transcript signature (strict Ed25519 verification).
+/// Verify the transcript signature: strict Ed25519 (SVX-1), or strict
+/// Ed25519 **and** ML-DSA-65 (SVX-1H). The key kind and `sig_alg` must both
+/// match the suite.
 pub fn verify_transcript(
+    suite: Suite,
     key: &VerifyingKey,
     header_hash: &HeaderHash,
     chunk_count: u64,
@@ -94,11 +105,14 @@ pub fn verify_transcript(
     sig_alg: u16,
     signature: &[u8],
 ) -> Result<()> {
-    if sig_alg != SIG_ALG_ED25519 {
+    if sig_alg != suite.sig_alg() {
         return Err(CryptoError::UnsupportedSignatureAlgorithm(sig_alg));
     }
+    if key.kind() != suite.signing_kind() {
+        return Err(CryptoError::BadSignature);
+    }
     key.verify_raw(
-        &signature_message(header_hash, chunk_count, commitment),
+        &signature_message(suite, header_hash, chunk_count, commitment),
         signature,
     )
 }

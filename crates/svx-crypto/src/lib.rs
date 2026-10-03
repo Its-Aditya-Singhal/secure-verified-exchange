@@ -5,13 +5,14 @@
 //! | Purpose            | Primitive                                              |
 //! |--------------------|--------------------------------------------------------|
 //! | Payload / manifest | ChaCha20-Poly1305 (RFC 8439) in the STREAM construction |
-//! | Key envelopes      | HPKE base mode (RFC 9180): DHKEM(X25519, HKDF-SHA256), HKDF-SHA256, ChaCha20-Poly1305 |
+//! | Key envelopes      | HPKE base mode (RFC 9180) with HKDF-SHA256 and ChaCha20-Poly1305; KEM DHKEM(X25519) (SVX-1) or X-Wing = X25519 + ML-KEM-768 (SVX-1H) |
 //! | Key schedule       | HKDF-SHA256 (RFC 5869)                                 |
-//! | Signatures         | Ed25519 (RFC 8032), strict verification                |
+//! | Signatures         | Ed25519 (RFC 8032), strict verification; SVX-1H adds ML-DSA-65 (FIPS 204), both required |
 //! | Hashing            | SHA-256                                                |
 //!
-//! There is exactly one suite in SVX 1.0. A container naming any other suite
-//! is rejected; there is no negotiation and therefore no downgrade path.
+//! Two suites exist (see [`Suite`]): SVX-1 and the post-quantum hybrid
+//! SVX-1H. A container naming any other suite is rejected; there is no
+//! negotiation, and the suite is bound into every label and the header hash.
 //!
 //! The public API exposes purpose-built operations (seal a share, encrypt a
 //! chunk, sign a transcript) rather than raw primitives, and every secret
@@ -26,15 +27,21 @@ mod keys;
 mod release;
 mod schedule;
 mod stream;
+mod suite;
 mod transcript;
 
 pub use context::{SignContext, sign_context, verify_context};
 pub use envelope::{EnvelopeContext, open_share, seal_share};
 pub use error::{CryptoError, Result};
-pub use keys::{KemPublicKey, KemSecretKey, KeyKind, SigningKey, VerifyingKey, key_id};
+pub use keys::{
+    ED25519_SIG_LEN, HYBRID_PUBLIC_LEN, HYBRID_SIG_LEN, KemPublicKey, KemSecretKey, KeyKind,
+    MLDSA65_PUBLIC_LEN, MLDSA65_SIG_LEN, SigningKey, VerifyingKey, X25519_PUBLIC_LEN,
+    XWING_ENC_LEN, XWING_PUBLIC_LEN, key_id,
+};
 pub use release::{TXN_LEN, nonce_binding, open_released_share, seal_released_share};
 pub use schedule::{ArtifactKeys, Share};
 pub use stream::{StreamDecryptor, StreamEncryptor};
+pub use suite::{SIG_ALG_ED25519, SIG_ALG_ED25519_MLDSA65, SUITE_SVX1, SUITE_SVX1H, Suite};
 pub use transcript::{
     HeaderHash, PayloadHasher, header_hash, open_manifest, seal_manifest, sign_transcript,
     signature_message, verify_transcript,
@@ -43,22 +50,14 @@ pub use transcript::{
 /// Re-exported so callers can supply their own RNG (e.g. seeded for test vectors).
 pub use rand_core::CryptoRng;
 
-/// Suite identifier for SVX-1: ChaCha20-Poly1305 / HPKE-X25519 / Ed25519 / SHA-256.
-pub const SUITE_SVX1: u16 = 0x0001;
-/// Signature algorithm identifier for Ed25519.
-pub const SIG_ALG_ED25519: u16 = 0x0001;
 /// Length of a key share.
 pub const SHARE_LEN: usize = 32;
 /// Length of a sealed share (share + AEAD tag).
 pub const SEALED_SHARE_LEN: usize = SHARE_LEN + 16;
 
-/// Reject any suite other than the one this implementation supports.
-pub fn check_suite(suite_id: u16) -> Result<()> {
-    if suite_id == SUITE_SVX1 {
-        Ok(())
-    } else {
-        Err(CryptoError::UnsupportedSuite(suite_id))
-    }
+/// Reject any suite other than SVX-1 and SVX-1H.
+pub fn check_suite(suite_id: u16) -> Result<Suite> {
+    Suite::from_id(suite_id)
 }
 
 /// The operating-system CSPRNG.

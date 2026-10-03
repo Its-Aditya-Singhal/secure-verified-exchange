@@ -32,14 +32,19 @@ fn message(ctx: SignContext, msg: &[u8]) -> Vec<u8> {
     m
 }
 
-/// Sign `msg` under `ctx`.
+/// Sign `msg` under `ctx` with an Ed25519 key (registry and service keys
+/// are Ed25519; a hybrid key here is a programming error).
 pub fn sign_context(key: &SigningKey, ctx: SignContext, msg: &[u8]) -> [u8; 64] {
-    key.sign_raw(&message(ctx, msg))
+    use ed25519_dalek::Signer;
+    match key {
+        SigningKey::Ed25519(k) => k.sign(&message(ctx, msg)).to_bytes(),
+        SigningKey::Hybrid(_) => panic!("context signatures use Ed25519 keys"),
+    }
 }
 
 /// Verify a context signature (strict Ed25519).
 pub fn verify_context(key: &VerifyingKey, ctx: SignContext, msg: &[u8], sig: &[u8]) -> Result<()> {
-    if sig.len() != 64 {
+    if sig.len() != 64 || key.kind() != crate::KeyKind::Ed25519Signing {
         return Err(CryptoError::BadSignature);
     }
     key.verify_raw(&message(ctx, msg), sig)

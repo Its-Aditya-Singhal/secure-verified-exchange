@@ -1,7 +1,7 @@
 //! Split-key artifact key schedule.
 //!
 //! ```text
-//! prk            = HKDF-Extract(salt = "SVX-1 artifact\0" ‖ artifact_id,
+//! prk            = HKDF-Extract(salt = "<suite> artifact\0" ‖ artifact_id,
 //!                               ikm  = share_service ‖ share_recipient)
 //! payload_key    = HKDF-Expand(prk, "svx/1/payload",    32)
 //! manifest_key   = HKDF-Expand(prk, "svx/1/manifest",   32)
@@ -21,6 +21,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::SHARE_LEN;
 use crate::error::{CryptoError, Result};
+use crate::suite::Suite;
 
 /// One 32-byte key share. Zeroized on drop; `Debug` is redacted.
 #[derive(Clone, Zeroize, ZeroizeOnDrop)]
@@ -57,9 +58,13 @@ pub struct ArtifactKeys {
 }
 
 impl ArtifactKeys {
-    pub fn derive(artifact_id: &[u8; 16], service_share: &Share, recipient_share: &Share) -> Self {
-        let mut salt = Vec::with_capacity(32);
-        salt.extend_from_slice(b"SVX-1 artifact\0");
+    pub fn derive(
+        suite: Suite,
+        artifact_id: &[u8; 16],
+        service_share: &Share,
+        recipient_share: &Share,
+    ) -> Self {
+        let mut salt = suite.label("artifact");
         salt.extend_from_slice(artifact_id);
         let mut ikm = zeroize::Zeroizing::new([0u8; 2 * SHARE_LEN]);
         ikm[..SHARE_LEN].copy_from_slice(service_share.as_bytes());
