@@ -10,7 +10,8 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter, Seek, Write};
 use std::path::{Path, PathBuf};
 
-use svx_core::Manifest;
+use svx_core::crypto::Share;
+use svx_core::{Manifest, VerifiedArtifact};
 use svx_protocol::{ManagedClient, ReleaseSession};
 
 use crate::config::ClientConfig;
@@ -23,10 +24,16 @@ use crate::registry::Registry;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Step {
     Verifying,
-    SignatureValid { sender: String },
+    SignatureValid {
+        sender: String,
+    },
     Connecting,
     Authenticating,
     CheckingAuthorization,
+    /// Waiting for the sender to approve this open (personal files).
+    AwaitingApproval {
+        sender: String,
+    },
     AccessApproved,
     Decrypting,
 }
@@ -40,6 +47,7 @@ impl Step {
             Step::Connecting => "connecting",
             Step::Authenticating => "authenticating",
             Step::CheckingAuthorization => "checking_authorization",
+            Step::AwaitingApproval { .. } => "awaiting_approval",
             Step::AccessApproved => "access_approved",
             Step::Decrypting => "decrypting",
         }
@@ -160,13 +168,27 @@ pub async fn open(
 
     // 5. Decrypt locally.
     progress(Step::Decrypting);
+    write_output(artifact, &verified, &svc_share, &org_share, output)
+}
+
+/// Decrypt a verified artifact with both shares into `output`: through a
+/// private temporary file that is renamed into place (or extracted, for a
+/// folder) only once the whole payload has authenticated.
+pub(crate) fn write_output(
+    artifact: &Path,
+    verified: &VerifiedArtifact,
+    svc_share: &Share,
+    recipient_share: &Share,
+    output: Output,
+) -> Result<OpenOutcome> {
+    let h = &verified.header;
     let input = BufReader::new(File::open(artifact)?);
     let artifact_id = hex::encode(h.artifact_id);
     let sender_org = h.sender_org.to_string();
     match output {
         Output::Writer(mut w) => {
             let manifest = verified
-                .decrypt(input, &svc_share, &org_share, &mut w)
+                .decrypt(input, svc_share, recipient_share, &mut w)
                 .map_err(|e| ClientError::Rejected(e.to_string()))?;
             w.flush()?;
             Ok(OpenOutcome {
@@ -200,7 +222,7 @@ pub async fn open(
             let manifest = {
                 let mut w = BufWriter::new(tmp.as_file());
                 let m = verified
-                    .decrypt(input, &svc_share, &org_share, &mut w)
+                    .decrypt(input, svc_share, recipient_share, &mut w)
                     .map_err(|e| ClientError::Rejected(e.to_string()))?;
                 w.flush()?;
                 m

@@ -384,6 +384,8 @@ async fn service_unavailable_fails_closed() {
         group_claim: "groups".into(),
         dev: true,
         default_output_dir: None,
+        idp_client_secret: None,
+        account: None,
     };
     cfg.save(&cli.path("down.toml")).unwrap();
     let out = cli.path("down-out");

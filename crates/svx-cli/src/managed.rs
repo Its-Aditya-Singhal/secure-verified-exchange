@@ -205,6 +205,9 @@ pub async fn open(ctx: &Ctx, a: OpenArgs) -> Result<ExitCode> {
             Step::Connecting => "Connecting to SVX service...".to_owned(),
             Step::Authenticating => format!("Authenticating with {issuer}..."),
             Step::CheckingAuthorization => "Checking authorization...".to_owned(),
+            Step::AwaitingApproval { sender } => {
+                format!("Waiting for {sender} to approve (they were notified)...")
+            }
             Step::AccessApproved => "Access approved".to_owned(),
             Step::Decrypting => "Decrypting locally...".to_owned(),
         };

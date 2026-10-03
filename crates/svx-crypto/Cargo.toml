@@ -9,6 +9,8 @@ rust-version.workspace = true
 
 [dependencies]
 svx-format = { path = "../svx-format", version = "0.1.0" }
+# Password-protected key backups (Argon2id).
+argon2 = { version = "0.5", default-features = false, features = ["alloc", "zeroize"] }
 chacha20poly1305 = "0.11"
 ed25519-dalek = { version = "3", features = ["rand_core", "zeroize"] }
 getrandom = { version = "0.4", features = ["sys_rng"] }

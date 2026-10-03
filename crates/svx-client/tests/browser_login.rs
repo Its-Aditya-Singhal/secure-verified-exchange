@@ -48,6 +48,7 @@ async fn browser_login_round_trip() {
         client: ManagedClient::new(true).unwrap(),
         issuer: i.issuer().into(),
         client_id: i.client_id().into(),
+        client_secret: None,
         opener: headless_browser("alice"),
         timeout: Duration::from_secs(10),
     };
@@ -75,6 +76,7 @@ async fn browser_login_times_out_when_nobody_signs_in() {
         client: ManagedClient::new(true).unwrap(),
         issuer: i.issuer().into(),
         client_id: i.client_id().into(),
+        client_secret: None,
         opener: Arc::new(|_| Ok(())),
         timeout: Duration::from_millis(300),
     };
@@ -88,6 +90,7 @@ async fn browser_login_fails_for_unknown_user() {
         client: ManagedClient::new(true).unwrap(),
         issuer: i.issuer().into(),
         client_id: i.client_id().into(),
+        client_secret: None,
         opener: headless_browser("mallory"),
         timeout: Duration::from_millis(1500),
     };

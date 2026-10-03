@@ -18,9 +18,10 @@ use svx_core::crypto::{
 use svx_core::format::EnvelopeRole;
 use svx_oidc::IssuerConfig;
 use svx_protocol::personal::{
-    Account, ApprovalRequest, FileRules, FileStatus, History, OpenedReceipt,
-    PersonalReleaseRequest, PersonalReleaseResponse, ReceivedFile, RecipientState, RecipientStatus,
-    RegisterFileRequest, RequestAuth, SignUpRequest, UpdateFileRequest, signup_nonce,
+    Account, ApprovalRequest, FileRules, FileStatus, History, KEYS_ON_ANOTHER_DEVICE,
+    OpenedReceipt, PersonalReleaseRequest, PersonalReleaseResponse, ReceivedFile, RecipientState,
+    RecipientStatus, RegisterFileRequest, RequestAuth, SignUpRequest, UpdateFileRequest,
+    signup_nonce,
 };
 use svx_protocol::{
     DenyReason, KeyKindWire, KeyStatus, SealedShare, SignedOrgRecord, parse_client_key, unix_now,
@@ -204,6 +205,19 @@ pub async fn sign_up(
                     "this email already has an account with another sign-in provider".into(),
                 ));
             }
+            // A backup's keys belong to the account it was made for.
+            let reused: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM org_keys WHERE key_id = $1 OR key_id = $2)",
+            )
+            .bind(&signing.key_id()[..])
+            .bind(&kem.key_id()[..])
+            .fetch_one(&mut *tx)
+            .await?;
+            if reused {
+                return Err(ApiError::Conflict(
+                    "these keys belong to another account".into(),
+                ));
+            }
             let org_id = format!("u.{}", hex::encode(random_bytes::<8>()));
             let domain = email.rsplit_once('@').map(|(_, d)| d).unwrap_or("");
             sqlx::query(
@@ -264,11 +278,7 @@ pub async fn sign_up(
                 insert_keys(&mut tx, &a.org_id, &signing, &kem, now).await?;
                 (a, "keys reset")
             } else {
-                return Err(ApiError::Conflict(
-                    "this account already has keys on another device: restore your backup, \
-                     or reset your keys"
-                        .into(),
-                ));
+                return Err(ApiError::Conflict(KEYS_ON_ANOTHER_DEVICE.into()));
             }
         }
     };

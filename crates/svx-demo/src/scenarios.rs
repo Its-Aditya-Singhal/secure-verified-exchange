@@ -77,6 +77,7 @@ fn narrate_steps(ui: &Ui, steps: &[Step]) {
             Step::Connecting => "Connecting to SVX service...".to_owned(),
             Step::Authenticating => "Authenticating with the organization's IdP...".to_owned(),
             Step::CheckingAuthorization => "Checking authorization...".to_owned(),
+            Step::AwaitingApproval { sender } => format!("Waiting for {sender} to approve..."),
             Step::AccessApproved => "Access approved".to_owned(),
             Step::Decrypting => "Decrypting locally...".to_owned(),
         });

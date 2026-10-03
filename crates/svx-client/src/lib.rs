@@ -19,6 +19,9 @@
 //! * [`keystore`] — signing keys in a file or the OS keychain.
 //! * [`setup`] — first-run setup verified against the pinned registry key.
 //! * [`onboard`] — signing up a new organization.
+//! * [`personal`] — personal accounts (Google/Apple sign-in, send by email,
+//!   sender approval, one-time files, history, key backup).
+//! * [`defaults`] — the service personal accounts sign up with.
 
 #![forbid(unsafe_code)]
 
@@ -26,6 +29,7 @@ pub mod account;
 pub mod admin;
 mod client;
 pub mod config;
+pub mod defaults;
 mod error;
 pub mod folder;
 pub mod info;
@@ -36,6 +40,7 @@ pub mod login;
 pub mod onboard;
 mod open;
 pub mod pack;
+pub mod personal;
 pub mod registry;
 pub mod session;
 pub mod setup;

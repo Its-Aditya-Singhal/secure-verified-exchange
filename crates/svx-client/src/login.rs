@@ -74,6 +74,8 @@ pub struct BrowserLogin {
     pub client: ManagedClient,
     pub issuer: String,
     pub client_id: String,
+    /// Only for providers that give desktop apps a (non-secret) one.
+    pub client_secret: Option<String>,
     pub opener: Opener,
     pub timeout: Duration,
 }
@@ -214,6 +216,7 @@ impl Authenticator for BrowserLogin {
             &self.client,
             &d,
             &self.client_id,
+            self.client_secret.as_deref(),
             &redirect_uri,
             &code,
             &pkce,

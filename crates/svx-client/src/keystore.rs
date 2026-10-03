@@ -12,7 +12,7 @@ use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use svx_core::crypto::{KeyKind, SigningKey, os_rng};
+use svx_core::crypto::{KemSecretKey, KeyKind, SigningKey, os_rng};
 use svx_core::format::Identifier;
 use svx_core::keyfile;
 use zeroize::Zeroizing;
@@ -240,6 +240,57 @@ fn store_key(
     ))
 }
 
+fn kem_entry_name(org: &str, key_id: &str) -> String {
+    format!("{org}/kem-{key_id}")
+}
+
+/// Keep a personal account's X-Wing key in the keychain. Returns its key ID
+/// (hex).
+pub fn store_kem(store: &dyn SecretStore, org: &str, sk: &KemSecretKey) -> Result<String> {
+    Identifier::new(org)
+        .map_err(|_| ClientError::Config(format!("invalid organization {org:?}")))?;
+    let key_id = hex::encode(sk.public_key().key_id());
+    let secret = sk.to_bytes();
+    let mut v = Zeroizing::new(Vec::with_capacity(1 + secret.len()));
+    v.push(sk.kind().byte());
+    v.extend_from_slice(secret.as_ref());
+    store.set(&kem_entry_name(org, &key_id), &v)?;
+    Ok(key_id)
+}
+
+/// Load the X-Wing key `key_id` (hex) of `org` from the keychain.
+pub fn load_kem(store: &dyn SecretStore, org: &str, key_id: &str) -> Result<KemSecretKey> {
+    let bytes = store.get(&kem_entry_name(org, key_id))?.ok_or_else(|| {
+        ClientError::Config(format!(
+            "encryption key {key_id} is not in this computer's keychain"
+        ))
+    })?;
+    let bad = || ClientError::Other("the keychain entry is not a valid SVX encryption key".into());
+    let (&kind, secret) = bytes.split_first().ok_or_else(bad)?;
+    let kind = KeyKind::from_byte(kind).ok_or_else(bad)?;
+    let secret: &[u8; 32] = secret.try_into().map_err(|_| bad())?;
+    let sk = KemSecretKey::from_kind_bytes(kind, secret).map_err(|_| bad())?;
+    if hex::encode(sk.public_key().key_id()) != key_id {
+        return Err(bad());
+    }
+    Ok(sk)
+}
+
+/// Remove an X-Wing key from the keychain.
+pub fn delete_kem(store: &dyn SecretStore, org: &str, key_id: &str) -> Result<()> {
+    store.delete(&kem_entry_name(org, key_id))
+}
+
+/// Keep a signing key for `org` in the keychain (e.g. restored from a
+/// backup).
+pub fn store_signing(
+    store: &dyn SecretStore,
+    org: &str,
+    sk: &SigningKey,
+) -> Result<(KeyRef, svx_core::crypto::VerifyingKey)> {
+    store_key(store, org, sk)
+}
+
 /// Remove a keychain key (key files are not touched).
 pub fn delete(store: &dyn SecretStore, r: &KeyRef) -> Result<()> {
     match r {
@@ -296,6 +347,19 @@ mod tests {
             load_signing(&store, &r),
             Err(ClientError::Config(_))
         ));
+    }
+
+    #[test]
+    fn kem_keys_round_trip() {
+        let store = MemoryStore::default();
+        let sk = KemSecretKey::generate_hybrid(&mut os_rng());
+        let id = store_kem(&store, "u.0011223344556677", &sk).unwrap();
+        let back = load_kem(&store, "u.0011223344556677", &id).unwrap();
+        assert_eq!(back.public_key(), sk.public_key());
+        let other = "00".repeat(16);
+        assert!(load_kem(&store, "u.0011223344556677", &other).is_err());
+        delete_kem(&store, "u.0011223344556677", &id).unwrap();
+        assert!(load_kem(&store, "u.0011223344556677", &id).is_err());
     }
 
     #[test]

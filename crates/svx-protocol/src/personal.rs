@@ -61,6 +61,11 @@ pub struct SignUpRequest {
     pub reset: bool,
 }
 
+/// The sign-up refusal when the account has other keys (the client offers
+/// restoring the backup or resetting the keys).
+pub const KEYS_ON_ANOTHER_DEVICE: &str =
+    "this account already has keys on another device: restore your backup, or reset your keys";
+
 /// A personal account.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

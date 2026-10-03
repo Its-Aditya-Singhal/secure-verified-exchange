@@ -29,6 +29,15 @@ pub enum ClientError {
     /// The service refused an administrative request and said why.
     #[error("{0}")]
     Invalid(String),
+    /// Sign-up: the account already has keys on another device (restore
+    /// the backup, or reset the keys).
+    #[error(
+        "this account already has keys on another device: restore your backup, or reset your keys"
+    )]
+    AccountExists,
+    /// The user stopped waiting (for example for the sender's approval).
+    #[error("cancelled")]
+    Cancelled,
     #[error("{0}")]
     Other(String),
 }
@@ -49,6 +58,8 @@ pub enum ErrorKind {
     NotLoggedIn,
     OutputExists,
     Invalid,
+    AccountExists,
+    Cancelled,
     Other,
 }
 
@@ -66,6 +77,8 @@ impl ErrorKind {
             ErrorKind::NotLoggedIn => "not_logged_in",
             ErrorKind::OutputExists => "output_exists",
             ErrorKind::Invalid => "invalid",
+            ErrorKind::AccountExists => "account_exists",
+            ErrorKind::Cancelled => "cancelled",
             ErrorKind::Other => "other",
         }
     }
@@ -85,6 +98,8 @@ impl ClientError {
             ClientError::NotLoggedIn => ErrorKind::NotLoggedIn,
             ClientError::OutputExists(_) => ErrorKind::OutputExists,
             ClientError::Invalid(_) => ErrorKind::Invalid,
+            ClientError::AccountExists => ErrorKind::AccountExists,
+            ClientError::Cancelled => ErrorKind::Cancelled,
             ClientError::Other(_) => ErrorKind::Other,
         }
     }
@@ -125,6 +140,9 @@ impl From<ProtocolError> for ClientError {
                 ClientError::Unavailable("service reported unavailable".into())
             }
             ProtocolError::Denied(r) => ClientError::Denied(r),
+            ProtocolError::Invalid(d) if d == svx_protocol::personal::KEYS_ON_ANOTHER_DEVICE => {
+                ClientError::AccountExists
+            }
             ProtocolError::Invalid(d) => ClientError::Invalid(d),
             ProtocolError::Http(e) => ClientError::Unavailable(e.to_string()),
             ProtocolError::Status(s) if s >= 500 => ClientError::Unavailable(format!("HTTP {s}")),

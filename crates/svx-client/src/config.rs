@@ -43,6 +43,26 @@ pub struct ClientConfig {
     /// Where `svx open` writes files when `-o` is not given.
     #[serde(default)]
     pub default_output_dir: Option<PathBuf>,
+    /// A (non-secret) client secret some providers give desktop apps
+    /// (Google). PKCE protects the sign-in either way.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idp_client_secret: Option<String>,
+    /// Set for a personal account (Google or Apple sign-in); `org_id` is
+    /// then the account ID.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<AccountConfig>,
+}
+
+/// A personal account's identity and where its device keys are.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AccountConfig {
+    /// The verified email of the account.
+    pub email: String,
+    /// The device's hybrid signing key (`keychain:<account>/<key_id>`).
+    pub signing_key: String,
+    /// The key ID (hex) of the device's X-Wing key in the keychain.
+    pub kem_key: String,
 }
 
 fn default_group_claim() -> String {
@@ -86,7 +106,23 @@ impl ClientConfig {
             return Err(ClientError::Config("idp_client_id is empty".into()));
         }
         self.registry_key()?;
+        if let Some(a) = &self.account {
+            if !self.org_id.starts_with("u.") {
+                return Err(ClientError::Config(
+                    "a personal account's ID starts with u.".into(),
+                ));
+            }
+            crate::keystore::KeyRef::parse(&a.signing_key)?;
+            if a.kem_key.len() != 32 || hex::decode(&a.kem_key).is_err() {
+                return Err(ClientError::Config("invalid kem_key".into()));
+            }
+        }
         Ok(())
+    }
+
+    /// Whether this is a personal account (not a company).
+    pub fn is_personal(&self) -> bool {
+        self.account.is_some()
     }
 
     /// The registry key, checked against the pinned fingerprint.
@@ -189,6 +225,8 @@ mod tests {
             group_claim: "groups".into(),
             dev: false,
             default_output_dir: None,
+            idp_client_secret: None,
+            account: None,
         }
     }
 

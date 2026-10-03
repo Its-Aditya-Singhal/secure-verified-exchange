@@ -70,6 +70,8 @@ pub async fn verify(req: SetupRequest) -> Result<SetupPreview> {
         group_claim: "groups".into(),
         dev: req.dev,
         default_output_dir: req.default_output_dir,
+        idp_client_secret: None,
+        account: None,
     };
     config.validate()?;
     Ok(SetupPreview {

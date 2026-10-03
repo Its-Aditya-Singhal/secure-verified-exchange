@@ -71,6 +71,8 @@ impl OnboardRequest {
                 .unwrap_or_else(|| "groups".into()),
             dev: self.dev,
             default_output_dir: self.default_output_dir.clone(),
+            idp_client_secret: None,
+            account: None,
         }
     }
 }

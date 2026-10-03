@@ -49,6 +49,7 @@ pub fn authenticator(
             client: client.clone(),
             issuer: cfg.idp_issuer.clone(),
             client_id: cfg.idp_client_id.clone(),
+            client_secret: cfg.idp_client_secret.clone(),
             opener,
             timeout: LOGIN_TIMEOUT,
         }),

@@ -108,7 +108,8 @@ impl From<&Step> for Progress {
             Step::SignatureValid { .. } => 2,
             Step::Connecting => 3,
             Step::Authenticating => 4,
-            Step::CheckingAuthorization => 5,
+            // Waiting for the sender happens within the authorization step.
+            Step::CheckingAuthorization | Step::AwaitingApproval { .. } => 5,
             Step::AccessApproved => 6,
             Step::Decrypting => 7,
         };
@@ -116,7 +117,9 @@ impl From<&Step> for Progress {
             step: s.name(),
             index,
             sender: match s {
-                Step::SignatureValid { sender } => Some(sender.clone()),
+                Step::SignatureValid { sender } | Step::AwaitingApproval { sender } => {
+                    Some(sender.clone())
+                }
                 _ => None,
             },
         }

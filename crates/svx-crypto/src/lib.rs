@@ -20,6 +20,7 @@
 
 #![forbid(unsafe_code)]
 
+mod backup;
 mod context;
 mod envelope;
 mod error;
@@ -30,6 +31,7 @@ mod stream;
 mod suite;
 mod transcript;
 
+pub use backup::{BackupParams, open_with_password, seal_with_password};
 pub use context::{SignContext, sign_context, verify_context};
 pub use envelope::{EnvelopeContext, open_share, seal_share};
 pub use error::{CryptoError, Result};

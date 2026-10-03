@@ -92,24 +92,32 @@ struct TokenResponse {
     id_token: String,
 }
 
+/// Exchange an authorization code for an ID token. `client_secret` is for
+/// providers whose desktop clients have one that isn't secret (Google's
+/// "installed app" clients); PKCE protects the exchange either way.
 pub async fn exchange_code(
     client: &ManagedClient,
     d: &Discovery,
     client_id: &str,
+    client_secret: Option<&str>,
     redirect_uri: &str,
     code: &str,
     pkce: &Pkce,
 ) -> Result<String> {
+    let mut form = vec![
+        ("grant_type", "authorization_code"),
+        ("code", code),
+        ("redirect_uri", redirect_uri),
+        ("client_id", client_id),
+        ("code_verifier", pkce.verifier.as_str()),
+    ];
+    if let Some(s) = client_secret {
+        form.push(("client_secret", s));
+    }
     let resp = client
         .http()
         .post(&d.token_endpoint)
-        .form(&[
-            ("grant_type", "authorization_code"),
-            ("code", code),
-            ("redirect_uri", redirect_uri),
-            ("client_id", client_id),
-            ("code_verifier", pkce.verifier.as_str()),
-        ])
+        .form(&form)
         .send()
         .await?;
     if !resp.status().is_success() {
@@ -170,5 +178,5 @@ pub async fn dev_auto_login(
         return Err(ProtocolError::BadResponse("state mismatch".into()));
     }
     let code = code.ok_or_else(|| ProtocolError::BadResponse("no code".into()))?;
-    exchange_code(client, &d, client_id, redirect_uri, &code, &pkce).await
+    exchange_code(client, &d, client_id, None, redirect_uri, &code, &pkce).await
 }

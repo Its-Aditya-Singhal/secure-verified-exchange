@@ -103,6 +103,11 @@ impl Client {
         login: LoginMethod,
         progress: &mut (dyn FnMut(Step) + Send),
     ) -> Result<OpenOutcome> {
+        if self.cfg.is_personal() {
+            // Personal accounts authenticate with the device key instead.
+            let never = std::sync::atomic::AtomicBool::new(false);
+            return self.open_personal(path, output, progress, &never).await;
+        }
         let output = match output {
             Some(o) => o,
             None => Output::Dir {

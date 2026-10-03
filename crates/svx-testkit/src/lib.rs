@@ -631,6 +631,8 @@ impl World {
             group_claim: "groups".into(),
             dev: true,
             default_output_dir: None,
+            idp_client_secret: None,
+            account: None,
         }
     }
 
