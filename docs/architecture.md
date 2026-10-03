@@ -22,9 +22,9 @@ Status: Phases 1–4 are implemented: the format, the cryptography, the managed 
                                                                        v
    +--------------------------------------------+     +--------------------------------------+
    | SVX Managed Service (svx.example)          |     | Company B Key Agent                  |
-   |  - org registry and trust (signed records) |     |  - Company B X25519 KEM key in KMS   |
+   |  - org registry and trust (signed records) |     |  - Company B X-Wing KEM key in KMS   |
    |  - policy engine, expiry, revocation       |     |  - unwraps RecipientOrg share        |
-   |  - service X25519 KEM key in KMS/HSM       |     |  - requires service grant + user     |
+   |  - service X-Wing KEM key in KMS/HSM       |     |  - requires service grant + user     |
    |  - unwraps Service share only              |     |    token bound to client key         |
    |  - audit log                               |     |  - local audit log                   |
    +--------------------------------------------+     +--------------------------------------+
@@ -61,11 +61,13 @@ Deployments where the managed service also operates the recipient's key agent lo
 
 1. Validate the request. Generate `artifact_id` (16 random bytes), a STREAM `nonce_prefix` (7 random bytes), and `share_svc` and `share_org` (32 random bytes each).
 2. Derive `payload_key`, `manifest_key` and `key_commitment` with HKDF.
-3. HPKE-seal each share to its holder's KEM key. `info` binds role, artifact ID, sender org and key ID, recipient org, and service ID.
+3. HPKE-seal each share to its holder's X-Wing (X25519 + ML-KEM-768) key. `info` binds role, artifact ID, sender org and key ID, recipient org, and service ID.
 4. Encrypt the manifest (file name, size, classification, description).
 5. Write the prelude and header. Compute `header_hash`.
 6. Stream the payload: STREAM-encrypt each chunk with `aad = header_hash`, and accumulate the payload commitment.
-7. Sign `header_hash ‖ chunk_count ‖ payload_commitment` with Ed25519. Write the trailer.
+7. Sign `header_hash ‖ chunk_count ‖ payload_commitment` with Ed25519 and with ML-DSA-65 (one composite signature; both must verify). Write the trailer.
+
+New files always use suite SVX-1H (`0x0003`, format 1.1). Readers also accept the classical suite SVX-1 (`0x0001`) so files made before the upgrade still open; see `spec/crypto-profile.md`.
 
 Memory use is O(chunk size). The CLI writes to a temporary file and renames it only on success.
 
@@ -103,8 +105,8 @@ org_id                 opaque identifier (e.g. "example-corp")
 display_name
 verified_domains[]     proven via DNS TXT  _svx-challenge.<domain> = <token>
 idp                    { issuer, jwks_uri, client_id, allowed_algs, group_claim }
-signing_keys[]         { key_id, ed25519_public, status, not_before, not_after }
-kem_keys[]             { key_id, x25519_public, status, not_before, not_after }
+signing_keys[]         { key_id, ed25519-mldsa65 (or legacy ed25519) public, status, not_before, not_after }
+kem_keys[]             { key_id, xwing (or legacy x25519) public, status, not_before, not_after }
 key_agent_endpoint
 admins[]               subject IDs from the org's own IdP
 policies[]             (see section 7)
@@ -123,8 +125,8 @@ Goal: release the two shares only to an authenticated, authorized user's client,
 
 ```text
 Client                                 Managed Service                  Recipient Key Agent
-  | generate ephemeral X25519 (e_pk, e_sk); txn = random 128-bit
-  | OIDC auth with nonce = H("SVX-1 oidc" || e_pk || txn)
+  | generate one-time X-Wing (e_pk, e_sk); txn = random 128-bit
+  | OIDC auth with nonce = H("SVX-1H oidc" || e_pk || txn)
   |---- POST /v1/release ----------------->|
   |   header_region, trailer, id_token,    |
   |   e_pk, txn                            |

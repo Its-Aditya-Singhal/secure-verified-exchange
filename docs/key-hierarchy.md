@@ -4,15 +4,18 @@
 Registry signing key (managed service, HSM)          signs org records and key status
 │
 ├── Organization A
-│   ├── Ed25519 signing keys    [key_id, status, validity]   signs artifacts
-│   └── X25519 KEM keys         [key_id, ...]                receives share_org when A is a recipient
+│   ├── Ed25519 + ML-DSA-65 signing keys [key_id, status]   signs artifacts (both halves)
+│   └── X-Wing KEM keys (X25519 + ML-KEM-768) [key_id, ...] receives share_org when A is a recipient
 │
 ├── Organization B
 │   └── ...
 │
 └── Managed service
-    ├── X25519 service KEM key  [key_id, ...]                receives share_svc
+    ├── X-Wing service KEM key  [key_id, ...]                receives share_svc
     └── Ed25519 grant key                                    signs short-lived release grants
+
+Classical keys (Ed25519 signing, X25519 KEM) from before the upgrade stay
+`retired`: they verify and open older SVX-1 files and never make new ones.
 
 Per artifact (ephemeral)
   share_svc, share_org (32 B each, CSPRNG)
@@ -21,12 +24,21 @@ Per artifact (ephemeral)
                 └► key_commitment (public, in header)
 
 Per release (ephemeral)
-  client X25519 key (e_pk / e_sk): shares are re-sealed to it; destroyed after decryption
+  client X-Wing key (e_pk / e_sk): shares are re-sealed to it; destroyed after decryption
 ```
 
 ## Key identifiers
 
-`key_id = SHA-256("SVX-1 key-id\0" ‖ kind ‖ public_key)[..16]`, where `kind` is `0x01` for Ed25519 signing keys and `0x02` for X25519 KEM keys. A key ID is derived from the key itself and cannot be chosen. Including the kind byte means a signing key and a KEM key can never share an ID.
+`key_id = SHA-256("SVX-1 key-id\0" ‖ kind ‖ public_key)[..16]`, where `kind` is `0x01` for Ed25519 signing keys, `0x02` for X25519 KEM keys, `0x03` for X-Wing KEM keys and `0x04` for Ed25519 + ML-DSA-65 signing keys, over the full public key.
+
+| Kind | Registry name | Public key | Secret key file | Signature / `enc` |
+|------|---------------|-----------|-----------------|-------------------|
+| Ed25519 + ML-DSA-65 | `ed25519-mldsa65` | 1984 B (32 + 1952) | two 32-byte seeds | 3373 B (64 + 3309) |
+| X-Wing | `xwing` | 1216 B | 32-byte seed | `enc` 1120 B |
+| Ed25519 (older files) | `ed25519` | 32 B | 32-byte seed | 64 B |
+| X25519 (older files) | `x25519` | 32 B | 32 B | `enc` 32 B |
+
+`svx keygen`, the SDKs and the desktop app only generate the hybrid kinds. A key ID is derived from the key itself and cannot be chosen. Including the kind byte means a signing key and a KEM key can never share an ID.
 
 ## Storage
 
@@ -43,6 +55,7 @@ Private keys are never stored in plaintext in server databases.
 ## Rotation
 
 - **Signing keys.** Publish the new key as `active`. Set the old key to `retired`: it can still verify artifacts created before its `not_after`, but it is never used to sign. Clients re-fetch registry records whose signature is fresh.
+- **Moving to post-quantum keys.** Register an `xwing` key and an `ed25519-mldsa65` key as `active`, then set the classical keys to `retired`. Keep the old X25519 secret keys in the key agent (`--kem-key` is repeatable) and the service until the older files they protect have expired.
 - **KEM keys (org or service).** Publish the new key. New artifacts are sealed to it. The old key stays available to the key agent or service only to unwrap existing artifacts until they expire, then it is destroyed. Destroying it makes the remaining artifacts permanently undecryptable, which can be used deliberately as cryptographic erasure.
 - **Rotation does not re-encrypt existing artifacts.** Senders re-issue an artifact if it is needed after its keys have been destroyed.
 

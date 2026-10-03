@@ -30,11 +30,11 @@ createdb svx_agent_example
 ## 1. Keys (test-only files; use a KMS/HSM in production)
 
 ```sh
-$B/svx keygen --kind kem  --owner svx.example   --out service    # receives the service share
-$B/svx keygen --kind sign --owner svx.example   --out grant      # signs release grants
-$B/svx keygen --kind sign --owner svx.example   --out registry   # signs registry records
-$B/svx keygen --kind sign --owner acme-security --out acme       # Acme signs artifacts
-$B/svx keygen --kind kem  --owner example-corp  --out example    # Example Corp's org key
+$B/svx keygen --kind kem          --owner svx.example   --out service    # receives the service share (X-Wing)
+$B/svx keygen --kind service-sign --owner svx.example   --out grant      # signs release grants (Ed25519)
+$B/svx keygen --kind service-sign --owner svx.example   --out registry   # signs registry records (Ed25519)
+$B/svx keygen --kind sign         --owner acme-security --out acme       # Acme signs artifacts (Ed25519 + ML-DSA-65)
+$B/svx keygen --kind kem          --owner example-corp  --out example    # Example Corp's org key (X-Wing)
 ```
 
 ## 2. Identity providers
@@ -50,6 +50,7 @@ $B/svx-mock-idp --listen 127.0.0.1:8082 --config examples/idp-example-corp.json 
 $B/svx-server --dev --listen 127.0.0.1:8443 \
   --database-url postgres://svx@127.0.0.1:5432/svx_service --service-id svx.example \
   --kem-key service.kem.key --grant-key grant.sign.key --registry-key registry.sign.key &
+# add --kem-key old.kem.key for each older X25519 key still needed to open older files
 
 $B/svx-keyagent --dev --listen 127.0.0.1:9443 \
   --database-url postgres://svx@127.0.0.1:5432/svx_agent_example \

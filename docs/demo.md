@@ -50,7 +50,8 @@ group to open artifacts sent under that policy.
 `incident-report.txt` for `example-corp`. The client fetches Example Corp's
 encryption key and the service key from registry records signed by the
 pinned registry key. Carol never handles recipient key files. The artifact
-is registered with the service.
+is registered with the service. The demo checks it is post-quantum hybrid
+(suite SVX-1H: X25519 + ML-KEM-768 and Ed25519 + ML-DSA-65).
 
 **2a. Eve intercepts the file.** Eve can read the public header: sender,
 recipient, policy name, expiry. The report, its file name and its
@@ -105,6 +106,11 @@ access after it. The demo checks that the hash chain is intact.
 a folder inside the encrypted manifest. Alice opens it and gets the folder
 back, owner-only, with the same files; no zip or partial files are left
 behind.
+
+**10. An older file.** A file sealed before the post-quantum upgrade (suite
+SVX-1, X25519 and Ed25519) still opens: the service and key agent keep their
+older X25519 keys, and Acme's retired Ed25519 key still verifies files it
+signed.
 
 ## Try it yourself: `svx-demo serve`
 

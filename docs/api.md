@@ -22,7 +22,7 @@ JSON over HTTPS. Binary blobs are standard base64; keys, IDs and transaction IDs
 ### `GET /v1/service`
 The service's public keys. Clients **pin** `registry_public` out of band. Key agents pin `grant_public`.
 ```json
-{ "service_id": "svx.example", "kem_public": "<hex32>", "grant_public": "<hex32>", "registry_public": "<hex32>" }
+{ "service_id": "svx.example", "kem_public": "<hex1216 X-Wing>", "grant_public": "<hex32>", "registry_public": "<hex32>" }
 ```
 
 ### `GET /v1/service/record`
@@ -43,13 +43,13 @@ The signature uses context `"SVX-1 registry\0"` over the exact record bytes. Cli
 
 | Field | Value |
 |-------|-------|
-| `v` | protocol version |
+| `v` | protocol version (`2`: post-quantum hybrid keys; records of another version are refused) |
 | `org_id` | org identifier |
 | `display_name` | display name |
 | `domain` | verified domain |
 | `idp_issuer` | OIDC issuer |
 | `key_agent_url` | key agent URL |
-| `keys` | list of `{key_id, kind: ed25519\|x25519, public_key, status: active\|retired\|revoked}` |
+| `keys` | list of `{key_id, kind, public_key (hex), status: active\|retired\|revoked}`. `kind` is `ed25519-mldsa65` (1984-byte signing key, signs new files), `xwing` (1216-byte X25519 + ML-KEM-768 key, receives new files), or the classical `ed25519` / `x25519` (32 bytes, kept for older files) |
 | `issued_at` | Unix seconds |
 
 ## Organization lifecycle
@@ -115,18 +115,18 @@ Evaluation is default-deny. A user is allowed only if they match `allow_users` o
 ### `POST /v1/release`
 ```json
 { "header_region": "<b64>", "trailer": "<b64>", "id_token": "<JWT>",
-  "client_key": "<hex32 X25519>", "txn": "<hex16>" }
+  "client_key": "<hex1216 X-Wing>", "txn": "<hex16>" }
 ```
 The service checks, in order:
 1. **The artifact.** Its header parses and names this service. Its signature verifies against the sender org's registered active key, or a retired key if the artifact was created before retirement. The recipient org is verified.
-2. **The ID token.** It is validated against the **recipient** org's IdP, with `nonce == hex(SHA-256("SVX-1 oidc\0" ‖ client_key ‖ txn))`.
+2. **The ID token.** It is validated against the **recipient** org's IdP, with `nonce == hex(SHA-256("SVX-1H oidc\0" ‖ client_key ‖ txn))`. The one-time `client_key` must be an X-Wing key; a classical key is refused with 400.
 3. **Revocation.** Neither party has revoked the artifact.
 4. **Policy and expiry.** The recipient org's policy `policy_ref` allows the user, and the artifact has not expired by the server's clock.
 5. **Replay.** `txn` has not been used before. Transaction IDs are single-use.
 
 On success it responds:
 ```json
-{ "share": { "encapped_key": "<hex32>", "ciphertext": "<b64>" },
+{ "share": { "encapped_key": "<b64, 1120-byte X-Wing enc>", "ciphertext": "<b64>" },
   "grant": { "payload": "<b64 JSON Grant>", "signature": "<b64>", "key_id": "<hex16>" } }
 ```
 - `share` is the service share, HPKE-sealed to `client_key` (crypto profile §12).
@@ -147,7 +147,7 @@ On success it responds:
 ### `POST /v1/agent/release`
 The agent is operated by the recipient org.
 ```json
-{ "header_region": "<b64>", "id_token": "<JWT>", "client_key": "<hex32>", "txn": "<hex16>", "grant": { ... } }
+{ "header_region": "<b64>", "id_token": "<JWT>", "client_key": "<hex1216 X-Wing>", "txn": "<hex16>", "grant": { ... } }
 ```
 The agent checks:
 1. **The grant.** It verifies under the **pinned** service grant key and is fresh.
