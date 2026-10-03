@@ -12,7 +12,7 @@ name = "svx"
 path = "src/main.rs"
 
 [dependencies]
-svx-client = { path = "../svx-client", version = "0.1.0" }
+svx-client = { path = "../svx-client", version = "0.1.0", features = ["keychain"] }
 svx-core = { path = "../svx-core", version = "0.1.0" }
 svx-oidc = { path = "../svx-oidc", version = "0.1.0" }
 svx-protocol = { path = "../svx-protocol", version = "0.1.0" }
@@ -21,6 +21,8 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 hex = "0.4"
 humantime = "2"
+# Recovery password prompts without echo.
+rpassword = "7"
 serde_json = "1"
 tempfile = "3"
 

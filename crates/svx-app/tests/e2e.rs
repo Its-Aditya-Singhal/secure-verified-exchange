@@ -357,11 +357,11 @@ async fn personal_accounts_in_the_app() {
     assert_eq!(p.providers[0].name, "Google");
     let issuer = Some(p.providers[0].issuer.clone());
     let a = alice
-        .sign_up(issuer.clone(), false, dev("alice-google-id"), false)
+        .sign_up(issuer.clone(), false, dev("alice"), false)
         .await
         .unwrap();
     assert_eq!(a.email, "alice@example.test");
-    bob.sign_up(issuer.clone(), false, dev("bob-google-id"), false)
+    bob.sign_up(issuer.clone(), false, dev("bob"), false)
         .await
         .unwrap();
     let s = alice.state();
@@ -452,7 +452,7 @@ async fn personal_accounts_in_the_app() {
             &backup,
             "correct horse battery",
             issuer,
-            dev("alice-google-id"),
+            dev("alice"),
             false,
         )
         .await

@@ -3,6 +3,8 @@
 //! Offline: `keygen`, `pack` (with key files), `inspect`, `verify`.
 //! Managed: `init`, `login`, `logout`, `whoami`, `open`, `status`, `pack
 //! --recipient`, `revoke`, `policy`, `organizations`, `audit`.
+//! Personal accounts: `account`, `send`, `requests`, `approve`, `decline`,
+//! `history`, `file` (and `open`).
 //!
 //! There is no way to decrypt without shares released by the managed
 //! service and the recipient's key agent after authentication and
@@ -11,6 +13,7 @@
 
 mod local;
 mod managed;
+mod personal;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -145,6 +148,59 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Personal account: sign up, backup, restore.
+    Account {
+        #[command(subcommand)]
+        cmd: AccountSub,
+    },
+    /// Personal account: encrypt a file or folder for people by email.
+    Send {
+        input: PathBuf,
+        /// Recipient email (repeatable).
+        #[arg(long = "to", required = true)]
+        to: Vec<String>,
+        /// Don't ask me before each open.
+        #[arg(long)]
+        no_approval: bool,
+        /// Allow opening more than once.
+        #[arg(long)]
+        no_one_time: bool,
+        /// Expiry as RFC 3339 UTC, signed into the file.
+        #[arg(long)]
+        expires: Option<String>,
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        #[arg(long)]
+        force: bool,
+    },
+    /// Personal account: requests waiting for your approval.
+    Requests,
+    /// Personal account: approve a request (check it's really them first).
+    Approve { request_id: String },
+    /// Personal account: decline a request.
+    Decline { request_id: String },
+    /// Personal account: files sent and received.
+    History {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Personal account: show or change a sent file's rules (ID or .svx file).
+    File {
+        target: String,
+        #[arg(long, value_enum)]
+        approval: Option<OnOff>,
+        #[arg(long, value_enum)]
+        one_time: Option<OnOff>,
+        /// Stop opening at this time (RFC 3339 UTC; not later than the signed expiry).
+        #[arg(long)]
+        expires: Option<String>,
+        /// Revoke for everyone.
+        #[arg(long)]
+        revoke: bool,
+        /// Revoke for one person (email or account ID; repeatable).
+        #[arg(long = "revoke-for")]
+        revoke_for: Vec<String>,
+    },
     /// Generate an organization key pair (test/dev; production keys live in a KMS/HSM).
     Keygen {
         #[arg(long, value_enum)]
@@ -172,6 +228,56 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum AccountSub {
+    /// Sign up (or sign in on this computer) with Google or Apple.
+    Signup {
+        /// Service URL (default: the built-in service, or $SVX_SERVICE_URL).
+        #[arg(long, requires = "registry_key")]
+        service: Option<String>,
+        /// The service's registry key fingerprint (64 hex).
+        #[arg(long, requires = "service")]
+        registry_key: Option<String>,
+        /// Development service (loopback http, dev sign-in).
+        #[arg(long)]
+        dev: bool,
+        /// Google or Apple (default: the first the service offers).
+        #[arg(long)]
+        provider: Option<String>,
+        #[arg(long)]
+        dev_user: Option<String>,
+        #[arg(long)]
+        no_browser: bool,
+        /// Restore keys from a backup file (asks for its password).
+        #[arg(long)]
+        restore: Option<PathBuf>,
+        /// Replace the account's keys (files sent to the old ones stop opening).
+        #[arg(long)]
+        reset: bool,
+        /// Replace an existing configuration on this computer.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Show the account and its key IDs.
+    Show,
+    /// Save an encrypted backup of the keys (asks for a recovery password).
+    Backup { file: PathBuf },
+    /// Remove the account's keys and configuration from this computer.
+    Signout,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum OnOff {
+    On,
+    Off,
+}
+
+impl OnOff {
+    fn on(self) -> bool {
+        matches!(self, OnOff::On)
+    }
 }
 
 #[derive(Subcommand)]
@@ -337,6 +443,90 @@ async fn run(cli: Cli) -> Result<ExitCode> {
             cmd: OrgSub::Show { org },
         } => managed::organization(&Ctx::load(config)?, &org).await,
         Cmd::Audit { limit, json } => managed::audit(&Ctx::load(config)?, limit, json).await,
+        Cmd::Account { cmd } => match cmd {
+            AccountSub::Signup {
+                service,
+                registry_key,
+                dev,
+                provider,
+                dev_user,
+                no_browser,
+                restore,
+                reset,
+                force,
+            } => {
+                personal::sign_up(
+                    config,
+                    personal::SignUpArgs {
+                        service,
+                        registry_key,
+                        dev,
+                        provider,
+                        dev_user,
+                        no_browser,
+                        reset,
+                        restore,
+                        force,
+                    },
+                )
+                .await
+            }
+            AccountSub::Show => personal::show(&personal::client(config)?).await,
+            AccountSub::Backup { file } => personal::backup(&personal::client(config)?, &file),
+            AccountSub::Signout => personal::sign_out(&personal::client(config)?),
+        },
+        Cmd::Send {
+            input,
+            to,
+            no_approval,
+            no_one_time,
+            expires,
+            output,
+            force,
+        } => {
+            personal::send(
+                &personal::client(config)?,
+                personal::SendArgs {
+                    input,
+                    to,
+                    no_approval,
+                    no_one_time,
+                    expires,
+                    output,
+                    force,
+                },
+            )
+            .await
+        }
+        Cmd::Requests => personal::requests(&personal::client(config)?).await,
+        Cmd::Approve { request_id } => {
+            personal::decide(&personal::client(config)?, &request_id, true).await
+        }
+        Cmd::Decline { request_id } => {
+            personal::decide(&personal::client(config)?, &request_id, false).await
+        }
+        Cmd::History { json } => personal::history(&personal::client(config)?, json).await,
+        Cmd::File {
+            target,
+            approval,
+            one_time,
+            expires,
+            revoke,
+            revoke_for,
+        } => {
+            personal::file(
+                &personal::client(config)?,
+                personal::FileArgs {
+                    target,
+                    approval: approval.map(OnOff::on),
+                    one_time: one_time.map(OnOff::on),
+                    expires,
+                    revoke,
+                    revoke_for,
+                },
+            )
+            .await
+        }
         Cmd::Keygen { kind, owner, out } => local::keygen(kind, &owner, &out),
         Cmd::Inspect { file, json } => local::inspect(&file, json),
         Cmd::Verify {

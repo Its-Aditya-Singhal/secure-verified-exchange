@@ -24,6 +24,9 @@ The installers register `.svx` (MIME type `application/vnd.svx`, macOS UTI `org.
 
 ## First run
 
+**Personal accounts (the default first screen):** **Continue with Google** or **Continue with Apple**. The app makes this device's keys in the keychain and suggests saving a backup. Then the sidebar shows Send, Open, History, Requests and Settings. See [personal.md](personal.md). The rest of this section is company setup, reached with **Company or test server setup**.
+
+
 **A new organization** chooses **Register a new organization…**: enter the service URL and registry key fingerprint, your organization's name, ID and domain, and your company sign-in. The app shows a DNS TXT record to add to your domain; once it exists, **Verify and sign in** proves you control both the domain and the sign-in, and makes you the first administrator. The registration is remembered if you close the app while DNS updates. Then create this computer's signing key, and you can send.
 
 **Joining an existing organization:** your administrator gives you four values: the service URL, the registry key fingerprint (64 hex characters that identify the service's post-quantum registry key), your organization ID and the sign-in client ID. Enter them and press **Verify**. The app checks the service record and your organization's record against that registry key before anything is saved; **Save** verifies again and writes the configuration.
@@ -89,6 +92,16 @@ All administration happens here (there is no web portal). Sign in with your comp
 - Signing keys created in the app live in the OS keychain and are used inside the Rust layer; they never reach the UI.
 - Sign-in uses the system browser with a loopback redirect (RFC 8252) and a nonce bound to a fresh one-time X-Wing key per open, exactly as in the CLI. Connections to the service and key agent use post-quantum TLS (X25519MLKEM768).
 - Development mode (local stacks only) allows plain http and test users; the app shows a **dev** badge. Never use it with real data.
+
+## Personal accounts
+
+- **Send:** a file or folder, email chips (each checked in the signed directory: green when found, red otherwise), **Ask me before each open** and **One-time** (both on by default), optional expiry.
+- **Open:** no sign-in step; when the sender must approve, the timeline shows "Waiting for … to approve" with **Stop waiting**.
+- **History:** sent and received files, with people, dates and status. A sent file's page has the recipients' states, the two switches, an earlier expiry, revoke for one person or everyone, and **Send a new copy**.
+- **Requests:** approve or decline, after ticking that you checked it's really them. The sidebar shows how many are waiting.
+- **Settings:** account, key IDs, backup, reset keys, sign out, output folder.
+
+File names of personal files are kept only in `history.json` next to the configuration.
 
 ## Try it against the dev stack
 

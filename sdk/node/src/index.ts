@@ -38,6 +38,8 @@ export type ErrorKind =
   | "not_logged_in"
   | "output_exists"
   | "invalid"
+  | "account_exists"
+  | "cancelled"
   | "other";
 
 /** Coarse reason reported by the service for {@link AccessDeniedError}. */
@@ -46,7 +48,9 @@ export type DenyReason =
   | "expired_or_revoked"
   | "invalid_artifact"
   | "invalid_request"
-  | "unavailable";
+  | "unavailable"
+  | "already_opened"
+  | "declined";
 
 /** Base class of all SVX errors. */
 export class SvxError extends Error {
@@ -162,6 +166,8 @@ export interface ArtifactInfo {
   sender_org: string;
   sender_key_id: string;
   recipient_org: string;
+  /** Every recipient (several for personal files sent to several people). */
+  recipients: string[];
   service_id: string;
   policy_ref: string;
   chunk_size: number;
@@ -179,6 +185,8 @@ export interface Verified {
 /** Result of {@link Client.status}: verified against the registry. */
 export interface Status extends Verified {
   for_you: boolean;
+  /** The sender's verified email (personal accounts) or organization name. */
+  sender_name: string;
 }
 
 export interface FileEntry {
@@ -281,6 +289,7 @@ export type StepName =
   | "connecting"
   | "authenticating"
   | "checking_authorization"
+  | "awaiting_approval"
   | "access_approved"
   | "decrypting";
 

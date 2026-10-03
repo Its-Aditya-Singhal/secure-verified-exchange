@@ -17,6 +17,11 @@ Registry signing key (Ed25519 + ML-DSA-65, HSM)      signs org and service recor
 Classical keys (Ed25519 signing, X25519 KEM) from before the upgrade stay
 `retired`: they verify and open older SVX-1 files and never make new ones.
 
+Personal account u.<id> (Phase 5d; one person, one organization)
+    ├── Ed25519 + ML-DSA-65 device signing key   signs files and every request to the service
+    └── X-Wing key                               receives the recipient half (one envelope per recipient)
+    Both live in the device's keychain; one *.svxbackup (Argon2id + ChaCha20-Poly1305) restores them.
+
 Per artifact (ephemeral)
   share_svc, share_org (32 B each, CSPRNG)
       └── HKDF ──► payload_key   → STREAM ChaCha20-Poly1305 over chunks
@@ -74,5 +79,7 @@ Private keys are never stored in plaintext in server databases.
 - **Organization.** All org keys are revoked, releases to the org stop, and its audit records are retained for the configured period, then deleted.
 
 ## Backup and recovery
+
+**Personal accounts** keep both private keys in the device keychain. The app offers one backup file encrypted with a recovery password (Argon2id, 64 MiB, 3 passes, then ChaCha20-Poly1305). Restoring registers the same keys on a new device. Without a backup, a lost device means **Reset keys**: new keys, the old ones retired, and files sent to the old keys can no longer be opened.
 
 Org KEM keys need escrow, for example KMS multi-region or HSM backup under the org's own control. Losing them makes every artifact sealed to them unreadable. That is by design, and it must be documented in the desktop app's admin screens. Signing keys do not need backup: generate new ones and rotate.

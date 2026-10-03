@@ -112,6 +112,14 @@ SVX-1, X25519 and Ed25519) still opens: the service and key agent keep their
 older X25519 keys, and Acme's retired Ed25519 key still verifies files it
 signed.
 
+**11–16. Personal accounts.** Alice, Bob and Carol sign up with the dev
+"Google". Alice sends a file to `bob@example.test`; Bob's open waits until
+Alice approves (her email names Bob but not the file and has no link) (11).
+The one-time file doesn't open a second time (12). Alice revokes Carol while
+Carol waits (13) and declines Bob's request for another file (14). Eve, with
+no confirmed email, can't sign up, and Carol can't open a file sent to Bob
+(15). A replayed signed request is refused (16). See [personal.md](personal.md).
+
 ## Try it yourself: `svx-demo serve`
 
 `serve` starts the same stack and keeps it running, so you can drive the real

@@ -190,6 +190,8 @@ class ArtifactInfo:
     sender_org: str
     sender_key_id: str
     recipient_org: str
+    #: Every recipient (several for personal files sent to several people).
+    recipients: List[str]
     service_id: str
     policy_ref: str
     chunk_size: int
@@ -219,6 +221,8 @@ class Status:
     chunk_count: int
     expired: bool
     for_you: bool
+    #: The sender's verified email (personal accounts) or organization name.
+    sender_name: str
 
 
 @dataclass(frozen=True)
@@ -387,6 +391,7 @@ class Client:
             chunk_count=d["chunk_count"],
             expired=d["expired"],
             for_you=d["for_you"],
+            sender_name=d["sender_name"],
         )
 
     def open(
@@ -408,6 +413,7 @@ class Client:
         ``on_step(name, detail)`` is called with ``"verifying"``,
         ``"signature_valid"`` (detail: sender), ``"connecting"``,
         ``"authenticating"``, ``"checking_authorization"``,
+        ``"awaiting_approval"`` (personal accounts; detail: sender),
         ``"access_approved"`` and ``"decrypting"``.
         """
         d = json.loads(

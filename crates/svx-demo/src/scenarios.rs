@@ -547,7 +547,8 @@ pub async fn run_all(w: &World, dir: &Path, ui: &Ui) -> Result<()> {
         !legacy_info.post_quantum && same,
         format!("{} (suite {:#06x})", describe(&r), legacy_info.suite_id),
     );
-    Ok(())
+
+    crate::personal::run(w, dir, ui).await
 }
 
 #[cfg(unix)]

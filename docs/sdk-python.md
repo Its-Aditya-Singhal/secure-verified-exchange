@@ -85,6 +85,11 @@ sensitive content.
 6. `access_approved`
 7. `decrypting`
 
+With a personal-account configuration there is no `authenticating` step
+(requests are signed with the device key), and `awaiting_approval`
+(detail: the sender) comes after `checking_authorization` while the sender
+decides.
+
 Exceptions raised by the callback are reported as "unraisable" and never
 interrupt the open.
 

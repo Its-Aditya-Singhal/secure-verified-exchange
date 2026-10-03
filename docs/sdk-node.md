@@ -65,6 +65,11 @@ the event loop is never blocked.
 6. `access_approved`
 7. `decrypting`
 
+With a personal-account configuration there is no `authenticating` step
+(requests are signed with the device key), and `awaiting_approval`
+(detail: the sender) comes after `checking_authorization` while the sender
+decides.
+
 Calls are delivered asynchronously, in order.
 
 ### Login

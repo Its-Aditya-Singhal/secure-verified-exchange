@@ -207,6 +207,10 @@ Every table and query is scoped by `org_id`, which comes from the authenticated 
 | File name, exact size, classification, description | **no** | in the encrypted manifest |
 | Payload | **no** | encrypted |
 
+## 10a. Personal accounts
+
+A personal account is a one-person organization (`u.<16 hex>`) whose IdP is Google or Apple and whose registry record carries its verified email. The split-key model is unchanged: the service share is released by the service, and the recipient share is sealed to the recipient's own X-Wing key (one envelope per recipient, format 1.2) instead of an org key agent. Authorization is the sender's per-file rules (approval, one-time, expiry, revocation) instead of an org policy, and requests are signed with the device key instead of a fresh OIDC login. Details: [personal.md](personal.md).
+
 ## 11. Client layering
 
 ```text

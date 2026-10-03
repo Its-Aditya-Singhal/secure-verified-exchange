@@ -40,7 +40,7 @@ impl World {
             &self.client,
             self.personal_idp.issuer(),
             self.personal_idp.client_id(),
-            &format!("{name}-google-id"),
+            name,
             &nonce,
         )
         .await

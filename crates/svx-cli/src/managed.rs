@@ -196,7 +196,6 @@ pub async fn open(ctx: &Ctx, a: OpenArgs) -> Result<ExitCode> {
             overwrite: a.overwrite,
         }
     };
-    let auth = ctx.authenticator(a.dev_user, a.no_browser)?;
     let issuer = ctx.cfg.idp_issuer.clone();
     let mut progress = move |s: Step| {
         let msg = match s {
@@ -206,23 +205,33 @@ pub async fn open(ctx: &Ctx, a: OpenArgs) -> Result<ExitCode> {
             Step::Authenticating => format!("Authenticating with {issuer}..."),
             Step::CheckingAuthorization => "Checking authorization...".to_owned(),
             Step::AwaitingApproval { sender } => {
-                format!("Waiting for {sender} to approve (they were notified)...")
+                format!("Waiting for {sender} to approve (they were notified; Ctrl-C to stop)...")
             }
             Step::AccessApproved => "Access approved".to_owned(),
             Step::Decrypting => "Decrypting locally...".to_owned(),
         };
         eprintln!("{msg}");
     };
-    match svx_client::open(
-        &ctx.cfg,
-        &ctx.client,
-        auth.as_ref(),
-        &a.file,
-        output,
-        &mut progress,
-    )
-    .await
-    {
+    let result = if ctx.cfg.is_personal() {
+        // Personal accounts sign requests with the device key: no login.
+        let client = svx_client::Client::with_config(ctx.paths.clone(), ctx.cfg.clone())?;
+        let never = std::sync::atomic::AtomicBool::new(false);
+        client
+            .open_personal(&a.file, Some(output), &mut progress, &never)
+            .await
+    } else {
+        let auth = ctx.authenticator(a.dev_user, a.no_browser)?;
+        svx_client::open(
+            &ctx.cfg,
+            &ctx.client,
+            auth.as_ref(),
+            &a.file,
+            output,
+            &mut progress,
+        )
+        .await
+    };
+    match result {
         Ok(o) => {
             if let Some(p) = &o.path {
                 eprintln!("Opened:         {}", p.display());

@@ -150,6 +150,17 @@ Status key: ✅ enforced and tested (test names in parentheses). 🔜 designed h
 - **Limitations:** files made before the upgrade (suite SVX-1) remain classical; re-issue the ones that must stay confidential for decades. TLS server certificates are still classical (the WebPKI has no ML-DSA certificates yet); certificate authentication happens live during the handshake, so a recording gives nothing later, and the key exchange is already post-quantum. OIDC tokens and IdP TLS depend on each organization's IdP.
 - **Tests:** KATs for X-Wing (HPKE PQ vectors) and ML-DSA-65 (NIST ACVP); `hybrid_signature_needs_both_halves`; `legacy_classical_files_still_open`; hybrid test vectors; `context_signatures_are_hybrid_and_domain_separated`, `context_signatures_refuse_classical_keys`, `registry_key_must_match_the_pinned_fingerprint`, `setup_verifies_against_the_pin`, the Ed25519-only grant refused by the key agent (`managed_flow`).
 
+### T24. Personal accounts (Phase 5d)
+Personal accounts sign in with Google or Apple once per device, then sign each request with the device key; the recipient's half of every file key is sealed to their own X-Wing key in the keychain. See [docs/personal.md](../docs/personal.md).
+- **Stolen device keys.** A thief with the keychain can make signed requests as the account and unseal its halves, but the service still enforces each sender's rules (approval, one-time, expiry, revocation). The owner stops it by resetting the keys from another device (old keys retire; signed requests with them fail). ⚠️ Keys are software keychain keys, not hardware-bound (Secure Enclave/TPM later).
+- **Captured sign-in token.** The ID token's nonce binds the device's two public keys, so it can't register an attacker's keys. Sign-up requires `email_verified`. A backup's keys can't be registered to another account.
+- **Replayed or altered requests.** Every signed request covers method, path, body hash, time and a nonce: ±60 s and single-use (`signed_requests_are_single_use_and_bound`, demo check 16).
+- **Wrong person in the directory.** The email ↔ keys binding is inside the registry-signed record; clients check the signature with the pinned key and that the record's email is the one they asked for. Lookups need a signed-in account and are rate-limited (30/min), which limits enumeration.
+- **Approval phishing.** Someone asks the sender to approve while pretending to be the recipient. Only the named recipients' keys can unseal the recipient half, so an outsider gains nothing from an approval; the residual risk is a recipient's compromised device. The app asks the sender to confirm by another channel; emails have no links and no file names.
+- **One-time limits.** One-time stops re-opening and forwarding the `.svx` (the service won't release again), not copies of plaintext already decrypted. A 10-minute window after release allows a retry after a crash, unless the receipt already made it final.
+- **Service sees metadata.** Who sent to whom and when, not file names or contents (names stay in the app's local `history.json`). Emails go through the configured SMTP provider over TLS.
+- **Apple private-relay emails** are per-app addresses; the directory finds such an account only by that address.
+
 ## 5. Security claims we will make (after review)
 
 - "Encrypted before transfer."

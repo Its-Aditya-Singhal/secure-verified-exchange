@@ -3,7 +3,7 @@
 JSON over HTTPS. Binary blobs are standard base64; keys, IDs and transaction IDs are lowercase hex. Wire types live in `crates/svx-protocol`.
 
 - **Errors:** every error has the body `{"error": "<reason>"}`.
-  - **Reasons:** `invalid_request`, `invalid_artifact`, `not_authorized`, `expired_or_revoked`, `unavailable`.
+  - **Reasons:** `invalid_request`, `invalid_artifact`, `not_authorized`, `expired_or_revoked`, `unavailable`, and for personal files `already_opened` and `declined`.
   - **Release endpoints** return only these coarse reasons. The precise reason goes to the audit log.
   - **Admin endpoints** may add a `"detail"` string.
 
@@ -51,6 +51,10 @@ The signature uses context `"SVX-1 registry\0"` over the exact record bytes. Cli
 | `key_agent_url` | key agent URL |
 | `keys` | list of `{key_id, kind, public_key (hex), status: active\|retired\|revoked}`. `kind` is `ed25519-mldsa65` (1984-byte signing key, signs new files), `xwing` (1216-byte X25519 + ML-KEM-768 key, receives new files), or the classical `ed25519` / `x25519` (32 bytes, kept for older files) |
 | `issued_at` | Unix seconds |
+| `kind` | `company` (default) or `personal` |
+| `account_email` | personal accounts only: the verified email the directory finds |
+
+The service record also lists `personal_idps` (`{name, issuer, client_id, client_secret?}`): the sign-in providers for personal accounts.
 
 ## Organization lifecycle
 
@@ -148,6 +152,32 @@ On success it responds:
 | `client_key_id` | the client's ephemeral key |
 | `txn` | the transaction ID |
 | `exp` | expiry |
+
+## Personal accounts
+
+See [personal.md](personal.md). Except for sign-up, every endpoint here needs a request signed with the account's device key: headers `svx-account`, `svx-key-id` (hex), `svx-time` (Unix seconds), `svx-nonce` (hex16) and `svx-signature` (base64), a hybrid signature under context `"SVX-1 account request\0"` over
+
+```
+METHOD \n path?query \n hex(SHA-256(body)) \n time \n hex(nonce) \n account \n hex(key_id)
+```
+
+The key must be an active `ed25519-mldsa65` key of the account, the time within 60 s, and the nonce unused (replays get 401 and an audit record).
+
+| Endpoint | What |
+|----------|------|
+| `POST /v1/accounts` | Sign up or register this device: `{issuer, id_token, signing_public, kem_public, reset}`. The token's `nonce` must be `hex(SHA-256("SVX-1 sign-up\0" ‖ u16 len ‖ signing ‖ u16 len ‖ kem))` and its email verified. Same identity with other keys → 409 unless `reset`; keys of another account → 409. Returns `{account, email, issuer, created_at}`. |
+| `GET /v1/me` | The account. |
+| `GET /v1/directory?email=` | The signed registry record of the account with this email (30 lookups a minute per account). Clients check the signature and that `account_email` matches. |
+| `POST /v1/me/files` | Register a file just made: `{header_region, trailer, rules: {require_approval, one_time, expires_at}}`. The sender must be the caller and every recipient a personal account. The rules' expiry can't be later than the signed one. |
+| `GET /v1/me/files/{id}` | The sender's view: rules, revocation, each recipient's state (`not_opened`, `requested`, `approved`, `opened`, `declined`, `revoked`). |
+| `PATCH /v1/me/files/{id}` | `{require_approval?, one_time?, expires_at?, revoke, revoke_recipients}`. |
+| `POST /v1/personal/release` | `{header_region, trailer, client_key, txn}`. Checks registration, recipient, revocation, expiry, one-time use, approval, single-use `txn`. Answers `{"status": "pending", request_id, sender_email, expires_at}` (repeat the same request to poll) or `{"status": "released", share}`. |
+| `POST /v1/personal/opened` | `{artifact_id, txn}`: decryption finished; a one-time open is final. |
+| `GET /v1/me/requests` | Pending requests for the caller's files. |
+| `POST /v1/me/requests/{id}/approve`, `…/decline` | Decide (only while pending). An approval lasts 24 h. |
+| `GET /v1/me/history` | `{sent: [file status], received: [{artifact_id, sender, sender_email, created_at, state, requested_at, opened_at}]}`. |
+
+The company `POST /v1/release` refuses personal and multi-recipient files.
 
 ## Key agent
 

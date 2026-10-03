@@ -189,7 +189,7 @@ impl World {
                 users: ["alice", "bob", "carol", "eve"]
                     .iter()
                     .map(|sub| User {
-                        sub: format!("{sub}-google-id"),
+                        sub: sub.to_string(),
                         email: (*sub != "eve").then(|| format!("{sub}@example.test")),
                         groups: vec![],
                         acr: None,
@@ -723,6 +723,13 @@ impl World {
             sample_artifact: sample,
             expired_artifact: expired,
             sample_plaintext: String::from_utf8_lossy(SECRET).into_owned(),
+            personal_issuer: self.personal_idp.issuer().into(),
+            personal_users: self
+                .personal_idp
+                .users()
+                .iter()
+                .map(|u| (u.sub.clone(), u.email.clone()))
+                .collect(),
         };
         let json = serde_json::to_vec_pretty(&state).map_err(std::io::Error::other)?;
         std::fs::write(dir.join("state.json"), json)?;
@@ -743,6 +750,9 @@ pub struct State {
     pub sample_artifact: PathBuf,
     pub expired_artifact: PathBuf,
     pub sample_plaintext: String,
+    /// Personal accounts' dev sign-in ("Google"): user and email.
+    pub personal_issuer: String,
+    pub personal_users: Vec<(String, Option<String>)>,
 }
 
 #[derive(Clone, Debug, Serialize)]

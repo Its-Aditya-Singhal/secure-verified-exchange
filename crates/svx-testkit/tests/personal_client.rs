@@ -59,7 +59,7 @@ async fn sign_up_as(
             default_output_dir: Some(dir.join(format!("{device}-out"))),
             replace: false,
         },
-        LoginMethod::Dev(format!("{who}-google-id")),
+        LoginMethod::Dev(who.to_owned()),
     )
     .await?;
     assert_eq!(info.email, format!("{who}@example.test"));

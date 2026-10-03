@@ -134,6 +134,27 @@ Last updated: 2026-10-03.
 - [ ] Org directory search (today recipients are typed by ID)
 - [ ] Enforce classification limits in policy
 
+## Phase 5d: Personal accounts
+
+- [x] ~~Format 1.2: several recipients (critical `recipients` field, one envelope per recipient, new vectors)~~
+- [x] ~~Service:~~
+  - [x] ~~sign-up with Google or Apple, keys bound by the token nonce, verified email required~~
+  - [x] ~~requests signed with the device key (time window, single-use nonce)~~
+  - [x] ~~email directory (signed record with the verified email, rate-limited)~~
+  - [x] ~~file rules: approval, one-time, expiry, revoke per file or person~~
+  - [x] ~~personal release with pending approval, one-time receipt and retry window~~
+  - [x] ~~requests, approve/decline, history~~
+  - [x] ~~approval emails (SMTP over TLS; no file names or links)~~
+- [x] ~~`svx_client::personal`: sign-up, backup (Argon2id + ChaCha20-Poly1305), restore, reset, lookup, send, open with approval wait, history~~
+- [x] ~~Desktop app: welcome (Google/Apple first), sidebar, Send by email, History, File page, Requests, waiting timeline, Settings (backup, reset, sign out)~~
+- [x] ~~CLI: `account`, `send`, `requests`, `approve`, `decline`, `history`, `file`~~
+- [x] ~~Demo checks 11–16; `svx-demo serve` prints personal accounts and emails~~
+- [x] ~~Docs: `personal.md`, API, architecture, keys, desktop, threat model~~
+- [ ] Google OAuth client ("Desktop app") for real sign-in
+- [ ] Apple Developer setup and the service-side sign-in relay
+- [ ] SMTP account for approval emails
+- [ ] Manual test with two app windows against `svx-demo serve`
+
 ## Phase 5c: Website (deferred by the user)
 
 The website never receives, encrypts or decrypts files.

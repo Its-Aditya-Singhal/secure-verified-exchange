@@ -8,6 +8,7 @@
 
 #![forbid(unsafe_code)]
 
+mod personal;
 mod scenarios;
 mod ui;
 
@@ -170,9 +171,41 @@ async fn run(cli: Cli) -> Result<ExitCode> {
                 state.acme_signing_key.display()
             );
             println!();
+            println!(
+                "Personal accounts (dev \"Google\" at {}):",
+                state.personal_issuer
+            );
+            for (user, email) in &state.personal_users {
+                match email {
+                    Some(e) => println!("  {user:<6} {e}"),
+                    None => println!("  {user:<6} (no confirmed email: sign-up is refused)"),
+                }
+            }
+            println!("Run the desktop app against this stack (sign in with a test account):");
+            println!(
+                "  SVX_SERVICE_URL={} SVX_REGISTRY_FINGERPRINT={} SVX_DEV=1 SVX_CONFIG=/tmp/svx-alice/config.toml npm run tauri dev",
+                state.service_url, state.registry_key
+            );
+            println!(
+                "(use another SVX_CONFIG folder for a second account; emails are printed below)"
+            );
+            println!();
             println!("Press Ctrl-C to stop (databases are dropped on exit).");
             // Signal readiness to wrappers (SDK test fixtures) on its own line.
             println!("SVX_DEMO_READY");
+            // Print approval emails as they're sent (no SMTP in the dev stack).
+            let mail = world.mail.clone();
+            tokio::spawn(async move {
+                let mut shown = 0;
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    let sent = mail.sent();
+                    for m in &sent[shown..] {
+                        println!("\n[email to {}] {}\n{}", m.to, m.subject, m.body);
+                    }
+                    shown = sent.len();
+                }
+            });
             wait_for_shutdown().await;
             world.cleanup().await.context("dropping demo databases")?;
             let _ = std::fs::remove_file(state_dir.join("state.json"));
