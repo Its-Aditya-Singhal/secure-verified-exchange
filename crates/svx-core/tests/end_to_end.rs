@@ -316,3 +316,26 @@ fn large_streaming_round_trip() {
         .unwrap();
     assert_eq!(sink.0, LEN);
 }
+
+#[test]
+fn verify_head_without_payload() {
+    let mut w = World::new();
+    let file = w.pack(SECRET);
+    let v = verify(Cursor::new(&file), &w.trust).unwrap();
+    let trailer = v.trailer.encode().unwrap();
+    let head = verify_head(&v.header_region, &trailer, &w.trust).unwrap();
+    assert_eq!(head.header_hash(), v.header_hash());
+    // Service can unwrap its share from the head alone.
+    head.unwrap_share(EnvelopeRole::Service, &w.service_kem)
+        .unwrap();
+
+    let mut bad_region = v.header_region.clone();
+    let n = bad_region.len();
+    bad_region[n - 1] ^= 1;
+    assert!(verify_head(&bad_region, &trailer, &w.trust).is_err());
+    let mut bad_trailer = trailer.clone();
+    bad_trailer[10] ^= 1;
+    assert!(verify_head(&v.header_region, &bad_trailer, &w.trust).is_err());
+    assert!(verify_head(&v.header_region[..n - 1], &trailer, &w.trust).is_err());
+    assert!(verify_head(&v.header_region, &trailer, &TrustStore::new()).is_err());
+}

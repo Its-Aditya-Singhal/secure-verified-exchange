@@ -91,6 +91,15 @@ impl Trailer {
         Ok(out)
     }
 
+    /// Decode a trailer from exactly `bytes` (no trailing data permitted).
+    pub fn decode(mut bytes: &[u8]) -> Result<Self> {
+        let t = Self::read_from(&mut bytes)?;
+        if !bytes.is_empty() {
+            return Err(FormatError::TrailingData);
+        }
+        Ok(t)
+    }
+
     fn read_from<R: Read>(r: &mut R) -> Result<Self> {
         let mut fixed = [0u8; 4 + 8 + 32 + 2 + 2];
         r.read_exact(&mut fixed).map_err(map_eof)?;
@@ -328,4 +337,19 @@ pub fn parse(bytes: &[u8]) -> Result<Container> {
         chunks,
         trailer,
     })
+}
+
+/// Parse a standalone header region (prelude ‖ header), as sent to the
+/// managed service in a release request. The length must match exactly.
+pub fn parse_header_region(bytes: &[u8]) -> Result<(Prelude, Header)> {
+    if bytes.len() < Prelude::LEN {
+        return Err(FormatError::Truncated);
+    }
+    let pbytes: &[u8; Prelude::LEN] = bytes[..Prelude::LEN].try_into().expect("length checked");
+    let prelude = Prelude::decode(pbytes)?;
+    let body = &bytes[Prelude::LEN..];
+    if body.len() != prelude.header_len as usize {
+        return Err(FormatError::Malformed("header region length"));
+    }
+    Ok((prelude, Header::decode(body)?))
 }

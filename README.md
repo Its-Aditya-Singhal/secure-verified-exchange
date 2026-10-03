@@ -6,7 +6,7 @@ A `.svx` file is a passive, signed and encrypted container. Its contents stay en
 
 > SVX does not make data impossible to steal. It makes an intercepted or unauthorized `.svx` file cryptographically useless for revealing its protected contents. It also provides strong identity, authorization, integrity, expiration, revocation and audit controls. See the [threat model](threat-model/THREAT_MODEL.md) for what SVX does and does not protect against.
 
-## What is in this repository (Phase 1: Foundations)
+## What is in this repository (Phases 1–2)
 
 | Path | What |
 |------|------|
@@ -16,10 +16,17 @@ A `.svx` file is a passive, signed and encrypted container. Its contents stay en
 | [`spec/SVX-1.0.md`](spec/SVX-1.0.md) | Normative binary container format |
 | [`spec/crypto-profile.md`](spec/crypto-profile.md) | Normative cryptographic profile (suite SVX-1) |
 | [`docs/roadmap.md`](docs/roadmap.md) | The phased build plan |
+| [`docs/api.md`](docs/api.md) | Managed service and key agent HTTP API |
+| [`docs/running-locally.md`](docs/running-locally.md) | Run the service, key agent and dev IdPs locally |
 | `crates/svx-format` | Strict, bounded, crypto-free parser and writer |
 | `crates/svx-crypto` | STREAM ChaCha20-Poly1305, HPKE key envelopes, HKDF key schedule, Ed25519 |
 | `crates/svx-core` | Pack, verify and open APIs; key files; trust store |
 | `crates/svx-cli` | The `svx` command |
+| `crates/svx-protocol` | Managed Mode wire types, signed grants and registry records, release client, OIDC PKCE helpers |
+| `crates/svx-oidc` | ID-token validation (discovery, JWKS cache, strict claims, nonce binding) |
+| `crates/svx-server` | Managed service: org registry, admin API, policy engine, key release, revocation, audit (PostgreSQL) |
+| `crates/svx-keyagent` | Recipient organization's key agent: releases the org share only with a service grant **and** the user's own-IdP token |
+| `crates/svx-mock-idp` | **Development-only** OIDC provider with fictional users |
 | `crates/svx-testvectors` | Deterministic generator and conformance checks for `test-vectors/v1` |
 | `fuzz/` | cargo-fuzz targets: `parse`, `verify_open`, `manifest` |
 
@@ -30,7 +37,7 @@ A `.svx` file is a passive, signed and encrypted container. Its contents stay en
 - **Integrity before plaintext.** The header hash is the AAD for every chunk. A signed payload commitment covers every chunk. Chunk nonces bind position and finality. A single flipped bit anywhere causes rejection, and a test checks this for every byte of a file.
 - **Private metadata.** File names, sizes, classification and description are stored in an encrypted manifest. Only opaque routing identifiers are public.
 - **Streaming.** Memory use is constant, so multi-GB forensic images work.
-- **No bypass.** The CLI has no local "unpack" path. Opening an artifact requires released shares (Phase 2/3).
+- **No bypass.** The CLI has no local "unpack" path. Opening an artifact requires shares released by the managed service and the recipient's key agent after authentication and authorization.
 
 ## Quick start
 
@@ -68,12 +75,21 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo test -p svx-core --release -- --ignored        # 1 GiB streaming test
 cargo run -p svx-testvectors -- test-vectors/v1     # regenerate vectors (must be byte-identical)
+SVX_TEST_DATABASE_URL=postgres://svx@127.0.0.1:5432/postgres cargo test -p svx-server   # Managed Mode end to end
 cd fuzz && cargo +nightly fuzz run parse            # seed corpus: ../test-vectors/v1/*.svx
 ```
 
 ## Status
 
-Phase 1 of 6 (see the [roadmap](docs/roadmap.md)). The format and cryptographic layer work and are tested. The managed service, client login and key release are not built yet.
+Phase 2 of 6 (see the [roadmap](docs/roadmap.md)). The format, the cryptography, the managed service, the key agent and the key-release protocol work and are tested end to end. These scenarios are covered:
+
+- Alice, who is authorized, decrypts.
+- Bob, who is authenticated but not authorized, is denied.
+- Eve is denied, whether she uses the wrong IdP or no token.
+- Expired, revoked, tampered and replayed requests are rejected.
+- A compromised service cannot obtain the recipient's share.
+
+The end-user `svx login` / `svx open` commands come in Phase 3.
 
 **This code has not had an independent security review. Do not use it to protect real data yet.**
 

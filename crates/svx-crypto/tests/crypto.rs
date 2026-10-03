@@ -168,3 +168,55 @@ fn key_serialization_and_redaction() {
     ident[0] = 1;
     assert!(VerifyingKey::from_bytes(&ident).is_err());
 }
+
+#[test]
+fn released_share_bound_to_client_key_txn_role_and_artifact() {
+    let mut r = rng();
+    let client = KemSecretKey::generate(&mut r);
+    let other = KemSecretKey::generate(&mut r);
+    let share = Share::generate(&mut r);
+    let (aid, txn) = ([1u8; 16], [2u8; 16]);
+    let (enc, ct) = seal_released_share(
+        EnvelopeRole::Service,
+        &share,
+        client.public_key(),
+        &aid,
+        &txn,
+        &mut r,
+    )
+    .unwrap();
+    let got = open_released_share(EnvelopeRole::Service, &client, &aid, &txn, &enc, &ct).unwrap();
+    assert_eq!(got.as_bytes(), share.as_bytes());
+    assert!(open_released_share(EnvelopeRole::Service, &other, &aid, &txn, &enc, &ct).is_err());
+    assert!(
+        open_released_share(EnvelopeRole::RecipientOrg, &client, &aid, &txn, &enc, &ct).is_err()
+    );
+    assert!(
+        open_released_share(EnvelopeRole::Service, &client, &[9; 16], &txn, &enc, &ct).is_err()
+    );
+    assert!(
+        open_released_share(EnvelopeRole::Service, &client, &aid, &[9; 16], &enc, &ct).is_err()
+    );
+}
+
+#[test]
+fn nonce_binding_depends_on_key_and_txn() {
+    let mut r = rng();
+    let a = KemSecretKey::generate(&mut r);
+    let b = KemSecretKey::generate(&mut r);
+    let n = nonce_binding(a.public_key(), &[0; 16]);
+    assert_eq!(n.len(), 64);
+    assert_ne!(n, nonce_binding(b.public_key(), &[0; 16]));
+    assert_ne!(n, nonce_binding(a.public_key(), &[1; 16]));
+}
+
+#[test]
+fn context_signatures_are_domain_separated() {
+    let mut r = rng();
+    let sk = SigningKey::generate(&mut r);
+    let vk = sk.verifying_key();
+    let sig = sign_context(&sk, SignContext::ReleaseGrant, b"payload");
+    verify_context(&vk, SignContext::ReleaseGrant, b"payload", &sig).unwrap();
+    assert!(verify_context(&vk, SignContext::RegistryRecord, b"payload", &sig).is_err());
+    assert!(verify_context(&vk, SignContext::ReleaseGrant, b"payloaD", &sig).is_err());
+}

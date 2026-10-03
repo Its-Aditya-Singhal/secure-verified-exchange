@@ -1,6 +1,6 @@
 # SVX Security Architecture
 
-Status: Phase 1 design. The Phase 1 components are implemented. Components marked *(Phase N)* are design only and will be built in later phases.
+Status: Phases 1–2 are implemented: the format, the cryptography, the managed service, the key agent and the release protocol. Client UX (Phase 3) and the admin UI (Phase 5) are still design only.
 
 ## 1. Components
 
@@ -21,7 +21,7 @@ Status: Phase 1 design. The Phase 1 components are implemented. Components marke
                                        +-----------------------+       |
                                                                        v
    +--------------------------------------------+     +--------------------------------------+
-   | SVX Managed Service (svx.example) (Phase 2) |     | Company B Key Agent (Phase 2)        |
+   | SVX Managed Service (svx.example)          |     | Company B Key Agent                  |
    |  - org registry and trust (signed records) |     |  - Company B X25519 KEM key in KMS   |
    |  - policy engine, expiry, revocation       |     |  - unwraps RecipientOrg share        |
    |  - service X25519 KEM key in KMS/HSM       |     |  - requires service grant + user     |
@@ -71,7 +71,7 @@ Memory use is O(chunk size). The CLI writes to a temporary file and renames it o
 
 ## 4. Opening flow (Managed Mode)
 
-Steps marked ✅ are implemented in `svx-core`. The other steps are Phase 2 and 3.
+Steps marked ✅ are implemented: in `svx-core`, in `svx-protocol::client`, and server-side in `svx-server` and `svx-keyagent`. The remaining steps belong to the Phase 3 client.
 
 ```text
  1. ✅ Parse prelude and header (strict, bounded)
@@ -80,11 +80,11 @@ Steps marked ✅ are implemented in `svx-core`. The other steps are Phase 2 and 
  4. ✅ Verify sender signature against the trust store or registry
  5. ✅ Identify recipient org and service from the verified header
  6.    Require connectivity (no offline mode in Managed Mode)
- 7.    Authenticate the user with the recipient org's IdP (OIDC + PKCE)
- 8.    Verify the org identity via the signed registry record
- 9.    Release request to the managed service -> policy, expiry, revocation, device/session checks
-10.    Release request to the recipient key agent with the service grant
-11.    Receive both shares, HPKE-sealed to a per-request ephemeral client key
+ 7. ✅ Authenticate the user with the recipient org's IdP (OIDC + PKCE)
+ 8. ✅ Verify the org identity via the signed registry record
+ 9. ✅ Release request to the managed service -> policy, expiry, revocation, device/session checks
+10. ✅ Release request to the recipient key agent with the service grant
+11. ✅ Receive both shares, HPKE-sealed to a per-request ephemeral client key
 12. ✅ Derive keys; check key commitment (constant time)
 13. ✅ Decrypt the manifest; validate file names
 14. ✅ Decrypt the payload, re-checking header hash and commitment (TOCTOU)
@@ -94,7 +94,7 @@ Steps marked ✅ are implemented in `svx-core`. The other steps are Phase 2 and 
 
 Any failure at any step means **no plaintext**. There is no "continue anyway" path in the client, the CLI or the SDK.
 
-## 5. Organization identity and trust (Phase 2)
+## 5. Organization identity and trust
 
 An organization record:
 
@@ -117,7 +117,7 @@ Trust model:
 3. **Key status.** Keys move from `active` to `retired` to `revoked`. Verification checks that the key was valid at `created_at` and is not revoked.
 4. **Later: federation.** Org-to-org trust that does not depend on the managed registry (signed cross-certification). Listed in Future features.
 
-## 6. Key-release protocol (Phase 2)
+## 6. Key-release protocol
 
 Goal: release the two shares only to an authenticated, authorized user's client, and make sure no intermediary sees them.
 
@@ -153,7 +153,7 @@ Why it is shaped this way:
 - **Single-use transactions.** `txn` values are single use, with a short TTL, and are stored server-side. This prevents replay and gives audit records a correlation ID.
 - **Coarse denial reasons.** Responses use only "not authorized", "expired or revoked" and "service unavailable", so they do not leak policy details to an attacker. The audit log holds the precise reason.
 
-## 7. Authorization model (Phase 2)
+## 7. Authorization model
 
 - **Default deny.** Being a member of the recipient org grants nothing.
 - **Policy reference.** `policy_ref` in the signed header names a policy that the *recipient* org defines. The sender picks from policies the recipient has published, for example `incident-response`.
@@ -162,13 +162,15 @@ Why it is shaped this way:
   - groups and roles (from verified IdP claims)
   - required authentication assurance (`acr`/`amr`, such as MFA or phishing-resistant)
   - time window
-  - classification ceiling
+  - classification ceiling (planned; the classification is in the encrypted manifest, so the Phase 3 client enforces it)
   - device requirement (later phase)
-  - optional admin approval
+  - optional admin approval (later phase)
+
+  Implemented in Phase 2: subjects, groups, `acr`, time window and maximum age (`svx-server/src/policy.rs`).
 - **Expiry.** `min(signed expires_at, policy max-age)` applies. The service can shorten expiry but never extend it.
 - **Revocation.** Revocation is per artifact, per sender key, per user, or for a whole org (offboarding).
 
-## 8. Audit (Phase 2)
+## 8. Audit
 
 Events: `artifact_registered`, `access_attempted`, `authentication_success/failure`, `authorization_success/failure`, `decryption_authorized`, `artifact_opened`, `artifact_revoked`, `artifact_expired`, `signature_failure`, `integrity_failure`, `policy_violation`.
 
@@ -185,7 +187,7 @@ Each record contains:
 
 Records never contain payloads, keys, shares, tokens or file names. Audit logs are append-only and hash-chained per tenant. Admins see only their own org's records.
 
-## 9. Tenant isolation (Phase 2)
+## 9. Tenant isolation
 
 Every table and query is scoped by `org_id`, which comes from the authenticated principal and never from request parameters. Per-tenant KMS keys are used where the provider supports them. Authorization is always checked server-side.
 

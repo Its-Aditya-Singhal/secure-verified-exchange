@@ -1,0 +1,7 @@
+{
+  "client_id": "svx-acme",
+  "users": [
+    { "sub": "acme-admin", "email": "admin@acme.example", "groups": ["admins"] },
+    { "sub": "carol", "email": "carol@acme.example", "groups": ["incident-response"] }
+  ]
+}

@@ -18,7 +18,7 @@ mod ident;
 pub mod limits;
 mod wire;
 
-pub use container::{ChunkInfo, Container, Reader, Trailer, Writer, parse};
+pub use container::{ChunkInfo, Container, Reader, Trailer, Writer, parse, parse_header_region};
 pub use error::{FormatError, Result};
 pub use header::{EnvelopeRole, Header, KeyEnvelope, Prelude, UnknownField, tags};
 pub use ident::Identifier;

@@ -1,0 +1,25 @@
+[package]
+name = "svx-keyagent"
+description = "SVX recipient key agent: releases the recipient-organization key share to authorized users"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+svx-core = { path = "../svx-core" }
+svx-oidc = { path = "../svx-oidc" }
+svx-protocol = { path = "../svx-protocol" }
+anyhow = "1"
+axum = "0.8"
+axum-server = { version = "0.8", features = ["tls-rustls"] }
+clap = { version = "4", features = ["derive", "env"] }
+hex = "0.4"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "macros", "migrate"] }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[lints]
+workspace = true

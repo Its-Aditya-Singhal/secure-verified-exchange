@@ -19,16 +19,20 @@
 
 #![forbid(unsafe_code)]
 
+mod context;
 mod envelope;
 mod error;
 mod keys;
+mod release;
 mod schedule;
 mod stream;
 mod transcript;
 
+pub use context::{SignContext, sign_context, verify_context};
 pub use envelope::{EnvelopeContext, open_share, seal_share};
 pub use error::{CryptoError, Result};
 pub use keys::{KemPublicKey, KemSecretKey, KeyKind, SigningKey, VerifyingKey, key_id};
+pub use release::{TXN_LEN, nonce_binding, open_released_share, seal_released_share};
 pub use schedule::{ArtifactKeys, Share};
 pub use stream::{StreamDecryptor, StreamEncryptor};
 pub use transcript::{
@@ -60,4 +64,12 @@ pub fn check_suite(suite_id: u16) -> Result<()> {
 /// The operating-system CSPRNG.
 pub fn os_rng() -> impl CryptoRng {
     rand_core::UnwrapErr(getrandom::SysRng)
+}
+
+/// `N` bytes from the operating-system CSPRNG.
+pub fn random_bytes<const N: usize>() -> [u8; N] {
+    use rand_core::Rng;
+    let mut out = [0u8; N];
+    os_rng().fill_bytes(&mut out);
+    out
 }

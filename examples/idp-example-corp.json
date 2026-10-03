@@ -1,0 +1,8 @@
+{
+  "client_id": "svx-example-corp",
+  "users": [
+    { "sub": "example-admin", "email": "admin@example-corp.example", "groups": ["admins"] },
+    { "sub": "alice", "email": "alice@example-corp.example", "groups": ["incident-response", "staff"], "acr": "phr" },
+    { "sub": "bob", "email": "bob@example-corp.example", "groups": ["staff"], "acr": "phr" }
+  ]
+}

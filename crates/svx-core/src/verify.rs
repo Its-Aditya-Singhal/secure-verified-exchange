@@ -4,7 +4,7 @@ use svx_crypto::{
     ArtifactKeys, EnvelopeContext, HeaderHash, KemSecretKey, PayloadHasher, Share, StreamDecryptor,
     VerifyingKey, check_suite, header_hash, open_manifest, open_share, verify_transcript,
 };
-use svx_format::{EnvelopeRole, Header, KeyEnvelope, Prelude, Reader};
+use svx_format::{EnvelopeRole, Header, KeyEnvelope, Prelude, Reader, Trailer};
 
 use crate::error::{CoreError, Result};
 use crate::manifest::Manifest;
@@ -17,15 +17,42 @@ pub fn inspect<R: Read>(input: R) -> Result<(Prelude, Header)> {
     Ok((*reader.prelude(), reader.header().clone()))
 }
 
-/// An artifact whose structure, sender and signature have been verified.
+/// A verified header and trailer: structure, suite, sender trust and the
+/// signature over `header_hash ‖ chunk_count ‖ payload_commitment` all check
+/// out. The payload itself has *not* been read; this is what the managed
+/// service verifies in a release request (the client has the payload and
+/// verifies it fully with [`verify`]).
 #[derive(Clone, Debug)]
-pub struct VerifiedArtifact {
+pub struct VerifiedHead {
     pub prelude: Prelude,
     pub header: Header,
-    pub chunk_count: u64,
+    pub header_region: Vec<u8>,
+    pub trailer: Trailer,
     pub sender_key: VerifyingKey,
     header_hash: HeaderHash,
+}
+
+/// An artifact whose structure, sender, payload commitment and signature
+/// have all been verified. Dereferences to its [`VerifiedHead`].
+#[derive(Clone, Debug)]
+pub struct VerifiedArtifact {
+    head: VerifiedHead,
+    pub chunk_count: u64,
     payload_commitment: [u8; 32],
+}
+
+impl std::ops::Deref for VerifiedArtifact {
+    type Target = VerifiedHead;
+    fn deref(&self) -> &VerifiedHead {
+        &self.head
+    }
+}
+
+fn check_head(prelude: &Prelude, header: &Header, trust: &TrustStore) -> Result<VerifyingKey> {
+    check_suite(prelude.suite_id)?;
+    required_envelope(header, EnvelopeRole::Service)?;
+    required_envelope(header, EnvelopeRole::RecipientOrg)?;
+    Ok(*trust.resolve(&header.sender_org, &header.sender_key_id)?)
 }
 
 /// Verify an artifact end to end without any decryption keys:
@@ -38,20 +65,18 @@ pub struct VerifiedArtifact {
 /// 6. Ed25519 signature over the transcript.
 pub fn verify<R: Read>(input: R, trust: &TrustStore) -> Result<VerifiedArtifact> {
     let mut reader = Reader::new(input)?;
-    check_suite(reader.prelude().suite_id)?;
+    let prelude = *reader.prelude();
     let header = reader.header().clone();
-    required_envelope(&header, EnvelopeRole::Service)?;
-    required_envelope(&header, EnvelopeRole::RecipientOrg)?;
     // Resolve the sender before reading the payload so untrusted input fails fast.
-    let sender_key = *trust.resolve(&header.sender_org, &header.sender_key_id)?;
+    let sender_key = check_head(&prelude, &header, trust)?;
 
-    let hh = header_hash(reader.header_region());
+    let header_region = reader.header_region().to_vec();
+    let hh = header_hash(&header_region);
     let mut hasher = PayloadHasher::new(&hh);
     let mut buf = Vec::new();
     while let Some(info) = reader.next_chunk(&mut buf)? {
         hasher.update(&info, &buf);
     }
-    let prelude = *reader.prelude();
     let (trailer, _) = reader.finish()?;
     let (chunk_count, commitment) = hasher.finalize();
     if chunk_count != trailer.chunk_count || !ct_eq32(&commitment, &trailer.payload_commitment) {
@@ -67,12 +92,47 @@ pub fn verify<R: Read>(input: R, trust: &TrustStore) -> Result<VerifiedArtifact>
     )?;
 
     Ok(VerifiedArtifact {
+        head: VerifiedHead {
+            prelude,
+            header,
+            header_region,
+            trailer,
+            sender_key,
+            header_hash: hh,
+        },
+        chunk_count,
+        payload_commitment: commitment,
+    })
+}
+
+/// Verify a header region and trailer without the payload. The signature
+/// covers the payload commitment, so a valid result proves the sender signed
+/// *some* payload with this header; only [`verify`] proves the payload you
+/// hold is that one.
+pub fn verify_head(
+    header_region: &[u8],
+    trailer: &[u8],
+    trust: &TrustStore,
+) -> Result<VerifiedHead> {
+    let (prelude, header) = svx_format::parse_header_region(header_region)?;
+    let sender_key = check_head(&prelude, &header, trust)?;
+    let trailer = Trailer::decode(trailer)?;
+    let hh = header_hash(header_region);
+    verify_transcript(
+        &sender_key,
+        &hh,
+        trailer.chunk_count,
+        &trailer.payload_commitment,
+        trailer.sig_alg,
+        &trailer.signature,
+    )?;
+    Ok(VerifiedHead {
         prelude,
         header,
-        chunk_count,
+        header_region: header_region.to_vec(),
+        trailer,
         sender_key,
         header_hash: hh,
-        payload_commitment: commitment,
     })
 }
 
@@ -88,13 +148,40 @@ fn role_name(role: EnvelopeRole) -> &'static str {
     }
 }
 
-impl VerifiedArtifact {
+fn envelope_context(h: &Header) -> EnvelopeContext<'_> {
+    EnvelopeContext {
+        artifact_id: &h.artifact_id,
+        sender_org: &h.sender_org,
+        sender_key_id: &h.sender_key_id,
+        recipient_org: &h.recipient_org,
+        service_id: &h.service_id,
+    }
+}
+
+/// Unwrap one key-share envelope from a header that the caller has
+/// authenticated by other means (the recipient key agent authenticates the
+/// header through the service's signed grant, which commits to its hash).
+pub fn unwrap_envelope(
+    header: &Header,
+    role: EnvelopeRole,
+    secret: &KemSecretKey,
+) -> Result<Share> {
+    let env = required_envelope(header, role)?;
+    if env.key_id != secret.public_key().key_id() {
+        return Err(CoreError::WrongKey(role_name(role)));
+    }
+    Ok(open_share(
+        role,
+        secret,
+        &envelope_context(header),
+        &env.encapped_key,
+        &env.ciphertext,
+    )?)
+}
+
+impl VerifiedHead {
     pub fn header_hash(&self) -> &HeaderHash {
         &self.header_hash
-    }
-
-    pub fn payload_commitment(&self) -> &[u8; 32] {
-        &self.payload_commitment
     }
 
     /// Whether the signed expiry has passed at `now` (Unix seconds). The
@@ -105,13 +192,7 @@ impl VerifiedArtifact {
     }
 
     pub fn envelope_context(&self) -> EnvelopeContext<'_> {
-        EnvelopeContext {
-            artifact_id: &self.header.artifact_id,
-            sender_org: &self.header.sender_org,
-            sender_key_id: &self.header.sender_key_id,
-            recipient_org: &self.header.recipient_org,
-            service_id: &self.header.service_id,
-        }
+        envelope_context(&self.header)
     }
 
     /// Unwrap one key share with the holder's KEM secret key. In Managed
@@ -119,17 +200,17 @@ impl VerifiedArtifact {
     /// recipient organization's key agent (role `RecipientOrg`), after
     /// authorization — never on an unauthenticated client.
     pub fn unwrap_share(&self, role: EnvelopeRole, secret: &KemSecretKey) -> Result<Share> {
-        let env = required_envelope(&self.header, role)?;
-        if env.key_id != secret.public_key().key_id() {
-            return Err(CoreError::WrongKey(role_name(role)));
-        }
-        Ok(open_share(
-            role,
-            secret,
-            &self.envelope_context(),
-            &env.encapped_key,
-            &env.ciphertext,
-        )?)
+        unwrap_envelope(&self.header, role, secret)
+    }
+}
+
+impl VerifiedArtifact {
+    pub fn head(&self) -> &VerifiedHead {
+        &self.head
+    }
+
+    pub fn payload_commitment(&self) -> &[u8; 32] {
+        &self.payload_commitment
     }
 
     /// Decrypt the payload into `out`, re-reading the container from `input`
@@ -149,7 +230,7 @@ impl VerifiedArtifact {
     ) -> Result<Manifest> {
         let mut reader = Reader::new(input)?;
         let hh = header_hash(reader.header_region());
-        if hh != self.header_hash {
+        if hh != self.head.header_hash {
             return Err(CoreError::ArtifactChanged);
         }
         let h = &self.header;

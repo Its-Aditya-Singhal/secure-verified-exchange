@@ -1,0 +1,5 @@
+{
+  "allow_groups": ["incident-response"],
+  "require_acr": ["phr"],
+  "max_age_secs": 604800
+}

@@ -26,6 +26,30 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 
+  managed-mode-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: svx
+          POSTGRES_PASSWORD: svx
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U svx"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      SVX_TEST_DATABASE_URL: postgres://svx:svx@127.0.0.1:5432/postgres
+      SVX_REQUIRE_DB: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test -p svx-server -p svx-keyagent -p svx-oidc -p svx-protocol
+
   large-file:
     runs-on: ubuntu-latest
     steps:

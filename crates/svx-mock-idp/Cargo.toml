@@ -1,0 +1,27 @@
+[package]
+name = "svx-mock-idp"
+description = "DEVELOPMENT-ONLY OpenID Connect provider with fictional users, for SVX demos and tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+svx-core = { path = "../svx-core" }
+anyhow = "1"
+axum = "0.8"
+base64 = "0.22"
+clap = { version = "4", features = ["derive"] }
+ed25519-dalek = "3"
+hex = "0.4"
+jsonwebtoken = { version = "10.4", default-features = false, features = ["aws_lc_rs"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+tokio = { version = "1", features = ["full"] }
+url = "2"
+zeroize = "1.8"
+
+[lints]
+workspace = true
