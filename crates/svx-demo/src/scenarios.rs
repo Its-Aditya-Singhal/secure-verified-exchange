@@ -3,7 +3,7 @@
 //! scenario is an attacker bypassing the client.
 
 use std::io::Cursor;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result, anyhow};
 use svx_client::account::{self, LoginMethod};
