@@ -109,10 +109,10 @@ File names of personal files are kept only in `history.json` next to the configu
 cargo run -p svx-demo -- serve --state-dir /tmp/svx-stack     # keep running
 cd apps/desktop && npm ci
 SVX_CONFIG=/tmp/svx-app/acme/config.toml npm run tauri dev    # sender: Import /tmp/svx-stack/acme.toml
-SVX_CONFIG=/tmp/svx-app/example/config.toml npm run tauri dev # recipient: Import /tmp/svx-stack/example.toml
+SVX_CONFIG=/tmp/svx-app/example/config.toml ../../target/debug/svx-desktop # recipient (needs the first window running): Import /tmp/svx-stack/example.toml
 ```
 
-Using a separate `SVX_CONFIG` per organization keeps your real configuration untouched. As Acme, protect a file for `example-corp` with policy `incident-response` and the signing key `/tmp/svx-stack/acme.sign.key`. As Example Corp, open it (or `/tmp/svx-stack/incident-report.svx`) as test user `alice` (approved) or `bob` (denied). Admin test users: `example-admin`, `acme-admin`.
+Using a separate `SVX_CONFIG` per organization keeps your real configuration untouched. A launch with `SVX_CONFIG` gets its own window; without it, a second launch hands its files to the running window. As Acme, protect a file for `example-corp` with policy `incident-response` and the signing key `/tmp/svx-stack/acme.sign.key`. As Example Corp, open it (or `/tmp/svx-stack/incident-report.svx`) as test user `alice` (approved) or `bob` (denied). Admin test users: `example-admin`, `acme-admin`.
 
 To try double-click opening on macOS, build the bundle (`npm run tauri build -- --debug --bundles app`), copy `target/debug/bundle/macos/Secure Verified Exchange.app` to `/Applications`, open it once, and set it up with **Import config file…**. The installed app uses the default configuration location.
 

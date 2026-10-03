@@ -185,13 +185,19 @@ async fn run(cli: Cli) -> Result<ExitCode> {
             for (user, email) in &state.relay_users {
                 println!("  {user:<6} {}", email.as_deref().unwrap_or("-"));
             }
-            println!("Run the desktop app against this stack (sign in with a test account):");
-            println!(
-                "  SVX_SERVICE_URL={} SVX_REGISTRY_FINGERPRINT={} SVX_DEV=1 SVX_CONFIG=/tmp/svx-alice/config.toml npm run tauri dev",
+            let env = format!(
+                "SVX_SERVICE_URL={} SVX_REGISTRY_FINGERPRINT={} SVX_DEV=1",
                 state.service_url, state.registry_key
             );
+            println!("Run the desktop app against this stack, from apps/desktop:");
             println!(
-                "(use another SVX_CONFIG folder for a second account; emails are printed below)"
+                "  first window:   {env} SVX_CONFIG=/tmp/svx-alice/config.toml npm run tauri dev"
+            );
+            println!(
+                "  more windows:   {env} SVX_CONFIG=/tmp/svx-bob/config.toml ../../target/debug/svx-desktop"
+            );
+            println!(
+                "(each SVX_CONFIG folder is a separate account; more windows need the first one running; emails are printed below)"
             );
             println!();
             println!("Press Ctrl-C to stop (databases are dropped on exit).");

@@ -565,11 +565,16 @@ fn main() {
             std::process::exit(2);
         }
     };
-    let builder = tauri::Builder::default()
-        // Must be first: a second launch forwards its files and exits.
-        .plugin(tauri_plugin_single_instance::init(|handle, argv, cwd| {
+    let mut builder = tauri::Builder::default();
+    // Must be first: a second launch forwards its files and exits. A launch
+    // with its own `SVX_CONFIG` is a separate profile (testing several
+    // accounts side by side) and gets its own window.
+    if std::env::var_os("SVX_CONFIG").is_none() {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|handle, argv, cwd| {
             hand_over(handle, file_args(&argv, Path::new(&cwd)));
-        }))
+        }));
+    }
+    let builder = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(app)

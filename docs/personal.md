@@ -166,10 +166,14 @@ against the stack:
 cd apps/desktop
 SVX_SERVICE_URL=http://127.0.0.1:PORT SVX_REGISTRY_FINGERPRINT=<hex> SVX_DEV=1 \
   SVX_CONFIG=/tmp/svx-alice/config.toml npm run tauri dev
+# a second account, in another terminal while the first window runs:
+SVX_SERVICE_URL=http://127.0.0.1:PORT SVX_REGISTRY_FINGERPRINT=<hex> SVX_DEV=1 \
+  SVX_CONFIG=/tmp/svx-bob/config.toml ../../target/debug/svx-desktop
 ```
 
-Use another `SVX_CONFIG` folder for a second account. Approval emails are
-printed by `svx-demo serve`.
+Each `SVX_CONFIG` folder is a separate account with its own window (the
+single-instance hand-over applies only without `SVX_CONFIG`). Approval
+emails are printed by `svx-demo serve`.
 
 The CLI shares the account and keychain with the app:
 
