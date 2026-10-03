@@ -32,8 +32,8 @@
     "active": true,
     "targets": "all",
     "category": "Utility",
-    "shortDescription": "Send and open SVX secure files",
-    "longDescription": "Protect files for another organization and open .svx files you receive. Files open only after your company sign-in and your organization's policy allow it.",
+    "shortDescription": "Seal files so only the right person can open them",
+    "longDescription": "Seal files and folders into signed, encrypted .svx files that only the people you choose can open, and open .svx files you receive. You stay in control after sending: approval, one-time opening, expiry and revocation.",
     "copyright": "Apache-2.0",
     "icon": [
       "icons/32x32.png",
@@ -44,25 +44,40 @@
     ],
     "fileAssociations": [
       {
-        "ext": ["svx"],
-        "name": "SVX artifact",
-        "description": "SVX secure exchange artifact",
+        "ext": [
+          "svx"
+        ],
+        "name": "SVX sealed file",
+        "description": "SVX sealed file",
         "role": "Viewer",
         "rank": "Owner",
         "mimeType": "application/vnd.svx",
         "exportedType": {
           "identifier": "org.svx.artifact",
-          "conformsTo": ["public.data"]
+          "conformsTo": [
+            "public.data"
+          ]
         }
       }
     ],
     "macOS": {
-      "minimumSystemVersion": "11.0"
+      "minimumSystemVersion": "11.0",
+      "files": {
+        "Resources/svx-file.icns": "icons/svx-file.icns"
+      }
     },
     "linux": {
       "deb": {
         "files": {
-          "/usr/share/mime/packages/svx-desktop.xml": "../../../packaging/linux/svx-mime.xml"
+          "/usr/share/mime/packages/svx-desktop.xml": "../../../packaging/linux/svx-mime.xml",
+          "/usr/share/icons/hicolor/16x16/mimetypes/application-vnd.svx.png": "../../../packaging/linux/icons/application-vnd.svx-16.png",
+          "/usr/share/icons/hicolor/32x32/mimetypes/application-vnd.svx.png": "../../../packaging/linux/icons/application-vnd.svx-32.png",
+          "/usr/share/icons/hicolor/48x48/mimetypes/application-vnd.svx.png": "../../../packaging/linux/icons/application-vnd.svx-48.png",
+          "/usr/share/icons/hicolor/64x64/mimetypes/application-vnd.svx.png": "../../../packaging/linux/icons/application-vnd.svx-64.png",
+          "/usr/share/icons/hicolor/128x128/mimetypes/application-vnd.svx.png": "../../../packaging/linux/icons/application-vnd.svx-128.png",
+          "/usr/share/icons/hicolor/256x256/mimetypes/application-vnd.svx.png": "../../../packaging/linux/icons/application-vnd.svx-256.png",
+          "/usr/share/icons/hicolor/512x512/mimetypes/application-vnd.svx.png": "../../../packaging/linux/icons/application-vnd.svx-512.png",
+          "/usr/share/icons/hicolor/scalable/mimetypes/application-vnd.svx.svg": "../../../packaging/linux/icons/application-vnd.svx.svg"
         }
       }
     }

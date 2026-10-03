@@ -3,6 +3,7 @@
 // backup. Company setup stays available as a link.
 
 import { type AccountInfo, type Provider, type Providers, api, asAppError } from "../api";
+import { brandSymbol } from "../brand";
 import { card, errorPanel, note } from "../components";
 import { busy, button, clear, field, h, icon } from "../dom";
 import type { Ctx } from "../main";
@@ -15,7 +16,7 @@ export function welcomeScreen(ctx: Ctx, root: HTMLElement): void {
 
   root.append(
     h("header", { class: "welcome-head" },
-      h("span", { class: "brand-mark brand-mark-lg", "aria-hidden": "true" }),
+      brandSymbol("brand-symbol brand-symbol-lg"),
       h("h1", {}, "Secure Verified Exchange"),
       h("p", { class: "lede" }, "Send files that only the people you choose can open, and stay in control after you send them.")),
     body,

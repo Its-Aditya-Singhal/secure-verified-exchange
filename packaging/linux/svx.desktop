@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
 Name=SVX
-GenericName=Secure artifact client
-Comment=Verify, authorize and open SVX secure-exchange artifacts
+GenericName=Sealed file opener
+Comment=Verify and open SVX sealed files
 # The .svx file is passed as data to the client; it is never executed.
 Exec=svx open %f
 Terminal=true

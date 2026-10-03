@@ -1,9 +1,12 @@
-<!-- Merge into the Info.plist of the SVX app bundle (Phase 5). -->
+<!-- Merge into the Info.plist of an app bundle that opens .svx files, with
+     svx-file.icns (apps/desktop/src-tauri/icons, from brand/build-icons.sh)
+     in Contents/Resources. The desktop app already does this. -->
 <key>UTExportedTypeDeclarations</key>
 <array>
   <dict>
     <key>UTTypeIdentifier</key><string>org.svx.artifact</string>
-    <key>UTTypeDescription</key><string>SVX secure exchange artifact</string>
+    <key>UTTypeDescription</key><string>SVX sealed file</string>
+    <key>UTTypeIconFile</key><string>svx-file.icns</string>
     <key>UTTypeConformsTo</key><array><string>public.data</string></array>
     <key>UTTypeTagSpecification</key>
     <dict>
@@ -15,7 +18,8 @@
 <key>CFBundleDocumentTypes</key>
 <array>
   <dict>
-    <key>CFBundleTypeName</key><string>SVX artifact</string>
+    <key>CFBundleTypeName</key><string>SVX sealed file</string>
+    <key>CFBundleTypeIconFile</key><string>svx-file.icns</string>
     <key>CFBundleTypeRole</key><string>Viewer</string>
     <key>LSHandlerRank</key><string>Owner</string>
     <key>LSItemContentTypes</key><array><string>org.svx.artifact</string></array>

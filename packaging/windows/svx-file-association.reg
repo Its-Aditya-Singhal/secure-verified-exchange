@@ -8,7 +8,11 @@ Windows Registry Editor Version 5.00
 "Content Type"="application/vnd.svx"
 
 [HKEY_CURRENT_USER\Software\Classes\SVX.Artifact]
-@="SVX secure exchange artifact"
+@="SVX sealed file"
+
+; Document icon: copy packaging\windows\svx-file.ico next to svx.exe.
+[HKEY_CURRENT_USER\Software\Classes\SVX.Artifact\DefaultIcon]
+@="C:\\Program Files\\SVX\\svx-file.ico"
 
 [HKEY_CURRENT_USER\Software\Classes\SVX.Artifact\shell\open\command]
 @="\"C:\\Program Files\\SVX\\svx.exe\" open \"%1\""

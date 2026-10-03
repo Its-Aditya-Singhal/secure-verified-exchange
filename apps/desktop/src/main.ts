@@ -5,6 +5,7 @@ import "./style.css";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { type AppState, type SetupForm, api } from "./api";
+import { brandLockup } from "./brand";
 import { errorPanel } from "./components";
 import { clear, h } from "./dom";
 import { setPersonalWording } from "./messages";
@@ -105,7 +106,7 @@ function render(arg?: unknown) {
   } else {
     const items = (s.personal ? PERSONAL_NAV : COMPANY_NAV).map(([r, label]) => navItem(r, label));
     const side = h("aside", { class: "sidebar" },
-      h("div", { class: "brand" }, h("span", { class: "brand-mark", "aria-hidden": "true" }), "Secure Verified Exchange"),
+      h("div", { class: "brand" }, brandLockup(), h("span", { class: "brand-name" }, "Secure Verified Exchange")),
       h("nav", { class: "nav", "aria-label": "Main" }, ...items),
       h("div", { class: "who" },
         h("span", { class: "who-name" }, s.personal ? (s.email ?? "") : (s.org_id ?? "")),

@@ -133,11 +133,13 @@ npm run tauri build           # installers in target/release/bundle/
 cargo test -p svx-app -p svx-desktop
 ```
 
+Icons come from the brand files (`brand/svg`, "The Clasp X"; see [`brand/README.md`](../brand/README.md)). After changing them, run `brand/build-icons.sh`. It regenerates the app icon (`.icns`, `.ico`, PNGs) and the `.svx` document icon: `svx-file.icns`, which `src-tauri/Info.plist` registers on macOS, plus the Linux MIME icons and the Windows `svx-file.ico`. The app draws its logo inline (`src/brand.ts`) and takes its colors from the tokens in `src/style.css`.
+
 Workspace-wide `cargo build/test/clippy` works without Node: the shell's build script writes a placeholder page if the UI has not been built. The CI `test` job excludes `svx-desktop` (it needs the WebKitGTK libraries on Linux); the `desktop` job builds, lints, tests and packages it on all three platforms.
 
 ## Known limitations
 
-- Builds are unsigned; no auto-update (Phase 6).
+- Builds are unsigned; no auto-update (Phase 6). The Windows installer shows the app icon for `.svx` files (the document icon needs a custom installer template).
 - Recipients are entered by organization ID; there is no directory search yet.
 - Keychain keys are software keys protected by the OS keychain; hardware-backed keys (Secure Enclave, TPM) come later.
 - macOS builds are per architecture (Apple silicon from CI), not universal.

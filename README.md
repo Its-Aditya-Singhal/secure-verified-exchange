@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="brand/svg/logo-lockup-full-dark.svg">
+    <img src="brand/svg/logo-lockup-full.svg" alt="SVX — Secure Verified Exchange" width="520">
+  </picture>
+</p>
+
 # SVX — Secure Verified Exchange
 
 **SVX is an open, managed format for exchanging encrypted artifacts.** It is built for sending sensitive data between organizations: incident evidence, forensic artifacts, vulnerability reports and similar material.
@@ -21,6 +28,7 @@ A `.svx` file is a passive, signed and encrypted container. Its contents stay en
 | [`docs/client.md`](docs/client.md) | The `svx` client: setup, open flow, admin commands, exit codes, limitations |
 | [`docs/demo.md`](docs/demo.md) | The Acme Security → Example Corp demo and the one-command dev stack |
 | [`docs/desktop.md`](docs/desktop.md) | The Secure Verified Exchange desktop app (macOS, Windows, Linux), including all organization administration |
+| [`brand/`](brand/README.md) | Logo, colors and icons ("The Clasp X"); `brand/build-icons.sh` regenerates every app, file-type and web icon |
 | [`docs/key-agent.md`](docs/key-agent.md) | Running the key agent (Docker or systemd), key rotation, monitoring |
 | [`docs/sdk-python.md`](docs/sdk-python.md), [`docs/sdk-node.md`](docs/sdk-node.md) | Python and Node.js/TypeScript SDKs |
 | `crates/svx-format` | Strict, bounded, crypto-free parser and writer |

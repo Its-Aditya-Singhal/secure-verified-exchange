@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged by Tauri into the app's Info.plist. It repeats the .svx type from
+     tauri.conf.json `fileAssociations` and adds the document icon
+     (Contents/Resources/svx-file.icns, made by brand/build-icons.sh). -->
+<plist version="1.0">
+<dict>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeExtensions</key><array><string>svx</string></array>
+      <key>CFBundleTypeName</key><string>SVX sealed file</string>
+      <key>CFBundleTypeRole</key><string>Viewer</string>
+      <key>CFBundleTypeIconFile</key><string>svx-file.icns</string>
+      <key>LSHandlerRank</key><string>Owner</string>
+      <key>LSItemContentTypes</key><array><string>org.svx.artifact</string></array>
+    </dict>
+  </array>
+  <key>UTExportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key><string>org.svx.artifact</string>
+      <key>UTTypeDescription</key><string>SVX sealed file</string>
+      <key>UTTypeIconFile</key><string>svx-file.icns</string>
+      <key>UTTypeConformsTo</key><array><string>public.data</string></array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key><array><string>svx</string></array>
+        <key>public.mime-type</key><string>application/vnd.svx</string>
+      </dict>
+    </dict>
+  </array>
+</dict>
+</plist>
