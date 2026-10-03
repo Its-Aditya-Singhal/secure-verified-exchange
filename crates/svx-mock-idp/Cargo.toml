@@ -8,7 +8,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-svx-core = { path = "../svx-core" }
+svx-core = { path = "../svx-core", version = "0.1.0" }
 anyhow = "1"
 axum = "0.8"
 base64 = "0.22"

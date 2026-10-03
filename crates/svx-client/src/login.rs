@@ -283,8 +283,16 @@ mod tests {
     async fn oversized_request_is_ignored() {
         let (l, port) = listener().await;
         let h = tokio::spawn(async move { await_callback(l, "s").await });
+        // The listener drops an oversized request unread, so the client may
+        // see a reset (macOS does); only the server's behavior matters here.
         let long = format!("/callback?pad={}", "a".repeat(10_000));
-        let _ = get(port, &long).await;
+        if let Ok(mut s) = TcpStream::connect(("127.0.0.1", port)).await {
+            let _ = s
+                .write_all(format!("GET {long} HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes())
+                .await;
+            let mut sink = Vec::new();
+            let _ = s.read_to_end(&mut sink).await;
+        }
         get(port, "/callback?code=c&state=s").await;
         assert_eq!(h.await.unwrap().unwrap(), Callback::Code("c".into()));
     }

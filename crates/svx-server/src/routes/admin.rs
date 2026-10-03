@@ -179,10 +179,11 @@ pub async fn revoke(
             .bind(&artifact_id[..])
             .fetch_optional(&st.db)
             .await?;
-    if let Some((s, r)) = registered {
-        if s != org && r != org {
-            return Err(ApiError::Unauthorized);
-        }
+    if let Some((s, r)) = registered
+        && s != org
+        && r != org
+    {
+        return Err(ApiError::Unauthorized);
     }
     sqlx::query("INSERT INTO revocations (artifact_id, revoked_by_org, at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING")
         .bind(&artifact_id[..])

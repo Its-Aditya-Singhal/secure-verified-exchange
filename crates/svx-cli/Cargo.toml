@@ -12,10 +12,10 @@ name = "svx"
 path = "src/main.rs"
 
 [dependencies]
-svx-client = { path = "../svx-client" }
-svx-core = { path = "../svx-core" }
-svx-oidc = { path = "../svx-oidc" }
-svx-protocol = { path = "../svx-protocol" }
+svx-client = { path = "../svx-client", version = "0.1.0" }
+svx-core = { path = "../svx-core", version = "0.1.0" }
+svx-oidc = { path = "../svx-oidc", version = "0.1.0" }
+svx-protocol = { path = "../svx-protocol", version = "0.1.0" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
@@ -28,7 +28,7 @@ tempfile = "3"
 assert_cmd = "2"
 predicates = "3"
 serde_json = "1"
-svx-testkit = { path = "../svx-testkit" }
+svx-testkit = { path = "../svx-testkit", version = "0.1.0" }
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 

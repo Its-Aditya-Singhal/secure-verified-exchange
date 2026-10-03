@@ -9,13 +9,13 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-svx-client = { path = "../svx-client" }
-svx-core = { path = "../svx-core" }
-svx-keyagent = { path = "../svx-keyagent" }
-svx-mock-idp = { path = "../svx-mock-idp" }
-svx-oidc = { path = "../svx-oidc" }
-svx-protocol = { path = "../svx-protocol" }
-svx-server = { path = "../svx-server" }
+svx-client = { path = "../svx-client", version = "0.1.0" }
+svx-core = { path = "../svx-core", version = "0.1.0" }
+svx-keyagent = { path = "../svx-keyagent", version = "0.1.0" }
+svx-mock-idp = { path = "../svx-mock-idp", version = "0.1.0" }
+svx-oidc = { path = "../svx-oidc", version = "0.1.0" }
+svx-protocol = { path = "../svx-protocol", version = "0.1.0" }
+svx-server = { path = "../svx-server", version = "0.1.0" }
 axum = "0.8"
 hex = "0.4"
 serde = { version = "1", features = ["derive"] }

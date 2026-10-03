@@ -47,10 +47,10 @@ impl Policy {
         if self.max_age_secs.is_some_and(|a| a <= 0) {
             return Err("max_age_secs must be positive".into());
         }
-        if let (Some(a), Some(b)) = (self.not_before, self.not_after) {
-            if a >= b {
-                return Err("not_before must be before not_after".into());
-            }
+        if let (Some(a), Some(b)) = (self.not_before, self.not_after)
+            && a >= b
+        {
+            return Err("not_before must be before not_after".into());
         }
         Ok(())
     }

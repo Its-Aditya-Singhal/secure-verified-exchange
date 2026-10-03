@@ -12,7 +12,7 @@ security decision happens in Rust:
 
 TypeScript only adds typed results and errors.
 
-Requirements: Node.js 18+. Building from source needs Rust 1.85+.
+Requirements: Node.js 18+. Building from source needs Rust 1.88+.
 
 A native addon is used rather than WebAssembly because opening needs real
 sockets, the file system and the OS browser, and must run the exact same

@@ -6,7 +6,7 @@ This guide runs every Phase 2 component on loopback. The mock IdPs log anyone in
 
 ## Prerequisites
 
-- Rust 1.85 or later
+- Rust 1.88 or later
 - PostgreSQL 14 or later
 
 The examples assume Postgres at `postgres://svx@127.0.0.1:5432`.

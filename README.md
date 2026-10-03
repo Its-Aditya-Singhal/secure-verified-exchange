@@ -51,7 +51,7 @@ A `.svx` file is a passive, signed and encrypted container. Its contents stay en
 
 ## See it work
 
-Requires Rust 1.85+ and Docker (or any PostgreSQL 14+ you can create databases on).
+Requires Rust 1.88+ and Docker (or any PostgreSQL 14+ you can create databases on).
 
 ```sh
 docker compose up -d
@@ -68,7 +68,7 @@ running for the CLI or the SDKs.
 
 ## Quick start (offline format tools)
 
-Requires Rust 1.85 or later.
+Requires Rust 1.88 or later.
 
 ```sh
 cargo build --release

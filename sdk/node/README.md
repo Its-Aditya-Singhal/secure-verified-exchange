@@ -21,7 +21,7 @@ try {
 }
 ```
 
-Build from source (Rust 1.85+, Node 18+):
+Build from source (Rust 1.88+, Node 18+):
 
 ```sh
 npm ci

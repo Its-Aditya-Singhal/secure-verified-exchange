@@ -38,10 +38,10 @@ pub fn evaluate(policy: &Policy, who: &Identity, art: ArtifactTimes, now: i64) -
     if art.expires_at.is_some_and(|e| now >= e) {
         return Err(Deny::Expired);
     }
-    if let Some(max) = policy.max_age_secs {
-        if now.saturating_sub(art.created_at) > max {
-            return Err(Deny::Expired);
-        }
+    if let Some(max) = policy.max_age_secs
+        && now.saturating_sub(art.created_at) > max
+    {
+        return Err(Deny::Expired);
     }
     let user_ok = policy.allow_users.contains(&who.sub)
         || who.groups.iter().any(|g| policy.allow_groups.contains(g));

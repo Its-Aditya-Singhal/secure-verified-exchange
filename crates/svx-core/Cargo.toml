@@ -8,8 +8,8 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-svx-format = { path = "../svx-format" }
-svx-crypto = { path = "../svx-crypto" }
+svx-format = { path = "../svx-format", version = "0.1.0" }
+svx-crypto = { path = "../svx-crypto", version = "0.1.0" }
 hex = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

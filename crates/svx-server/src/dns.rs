@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use hickory_resolver::proto::rr::RData;
 
 #[async_trait]
 pub trait DnsVerifier: Send + Sync {
@@ -17,7 +18,7 @@ pub struct SystemDns(hickory_resolver::TokioResolver);
 impl SystemDns {
     pub fn new() -> anyhow::Result<Self> {
         Ok(SystemDns(
-            hickory_resolver::TokioResolver::builder_tokio()?.build(),
+            hickory_resolver::TokioResolver::builder_tokio()?.build()?,
         ))
     }
 }
@@ -31,12 +32,16 @@ impl DnsVerifier for SystemDns {
             Err(e) => return Err(e.into()),
         };
         Ok(lookup
+            .answers()
             .iter()
-            .map(|txt| {
-                txt.txt_data()
-                    .iter()
-                    .map(|part| String::from_utf8_lossy(part).into_owned())
-                    .collect::<String>()
+            .filter_map(|r| match &r.data {
+                RData::TXT(txt) => Some(
+                    txt.txt_data
+                        .iter()
+                        .map(|part| String::from_utf8_lossy(part).into_owned())
+                        .collect::<String>(),
+                ),
+                _ => None,
             })
             .collect())
     }

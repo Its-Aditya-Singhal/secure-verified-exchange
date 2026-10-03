@@ -8,16 +8,16 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-svx-core = { path = "../svx-core" }
-svx-oidc = { path = "../svx-oidc" }
-svx-protocol = { path = "../svx-protocol" }
+svx-core = { path = "../svx-core", version = "0.1.0" }
+svx-oidc = { path = "../svx-oidc", version = "0.1.0" }
+svx-protocol = { path = "../svx-protocol", version = "0.1.0" }
 anyhow = "1"
 async-trait = "0.1"
 axum = "0.8"
 axum-server = { version = "0.8", features = ["tls-rustls"] }
 clap = { version = "4", features = ["derive", "env"] }
 hex = "0.4"
-hickory-resolver = "0.25"
+hickory-resolver = "0.26.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11"
@@ -27,7 +27,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
-svx-testkit = { path = "../svx-testkit" }
+svx-testkit = { path = "../svx-testkit", version = "0.1.0" }
 
 [lints]
 workspace = true

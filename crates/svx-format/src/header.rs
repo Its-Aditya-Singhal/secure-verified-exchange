@@ -334,10 +334,10 @@ impl Header {
         if self.created_at < 0 {
             return Err(FormatError::Malformed("created_at"));
         }
-        if let Some(exp) = self.expires_at {
-            if exp <= self.created_at {
-                return Err(FormatError::Malformed("expires_at (not after created_at)"));
-            }
+        if let Some(exp) = self.expires_at
+            && exp <= self.created_at
+        {
+            return Err(FormatError::Malformed("expires_at (not after created_at)"));
         }
         if !(MIN_CHUNK_SIZE..=MAX_CHUNK_SIZE).contains(&self.chunk_size) {
             return Err(FormatError::LimitExceeded {

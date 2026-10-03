@@ -161,10 +161,10 @@ impl Validator {
 
         let mut stale = true;
         if let Some(c) = self.cache.read().await.get(issuer) {
-            if let Some(k) = find(&c.set) {
-                if c.fetched.elapsed() < JWKS_TTL {
-                    return Ok(k);
-                }
+            if let Some(k) = find(&c.set)
+                && c.fetched.elapsed() < JWKS_TTL
+            {
+                return Ok(k);
             }
             stale = c.fetched.elapsed() >= JWKS_MIN_REFRESH;
         }
@@ -224,10 +224,10 @@ impl Validator {
         if now - iat > self.max_token_age || iat - now > LEEWAY_SECS as i64 {
             return Err(OidcError::Stale);
         }
-        if let Some(n) = expected_nonce {
-            if c.get("nonce").and_then(Value::as_str) != Some(n) {
-                return Err(OidcError::Nonce);
-            }
+        if let Some(n) = expected_nonce
+            && c.get("nonce").and_then(Value::as_str) != Some(n)
+        {
+            return Err(OidcError::Nonce);
         }
         let groups = match c.get(&cfg.group_claim) {
             Some(Value::Array(a)) => a

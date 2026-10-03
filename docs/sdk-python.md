@@ -12,7 +12,7 @@ Rust:
 
 Python only adds typed results and exceptions.
 
-Requirements: Python 3.9+. Building from source needs Rust 1.85+.
+Requirements: Python 3.9+. Building from source needs Rust 1.88+.
 
 ## Install (from source)
 

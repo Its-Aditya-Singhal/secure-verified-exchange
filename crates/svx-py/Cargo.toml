@@ -17,9 +17,9 @@ test = false
 doctest = false
 
 [dependencies]
-svx-client = { path = "../svx-client" }
-svx-core = { path = "../svx-core" }
-svx-protocol = { path = "../svx-protocol" }
+svx-client = { path = "../svx-client", version = "0.1.0" }
+svx-core = { path = "../svx-core", version = "0.1.0" }
+svx-protocol = { path = "../svx-protocol", version = "0.1.0" }
 pyo3 = { version = "0.29", features = ["abi3-py39"] }
 serde = "1"
 serde_json = "1"

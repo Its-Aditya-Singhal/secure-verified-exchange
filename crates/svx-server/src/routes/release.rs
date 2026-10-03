@@ -151,21 +151,21 @@ async fn authz_failure(
         audit::event::REVOKED_ACCESS,
         audit::event::REPLAY,
     ];
-    if let Ok(n) = audit::count_recent(&st.db, org, &who.sub, &failures, since).await {
-        if n == SUSPICIOUS_THRESHOLD {
-            audit::note(
-                &st.db,
-                org,
-                audit::Record {
-                    event: audit::event::SUSPICIOUS,
-                    subject: Some(who.sub.clone()),
-                    artifact_id: Some(aid.to_owned()),
-                    reason: Some(format!("{n} denied attempts in {SUSPICIOUS_WINDOW_SECS}s")),
-                    ..Default::default()
-                },
-            )
-            .await;
-        }
+    if let Ok(n) = audit::count_recent(&st.db, org, &who.sub, &failures, since).await
+        && n == SUSPICIOUS_THRESHOLD
+    {
+        audit::note(
+            &st.db,
+            org,
+            audit::Record {
+                event: audit::event::SUSPICIOUS,
+                subject: Some(who.sub.clone()),
+                artifact_id: Some(aid.to_owned()),
+                reason: Some(format!("{n} denied attempts in {SUSPICIOUS_WINDOW_SECS}s")),
+                ..Default::default()
+            },
+        )
+        .await;
     }
 }
 

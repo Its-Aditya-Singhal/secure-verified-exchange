@@ -8,9 +8,9 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-svx-core = { path = "../svx-core" }
-svx-oidc = { path = "../svx-oidc" }
-svx-protocol = { path = "../svx-protocol" }
+svx-core = { path = "../svx-core", version = "0.1.0" }
+svx-oidc = { path = "../svx-oidc", version = "0.1.0" }
+svx-protocol = { path = "../svx-protocol", version = "0.1.0" }
 async-trait = "0.1"
 base64 = "0.22"
 directories = "6"
@@ -26,8 +26,8 @@ webbrowser = "1"
 
 [dev-dependencies]
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
-svx-mock-idp = { path = "../svx-mock-idp" }
-svx-oidc = { path = "../svx-oidc" }
+svx-mock-idp = { path = "../svx-mock-idp", version = "0.1.0" }
+svx-oidc = { path = "../svx-oidc", version = "0.1.0" }
 tokio = { version = "1", features = ["full"] }
 url = "2"
 

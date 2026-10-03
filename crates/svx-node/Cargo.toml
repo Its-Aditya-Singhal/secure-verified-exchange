@@ -15,9 +15,9 @@ test = false
 doctest = false
 
 [dependencies]
-svx-client = { path = "../svx-client" }
-svx-core = { path = "../svx-core" }
-svx-protocol = { path = "../svx-protocol" }
+svx-client = { path = "../svx-client", version = "0.1.0" }
+svx-core = { path = "../svx-core", version = "0.1.0" }
+svx-protocol = { path = "../svx-protocol", version = "0.1.0" }
 napi = { version = "3", default-features = false, features = ["napi6", "dyn-symbols", "tokio_rt"] }
 napi-derive = "3"
 serde = "1"

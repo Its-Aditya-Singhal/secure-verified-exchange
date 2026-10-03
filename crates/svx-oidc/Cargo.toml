@@ -8,7 +8,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-svx-protocol = { path = "../svx-protocol" }
+svx-protocol = { path = "../svx-protocol", version = "0.1.0" }
 jsonwebtoken = { version = "10.4", default-features = false, features = ["aws_lc_rs"] }
 serde_json = "1"
 thiserror = "2"
@@ -17,7 +17,7 @@ tokio = { version = "1", features = ["sync"] }
 [dev-dependencies]
 base64 = "0.22"
 serde_json = "1"
-svx-mock-idp = { path = "../svx-mock-idp" }
+svx-mock-idp = { path = "../svx-mock-idp", version = "0.1.0" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
 
 [lints]

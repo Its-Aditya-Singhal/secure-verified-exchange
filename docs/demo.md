@@ -11,7 +11,7 @@ All organizations, people and data are fictional.
 
 ## Run it
 
-You need Rust 1.85+ and a PostgreSQL 14+ that the demo can create (and drop)
+You need Rust 1.88+ and a PostgreSQL 14+ that the demo can create (and drop)
 databases on.
 
 ```sh

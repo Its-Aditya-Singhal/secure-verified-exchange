@@ -9,7 +9,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-svx-core = { path = "../svx-core" }
+svx-core = { path = "../svx-core", version = "0.1.0" }
 chacha20 = { version = "0.10", features = ["rng"] }
 hex = "0.4"
 rand_core = "0.10"
