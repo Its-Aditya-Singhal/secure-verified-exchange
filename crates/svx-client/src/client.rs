@@ -27,8 +27,9 @@ pub struct Client {
 
 /// Options for [`Client::pack`].
 pub struct PackOptions {
+    /// A file, or a folder (zipped, and extracted again on open).
     pub input: PathBuf,
-    /// Default: `input` with the extension `.svx`.
+    /// Default: `input` with the extension `.svx` (`<folder>.svx` for a folder).
     pub output: Option<PathBuf>,
     pub overwrite: bool,
     /// `*.sign.key` file of the sending organization.
@@ -102,16 +103,8 @@ impl Client {
     pub async fn pack(&self, o: PackOptions) -> Result<PackResult> {
         let (sender_org, signing_key) = keyfile::load_signing_key(&o.signing_key)
             .map_err(|e| ClientError::Config(format!("loading signing key: {e}")))?;
-        let name = match o.name {
-            Some(n) => n,
-            None => o
-                .input
-                .file_name()
-                .and_then(|n| n.to_str())
-                .ok_or_else(|| ClientError::Config("input has no usable file name".into()))?
-                .to_owned(),
-        };
-        let output = o.output.unwrap_or_else(|| o.input.with_extension("svx"));
+        let input = crate::pack::prepare_input(&o.input, o.name)?;
+        let output = o.output.unwrap_or_else(|| input.default_output.clone());
         let id = |s: &str, what: &str| {
             Identifier::new(s).map_err(|_| ClientError::Config(format!("invalid {what} {s:?}")))
         };
@@ -124,7 +117,7 @@ impl Client {
             &self.cfg,
             &self.http,
             ManagedPack {
-                input: &o.input,
+                input: &input.path,
                 output,
                 overwrite: o.overwrite,
                 signing_key: &signing_key,
@@ -134,7 +127,8 @@ impl Client {
                 expires_at: o.expires_at,
                 classification: o.classification,
                 description: o.description,
-                name,
+                name: input.name.clone(),
+                content_type: input.content_type.clone(),
                 chunk_size: None,
             },
         )

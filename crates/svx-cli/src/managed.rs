@@ -280,21 +280,13 @@ pub async fn pack(ctx: &Ctx, a: ManagedPackArgs) -> Result<ExitCode> {
     let (sender_org, signing_key) =
         keyfile::load_signing_key(&a.sign_key).context("loading signing key")?;
     let expires_at = a.expires.as_deref().map(parse_expiry).transpose()?;
-    let name = match a.name {
-        Some(n) => n,
-        None => a
-            .input
-            .file_name()
-            .and_then(|n| n.to_str())
-            .context("input has no usable file name")?
-            .to_owned(),
-    };
-    let output = a.output.unwrap_or_else(|| a.input.with_extension("svx"));
+    let input = svx_client::pack::prepare_input(&a.input, a.name).map_err(anyhow::Error::from)?;
+    let output = a.output.unwrap_or_else(|| input.default_output.clone());
     let packed = svx_client::pack::pack(
         &ctx.cfg,
         &ctx.client,
         ManagedPack {
-            input: &a.input,
+            input: &input.path,
             output,
             overwrite: a.force,
             signing_key: &signing_key,
@@ -304,7 +296,8 @@ pub async fn pack(ctx: &Ctx, a: ManagedPackArgs) -> Result<ExitCode> {
             expires_at,
             classification: a.classification,
             description: a.description,
-            name,
+            name: input.name.clone(),
+            content_type: input.content_type.clone(),
             chunk_size: a.chunk_size,
         },
     )

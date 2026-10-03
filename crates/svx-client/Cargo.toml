@@ -23,6 +23,8 @@ tokio = { version = "1", features = ["net", "io-util", "time", "rt", "macros"] }
 toml = "1"
 url = "2"
 webbrowser = "1"
+# Folders: deflate only, no other codecs or encryption.
+zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [dev-dependencies]
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }

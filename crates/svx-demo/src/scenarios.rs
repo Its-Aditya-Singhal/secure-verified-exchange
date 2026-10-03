@@ -137,6 +137,7 @@ pub async fn run_all(w: &World, dir: &Path, ui: &Ui) -> Result<()> {
             classification: Some("TLP:AMBER".into()),
             description: Some("Phishing campaign indicators".into()),
             name: "incident-report.txt".into(),
+            content_type: None,
             chunk_size: None,
         },
     )
@@ -441,6 +442,76 @@ pub async fn run_all(w: &World, dir: &Path, ui: &Ui) -> Result<()> {
         } else {
             format!("missing events {missing:?}")
         },
+    );
+
+    // 9. A folder.
+    ui.scenario(
+        "9",
+        "Carol sends a folder of evidence; Alice opens it as a folder",
+    );
+    let evidence = carol_dir.join("ir-2026-0412-evidence");
+    std::fs::create_dir_all(evidence.join("indicators"))?;
+    std::fs::write(evidence.join("report.txt"), REPORT)?;
+    std::fs::write(
+        evidence.join("indicators/domains.txt"),
+        "login-examplecorp.invalid\n",
+    )?;
+    let input = svx_client::pack::prepare_input(&evidence, None)?;
+    ui.say("The folder is zipped and marked as a folder inside the encrypted manifest.");
+    let folder_artifact = carol_dir.join("ir-2026-0412-evidence.svx");
+    svx_client::pack::pack(
+        &acme,
+        &w.client,
+        ManagedPack {
+            input: &input.path,
+            output: folder_artifact.clone(),
+            overwrite: false,
+            signing_key: &w.acme_sign,
+            sender_org: Identifier::new(ACME)?,
+            recipient_org: Identifier::new(EXAMPLE)?,
+            policy: Identifier::new(POLICY)?,
+            expires_at: Some(now() + 7 * 86_400),
+            classification: Some("TLP:AMBER".into()),
+            description: None,
+            name: input.name.clone(),
+            content_type: input.content_type.clone(),
+            chunk_size: None,
+        },
+    )
+    .await
+    .context("packing the folder")?;
+    ui.sys(format!("Created {}", folder_artifact.display()));
+    let folder_out = dir.join("alice-folder");
+    let (r, steps) = open_as(w, &example, "alice", &folder_artifact, &folder_out).await;
+    narrate_steps(ui, &steps);
+    let (ok, observed) = match &r {
+        Ok(o) => {
+            let p = o.path.clone().unwrap_or_default();
+            let same = std::fs::read_to_string(p.join("report.txt")).unwrap_or_default() == REPORT
+                && p.join("indicators/domains.txt").is_file();
+            let only_folder = std::fs::read_dir(&folder_out).map_or(0, |d| d.count()) == 1;
+            (
+                o.is_folder() && same && only_folder && private(&p),
+                format!(
+                    "{} (folder {}, {})",
+                    describe(&r),
+                    if same { "matches" } else { "DIFFERS" },
+                    if private(&p) {
+                        "owner-only"
+                    } else {
+                        "NOT owner-only"
+                    }
+                ),
+            )
+        }
+        Err(_) => (false, describe(&r)),
+    };
+    ui.check(
+        "9",
+        "Alice opens a folder",
+        "approved, extracted folder matches",
+        ok,
+        observed,
     );
     Ok(())
 }

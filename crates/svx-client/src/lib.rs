@@ -10,6 +10,7 @@
 //! * [`registry`] — verified organization and service records.
 //! * [`open()`] — the fail-closed open flow.
 //! * [`pack`] — managed packing (recipient keys from the registry).
+//! * [`folder`] — zipping folders and extracting them safely.
 //! * [`admin`] — revocation, policies, audit.
 //! * [`account`] — login method, admin session, `whoami`.
 //! * [`info`] — inspect, verify and status without key release.
@@ -23,6 +24,7 @@ pub mod admin;
 mod client;
 pub mod config;
 mod error;
+pub mod folder;
 pub mod info;
 pub mod keys;
 pub mod login;

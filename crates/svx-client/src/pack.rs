@@ -13,6 +13,7 @@ use svx_protocol::{KeyKindWire, KeyStatus, ManagedClient};
 
 use crate::config::ClientConfig;
 use crate::error::{ClientError, Result};
+use crate::folder;
 use crate::registry::{Registry, active_kem_key};
 
 pub struct ManagedPack<'a> {
@@ -28,6 +29,8 @@ pub struct ManagedPack<'a> {
     pub description: Option<String>,
     /// File name recorded in the encrypted manifest.
     pub name: String,
+    /// Content type recorded in the manifest (e.g. the folder marker).
+    pub content_type: Option<String>,
     pub chunk_size: Option<u32>,
 }
 
@@ -35,6 +38,46 @@ pub struct Packed {
     pub path: PathBuf,
     pub summary: PackSummary,
     pub service_id: String,
+}
+
+/// What to pack: a file as is, or a folder zipped into a private temporary
+/// file (kept alive by this value) and marked for extraction on open.
+pub struct PackInput {
+    pub path: PathBuf,
+    /// File name for the manifest.
+    pub name: String,
+    pub content_type: Option<String>,
+    /// `<input>.svx` next to the input.
+    pub default_output: PathBuf,
+    _zip: Option<tempfile::NamedTempFile>,
+}
+
+/// Prepare `input` (a file or a folder) for [`pack`]. `name` overrides the
+/// manifest file name.
+pub fn prepare_input(input: &Path, name: Option<String>) -> Result<PackInput> {
+    let base = input
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| ClientError::Config("input has no usable file name".into()))?
+        .to_owned();
+    if std::fs::symlink_metadata(input)?.is_dir() {
+        let zip = folder::zip_dir(input)?;
+        Ok(PackInput {
+            path: zip.path().to_path_buf(),
+            name: name.unwrap_or_else(|| format!("{base}.zip")),
+            content_type: Some(folder::FOLDER_CONTENT_TYPE.into()),
+            default_output: input.with_file_name(format!("{base}.svx")),
+            _zip: Some(zip),
+        })
+    } else {
+        Ok(PackInput {
+            path: input.to_path_buf(),
+            name: name.unwrap_or(base),
+            content_type: None,
+            default_output: input.with_extension("svx"),
+            _zip: None,
+        })
+    }
 }
 
 pub async fn pack(
@@ -74,6 +117,7 @@ pub async fn pack(
     let input = File::open(req.input)?;
     let size = input.metadata()?.len();
     let mut manifest = Manifest::single_file(&req.name, size);
+    manifest.files[0].content_type = req.content_type;
     manifest.classification = req.classification;
     manifest.description = req.description;
 

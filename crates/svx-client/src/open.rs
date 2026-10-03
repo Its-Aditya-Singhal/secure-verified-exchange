@@ -7,7 +7,7 @@
 //! authenticated.
 
 use std::fs::File;
-use std::io::{BufReader, BufWriter, Write};
+use std::io::{BufReader, BufWriter, Seek, Write};
 use std::path::{Path, PathBuf};
 
 use svx_core::Manifest;
@@ -15,6 +15,7 @@ use svx_protocol::{ManagedClient, ReleaseSession};
 
 use crate::config::ClientConfig;
 use crate::error::{ClientError, Result};
+use crate::folder;
 use crate::login::Authenticator;
 use crate::registry::Registry;
 
@@ -57,10 +58,17 @@ pub enum Output {
 #[derive(Debug)]
 pub struct OpenOutcome {
     pub manifest: Manifest,
-    /// The written file, for [`Output::Dir`].
+    /// The written file (or extracted folder), for [`Output::Dir`].
     pub path: Option<PathBuf>,
     pub sender_org: String,
     pub artifact_id: String,
+}
+
+impl OpenOutcome {
+    /// Whether the payload is a folder (extracted for [`Output::Dir`]).
+    pub fn is_folder(&self) -> bool {
+        self.manifest.files[0].content_type.as_deref() == Some(folder::FOLDER_CONTENT_TYPE)
+    }
 }
 
 /// Join a manifest file name onto `dir`, refusing anything that is not a
@@ -198,8 +206,29 @@ pub async fn open(
                 m
             };
             tmp.as_file().sync_all()?;
-            let name = &manifest.files[0].name;
-            let dest = output_path(&dir, name)?;
+            let entry = &manifest.files[0];
+            if entry.content_type.as_deref() == Some(folder::FOLDER_CONTENT_TYPE) {
+                // A zipped folder: extract it from the private temp file into
+                // a new folder. The zip itself is never left on disk.
+                let dest = output_path(&dir, folder::folder_name(&entry.name))?;
+                if overwrite {
+                    return Err(ClientError::Config(format!(
+                        "{} is a folder; existing folders are never replaced, choose another directory",
+                        entry.name
+                    )));
+                }
+                let len = tmp.as_file().metadata()?.len();
+                let mut f = tmp.reopen()?;
+                f.seek(std::io::SeekFrom::Start(0))?;
+                folder::extract(BufReader::new(f), len, &dest, folder::Limits::default())?;
+                return Ok(OpenOutcome {
+                    manifest,
+                    path: Some(dest),
+                    sender_org,
+                    artifact_id,
+                });
+            }
+            let dest = output_path(&dir, &entry.name)?;
             if overwrite {
                 tmp.persist(&dest).map_err(|e| ClientError::Io(e.error))?;
             } else {

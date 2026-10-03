@@ -85,7 +85,7 @@ enum Cmd {
     },
     /// Verify an artifact against the registry and show who it is for.
     Status { file: PathBuf },
-    /// Encrypt and sign a file into a .svx artifact.
+    /// Encrypt and sign a file (or a folder, managed mode) into a .svx artifact.
     Pack {
         input: PathBuf,
         /// Sender's Ed25519 secret key file. Its owner is the sender organization.
