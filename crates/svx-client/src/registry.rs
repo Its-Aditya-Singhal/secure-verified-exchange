@@ -3,7 +3,7 @@
 
 use svx_core::TrustStore;
 use svx_core::crypto::{KemPublicKey, VerifyingKey};
-use svx_protocol::{KeyKindWire, KeyStatus, ManagedClient, OrgRecord, ServiceRecord};
+use svx_protocol::{ManagedClient, OrgRecord, ServiceRecord};
 
 use crate::config::ClientConfig;
 use crate::error::{ClientError, Result};
@@ -48,19 +48,15 @@ impl<'a> Registry<'a> {
     }
 }
 
-/// The org's active KEM key, where new artifacts must be sealed.
-pub fn active_kem_key(rec: &OrgRecord) -> Result<KemPublicKey> {
-    let k = rec
-        .keys
-        .iter()
-        .find(|k| k.kind == KeyKindWire::X25519 && k.status == KeyStatus::Active)
-        .ok_or_else(|| {
-            ClientError::Config(format!("{} has no active encryption key", rec.org_id))
-        })?;
-    let pk = KemPublicKey::from_bytes(&k.public_key)
-        .map_err(|_| ClientError::Other("invalid KEM key in registry record".into()))?;
-    if pk.key_id() != k.key_id {
-        return Err(ClientError::Other("registry key_id mismatch".into()));
-    }
-    Ok(pk)
+/// The org's active post-quantum hybrid (X-Wing) key, where new artifacts
+/// must be sealed. There is no fallback to a classical key.
+pub fn active_hybrid_kem_key(rec: &OrgRecord) -> Result<KemPublicKey> {
+    let k = rec.active_hybrid_kem_key().ok_or_else(|| {
+        ClientError::Config(format!(
+            "{} has no active post-quantum encryption key (xwing); its administrator must register one",
+            rec.org_id
+        ))
+    })?;
+    k.kem_public_key()
+        .map_err(|_| ClientError::Other("invalid encryption key in registry record".into()))
 }

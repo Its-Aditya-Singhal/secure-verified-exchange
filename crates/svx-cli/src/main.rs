@@ -193,8 +193,12 @@ enum OrgSub {
 
 #[derive(Clone, Copy, ValueEnum)]
 pub enum KeyKindArg {
+    /// Artifact signing key (Ed25519 + ML-DSA-65).
     Sign,
+    /// Encryption key (X-Wing: X25519 + ML-KEM-768).
     Kem,
+    /// The managed service's registry or grant key (Ed25519).
+    ServiceSign,
 }
 
 #[tokio::main]

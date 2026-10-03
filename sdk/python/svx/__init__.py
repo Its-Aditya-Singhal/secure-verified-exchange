@@ -180,6 +180,10 @@ class ArtifactInfo:
 
     format_version: str
     suite_id: int
+    #: Human-readable protection level, e.g. "post-quantum hybrid (...)".
+    protection: str
+    #: True for the post-quantum hybrid suite (SVX-1H, 0x0003).
+    post_quantum: bool
     artifact_id: str
     created_at: int
     expires_at: Optional[int]
@@ -269,6 +273,7 @@ class PackResult:
     expires_at: Optional[int]
     signing_key_id: str
     registered: bool
+    protection: str
 
 
 @dataclass(frozen=True)

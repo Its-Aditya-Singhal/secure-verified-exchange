@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 
-use svx_core::crypto::{KemPublicKey, SigningKey, os_rng};
+use svx_core::crypto::{KeyKind, SigningKey, Suite, os_rng};
 use svx_core::format::Identifier;
 use svx_core::{Manifest, PackRequest, PackSummary};
 use svx_protocol::encoding::b64_encode;
@@ -14,7 +14,7 @@ use svx_protocol::{KeyKindWire, KeyStatus, ManagedClient};
 use crate::config::ClientConfig;
 use crate::error::{ClientError, Result};
 use crate::folder;
-use crate::registry::{Registry, active_kem_key};
+use crate::registry::{Registry, active_hybrid_kem_key};
 
 pub struct ManagedPack<'a> {
     pub input: &'a Path,
@@ -87,11 +87,21 @@ pub async fn pack(
 ) -> Result<Packed> {
     let registry = Registry::new(cfg, client)?;
 
+    // New files are always post-quantum hybrid (suite SVX-1H).
+    if req.signing_key.kind() != KeyKind::HybridSigning {
+        return Err(ClientError::Config(
+            "the signing key is a classical Ed25519 key; new files need a post-quantum hybrid \
+             key (Ed25519 + ML-DSA-65): generate one with `svx keygen --kind sign` and register it"
+                .into(),
+        ));
+    }
     // The sender's key must be registered, or every recipient will reject.
     let sender = registry.org(req.sender_org.as_str()).await?;
     let my_key_id = req.signing_key.verifying_key().key_id();
     let registered = sender.keys.iter().any(|k| {
-        k.kind == KeyKindWire::Ed25519 && k.status == KeyStatus::Active && k.key_id == my_key_id
+        k.kind == KeyKindWire::Ed25519Mldsa65
+            && k.status == KeyStatus::Active
+            && k.key_id == my_key_id
     });
     if !registered {
         return Err(ClientError::Config(format!(
@@ -101,7 +111,7 @@ pub async fn pack(
         )));
     }
     let recipient = registry.org(req.recipient_org.as_str()).await?;
-    let recipient_key = active_kem_key(&recipient)?;
+    let recipient_key = active_hybrid_kem_key(&recipient)?;
     if recipient.key_agent_url.is_none() {
         return Err(ClientError::Config(format!(
             "{} cannot receive artifacts (no key agent)",
@@ -109,7 +119,8 @@ pub async fn pack(
         )));
     }
     let service = registry.service().await?;
-    let service_key = KemPublicKey::from_bytes(&service.kem_public)
+    let service_key = service
+        .kem_public_key()
         .map_err(|_| ClientError::Other("invalid service key".into()))?;
     let service_id = Identifier::new(&service.service_id)
         .map_err(|_| ClientError::Other("invalid service id".into()))?;
@@ -130,6 +141,7 @@ pub async fn pack(
     let tmp = tempfile::NamedTempFile::new_in(&dir)?;
     let summary = svx_core::pack(
         &PackRequest {
+            suite: Suite::Svx1H,
             sender_org: req.sender_org,
             signing_key: req.signing_key,
             recipient_org: req.recipient_org,

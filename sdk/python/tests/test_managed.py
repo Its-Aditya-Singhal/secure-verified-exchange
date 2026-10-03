@@ -108,6 +108,8 @@ def test_status(example_cfg, acme_cfg, artifact):
     s = svx.Client(example_cfg).status(artifact)
     assert s.for_you and not s.expired
     assert s.info.recipient_org == "example-corp"
+    assert s.info.post_quantum and s.info.suite_id == 0x0003
+    assert s.info.protection.startswith("post-quantum hybrid")
     assert not svx.Client(acme_cfg).status(artifact).for_you
 
 
@@ -126,6 +128,7 @@ def test_pack_roundtrip_register_and_revoke(stack, acme_cfg, example_cfg, tmp_pa
         register=True,
     )
     assert packed.registered and packed.path.endswith("findings.svx")
+    assert packed.protection.startswith("post-quantum hybrid")
     assert svx.inspect(packed.path).artifact_id == packed.artifact_id
 
     ex = svx.Client(example_cfg)

@@ -316,6 +316,7 @@ pub async fn pack(ctx: &Ctx, a: ManagedPackArgs) -> Result<ExitCode> {
         "Expiration:  {}",
         expires_at.map(fmt_time).unwrap_or_else(|| "none".into())
     );
+    println!("Protection:  {}", packed.summary.suite.description());
     println!("Encryption:  enabled (keys from the verified registry)");
     println!(
         "Signature:   valid (key {})",

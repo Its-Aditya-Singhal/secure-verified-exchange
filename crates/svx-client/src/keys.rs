@@ -1,5 +1,7 @@
 //! Key generation into SVX key files (`<prefix>.sign.key/.pub`,
-//! `<prefix>.kem.key/.pub`). Secret files are written owner-only.
+//! `<prefix>.kem.key/.pub`). Secret files are written owner-only. New keys
+//! are always post-quantum hybrids (suite SVX-1H); classical keys are only
+//! kept to open older files.
 
 use std::path::Path;
 
@@ -13,8 +15,20 @@ fn owner_id(owner: &str) -> Result<Identifier> {
     Identifier::new(owner).map_err(|_| ClientError::Config(format!("invalid owner {owner:?}")))
 }
 
-/// Generate an Ed25519 signing key pair; returns the hex key ID.
+/// Generate a post-quantum hybrid signing key pair (Ed25519 + ML-DSA-65);
+/// returns the hex key ID.
 pub fn generate_signing(prefix: &Path, owner: &str) -> Result<String> {
+    let owner = owner_id(owner)?;
+    let sk = SigningKey::generate_hybrid(&mut os_rng());
+    keyfile::write_signing_pair(prefix, &owner, &sk)
+        .map_err(|e| ClientError::Other(e.to_string()))?;
+    Ok(hex::encode(sk.verifying_key().key_id()))
+}
+
+/// Generate an Ed25519 key for the managed service's own signatures:
+/// registry records and release grants (not artifacts). These are
+/// short-lived authentication, so they stay classical for now.
+pub fn generate_service_signing(prefix: &Path, owner: &str) -> Result<String> {
     let owner = owner_id(owner)?;
     let sk = SigningKey::generate(&mut os_rng());
     keyfile::write_signing_pair(prefix, &owner, &sk)
@@ -22,10 +36,11 @@ pub fn generate_signing(prefix: &Path, owner: &str) -> Result<String> {
     Ok(hex::encode(sk.verifying_key().key_id()))
 }
 
-/// Generate an X25519 (HPKE) key pair; returns the hex key ID.
+/// Generate a post-quantum hybrid KEM key pair (X-Wing: X25519 +
+/// ML-KEM-768, used with HPKE); returns the hex key ID.
 pub fn generate_kem(prefix: &Path, owner: &str) -> Result<String> {
     let owner = owner_id(owner)?;
-    let sk = KemSecretKey::generate(&mut os_rng());
+    let sk = KemSecretKey::generate_hybrid(&mut os_rng());
     keyfile::write_kem_pair(prefix, &owner, &sk).map_err(|e| ClientError::Other(e.to_string()))?;
     Ok(hex::encode(sk.public_key().key_id()))
 }

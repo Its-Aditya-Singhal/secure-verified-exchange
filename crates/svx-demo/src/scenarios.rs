@@ -147,14 +147,20 @@ pub async fn run_all(w: &World, dir: &Path, ui: &Ui) -> Result<()> {
         .await
         .context("registering the artifact")?;
     let artifact_id = packed.summary.artifact_id;
+    let header = info::inspect(&artifact)?;
     ui.sys(format!("Created {}", artifact.display()));
     ui.sys(format!("Artifact ID {}", hex::encode(artifact_id)));
+    ui.sys(format!("Protection: {}", header.protection));
     ui.check(
         "1",
         "Carol packs and registers the report",
-        "a signed, encrypted .svx",
-        artifact.exists(),
-        format!("{} bytes", std::fs::metadata(&artifact)?.len()),
+        "a signed, encrypted .svx (post-quantum hybrid)",
+        artifact.exists() && header.post_quantum,
+        format!(
+            "{} bytes, suite {:#06x}",
+            std::fs::metadata(&artifact)?.len(),
+            header.suite_id
+        ),
     );
 
     // 2. Eve intercepts.
@@ -512,6 +518,33 @@ pub async fn run_all(w: &World, dir: &Path, ui: &Ui) -> Result<()> {
         "approved, extracted folder matches",
         ok,
         observed,
+    );
+
+    // 10. A file from before the post-quantum upgrade.
+    ui.scenario(
+        "10",
+        "Alice opens an older file sealed with classical keys (suite SVX-1)",
+    );
+    ui.say("Files made before the upgrade keep opening: the service and key agent keep");
+    ui.say("their older X25519 keys, and Acme's retired Ed25519 key still verifies them.");
+    let legacy = carol_dir.join("2025-report.svx");
+    std::fs::write(&legacy, w.pack_legacy())?;
+    let legacy_info = info::inspect(&legacy)?;
+    ui.sys(format!("Protection: {}", legacy_info.protection));
+    let legacy_out = dir.join("alice-legacy");
+    let (r, steps) = open_as(w, &example, "alice", &legacy, &legacy_out).await;
+    narrate_steps(ui, &steps);
+    let same = r
+        .as_ref()
+        .ok()
+        .and_then(|o| o.path.as_ref())
+        .is_some_and(|p| std::fs::read(p).is_ok_and(|b| b == svx_testkit::SECRET));
+    ui.check(
+        "10",
+        "Alice opens an older classical file",
+        "approved, content matches",
+        !legacy_info.post_quantum && same,
+        format!("{} (suite {:#06x})", describe(&r), legacy_info.suite_id),
     );
     Ok(())
 }

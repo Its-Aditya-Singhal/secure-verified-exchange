@@ -165,6 +165,7 @@ export function sendScreen(ctx: Ctx, root: HTMLElement): void {
           ["For", `${to.display_name} (${r.recipient_org})`],
           ["Policy", r.policy],
           ["Expires", fmtTime(r.expires_at)],
+          ["Protection", r.protection],
           ["Recorded with service", r.registered ? "Yes" : "No"],
           ["Artifact ID", h("span", { class: "mono" }, r.artifact_id)],
         ]),

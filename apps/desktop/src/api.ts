@@ -59,6 +59,10 @@ export interface StatusView {
   expires_at: number | null;
   policy: string;
   service_id: string;
+  /** Human-readable protection level of the file's suite. */
+  protection: string;
+  /** Whether the file resists quantum attacks (suite SVX-1H). */
+  post_quantum: boolean;
 }
 
 export interface Progress {
@@ -107,6 +111,7 @@ export interface PackResult {
   expires_at: number | null;
   signing_key_id: string;
   registered: boolean;
+  protection: string;
 }
 
 export interface WhoAmI {

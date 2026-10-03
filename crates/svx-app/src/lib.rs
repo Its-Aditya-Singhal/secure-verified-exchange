@@ -82,6 +82,10 @@ pub struct StatusView {
     pub expires_at: Option<i64>,
     pub policy: String,
     pub service_id: String,
+    /// Human-readable protection level of the file's suite.
+    pub protection: String,
+    /// Whether the file resists quantum attacks (suite SVX-1H).
+    pub post_quantum: bool,
 }
 
 /// One progress event of [`App::open`].
@@ -284,6 +288,8 @@ impl App {
             expires_at: s.info.expires_at,
             policy: s.info.policy_ref,
             service_id: s.info.service_id,
+            protection: s.info.protection,
+            post_quantum: s.info.post_quantum,
         })
     }
 
@@ -340,8 +346,8 @@ impl App {
     pub async fn recipient(&self, org: &str) -> Result<Recipient> {
         let c = self.client()?;
         let rec = c.org_record(org.trim()).await?;
-        let can_receive =
-            rec.key_agent_url.is_some() && svx_client::registry::active_kem_key(&rec).is_ok();
+        let can_receive = rec.key_agent_url.is_some()
+            && svx_client::registry::active_hybrid_kem_key(&rec).is_ok();
         Ok(Recipient {
             org_id: rec.org_id,
             display_name: rec.display_name,

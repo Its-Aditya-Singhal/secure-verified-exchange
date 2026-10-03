@@ -150,6 +150,10 @@ export interface Envelope {
 export interface ArtifactInfo {
   format_version: string;
   suite_id: number;
+  /** Human-readable protection level, e.g. "post-quantum hybrid (...)". */
+  protection: string;
+  /** True for the post-quantum hybrid suite (SVX-1H, 0x0003). */
+  post_quantum: boolean;
   artifact_id: string;
   /** Unix seconds, UTC. */
   created_at: number;
@@ -207,6 +211,7 @@ export interface PackResult {
   expires_at: number | null;
   signing_key_id: string;
   registered: boolean;
+  protection: string;
 }
 
 export interface WhoAmI {

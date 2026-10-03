@@ -56,6 +56,8 @@ pub struct PackResult {
     pub expires_at: Option<i64>,
     pub signing_key_id: String,
     pub registered: bool,
+    /// Human-readable protection level (always post-quantum hybrid for new files).
+    pub protection: String,
 }
 
 impl Client {
@@ -147,6 +149,7 @@ impl Client {
             expires_at: o.expires_at,
             signing_key_id: hex::encode(signing_key.verifying_key().key_id()),
             registered: o.register,
+            protection: packed.summary.suite.description().into(),
         })
     }
 

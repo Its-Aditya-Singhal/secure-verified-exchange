@@ -9,7 +9,7 @@ use std::time::UNIX_EPOCH;
 
 use anyhow::{Context, Result, bail};
 use serde_json::json;
-use svx_core::crypto::os_rng;
+use svx_core::crypto::{KeyKind, Suite, os_rng};
 use svx_core::format::{EnvelopeRole, Header, Identifier, Prelude};
 use svx_core::{Manifest, PackRequest, TrustStore, keyfile};
 
@@ -19,6 +19,14 @@ pub fn keygen(kind: KeyKindArg, owner: &str, out: &Path) -> Result<ExitCode> {
     match kind {
         KeyKindArg::Sign => {
             let id = svx_client::keys::generate_signing(out, owner)?;
+            println!(
+                "Wrote {0}.sign.key (secret) and {0}.sign.pub",
+                out.display()
+            );
+            println!("Key ID: {id}");
+        }
+        KeyKindArg::ServiceSign => {
+            let id = svx_client::keys::generate_service_signing(out, owner)?;
             println!(
                 "Wrote {0}.sign.key (secret) and {0}.sign.pub",
                 out.display()
@@ -67,6 +75,16 @@ pub fn pack(input: &Path, output: Option<PathBuf>, o: PackOpts) -> Result<ExitCo
     let (service_id, service_key) =
         keyfile::load_kem_public(&o.service_key).context("loading service key")?;
     let policy_ref = Identifier::new(&o.policy).context("invalid policy reference")?;
+    // New files are always post-quantum hybrid (suite SVX-1H).
+    let all_hybrid = signing_key.kind() == KeyKind::HybridSigning
+        && recipient_key.kind() == KeyKind::XWingKem
+        && service_key.kind() == KeyKind::XWingKem;
+    if !all_hybrid {
+        bail!(
+            "new files need post-quantum hybrid keys (Ed25519 + ML-DSA-65 signing, X-Wing \
+             encryption); classical keys only open older files. Generate keys with `svx keygen`"
+        );
+    }
 
     let created_at = now();
     let expires_at = o.expires.as_deref().map(parse_expiry).transpose()?;
@@ -95,6 +113,7 @@ pub fn pack(input: &Path, output: Option<PathBuf>, o: PackOpts) -> Result<ExitCo
     let tmp = tempfile::NamedTempFile::new_in(&dir).context("creating temporary output")?;
 
     let req = PackRequest {
+        suite: Suite::Svx1H,
         sender_org: sender_org.clone(),
         signing_key: &signing_key,
         recipient_org: recipient_org.clone(),
@@ -132,9 +151,10 @@ pub fn pack(input: &Path, output: Option<PathBuf>, o: PackOpts) -> Result<ExitCo
         "Expiration:  {}",
         expires_at.map(fmt_time).unwrap_or_else(|| "none".into())
     );
-    println!("Encryption:  ChaCha20-Poly1305 (STREAM), split-key HPKE envelopes");
+    println!("Protection:  {}", summary.suite.description());
+    println!("Encryption:  ChaCha20-Poly1305 (STREAM), split-key HPKE (X-Wing) envelopes");
     println!(
-        "Signature:   Ed25519, key {}",
+        "Signature:   Ed25519 + ML-DSA-65, key {}",
         hex::encode(signing_key.verifying_key().key_id())
     );
     Ok(ExitCode::SUCCESS)
@@ -144,6 +164,7 @@ pub fn header_json(p: &Prelude, h: &Header) -> serde_json::Value {
     json!({
         "format_version": format!("{}.{}", p.major, p.minor),
         "suite_id": p.suite_id,
+        "protection": Suite::from_id(p.suite_id).map_or("unknown suite", Suite::description),
         "artifact_id": hex::encode(h.artifact_id),
         "created_at": fmt_time(h.created_at),
         "expires_at": h.expires_at.map(fmt_time),
@@ -187,6 +208,7 @@ pub fn print_header(v: &serde_json::Value) {
         s("format_version"),
         v["suite_id"].as_u64().unwrap_or(0)
     );
+    println!("  Protection: {}", s("protection"));
     println!("  Artifact:   {}", s("artifact_id"));
     println!(
         "  Sender:     {} (key {})",
@@ -209,6 +231,7 @@ pub fn print_info(i: &svx_client::ArtifactInfo) {
         "  Format:     SVX {} (suite {:#06x})",
         i.format_version, i.suite_id
     );
+    println!("  Protection: {}", i.protection);
     println!("  Artifact:   {}", i.artifact_id);
     println!("  Sender:     {} (key {})", i.sender_org, i.sender_key_id);
     println!("  Recipient:  {}", i.recipient_org);

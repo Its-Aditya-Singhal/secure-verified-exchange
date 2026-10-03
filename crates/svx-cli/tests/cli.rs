@@ -113,6 +113,73 @@ fn pack_inspect_verify_tamper() {
     assert!(!d.join("old.svx").exists());
 }
 
+#[test]
+fn keygen_kinds_and_classical_keys_cannot_pack() {
+    let tmp = tempfile::tempdir().unwrap();
+    let d = tmp.path();
+    for (kind, owner, out) in [
+        ("sign", "acme-security", "acme"),
+        ("kem", "example-corp", "example"),
+        ("kem", "svx.example", "service"),
+        ("service-sign", "svx.example", "registry"),
+    ] {
+        svx(d)
+            .args(["keygen", "--kind", kind, "--owner", owner, "--out", out])
+            .assert()
+            .success();
+    }
+    let kind = |f: &str| {
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(d.join(f)).unwrap()).unwrap();
+        v["type"].as_str().unwrap().to_owned()
+    };
+    assert_eq!(kind("acme.sign.pub"), "ed25519-mldsa65-public");
+    assert_eq!(kind("example.kem.pub"), "xwing-public");
+    assert_eq!(kind("registry.sign.pub"), "ed25519-public");
+
+    // A classical (service) signing key can't make new files.
+    std::fs::write(d.join("a.txt"), b"fictional").unwrap();
+    svx(d)
+        .args([
+            "pack",
+            "a.txt",
+            "--sign-key",
+            "registry.sign.key",
+            "--recipient-key",
+            "example.kem.pub",
+            "--service-key",
+            "service.kem.pub",
+            "--policy",
+            "p",
+        ])
+        .assert()
+        .failure()
+        .stderr(contains("post-quantum"));
+    assert!(!d.join("a.svx").exists());
+    // The default keys make a post-quantum file.
+    svx(d)
+        .args([
+            "pack",
+            "a.txt",
+            "--sign-key",
+            "acme.sign.key",
+            "--recipient-key",
+            "example.kem.pub",
+            "--service-key",
+            "service.kem.pub",
+            "--policy",
+            "p",
+        ])
+        .assert()
+        .success()
+        .stdout(contains("post-quantum hybrid"));
+    svx(d)
+        .args(["inspect", "a.svx"])
+        .assert()
+        .success()
+        .stdout(contains("suite 0x0003"));
+}
+
 #[cfg(unix)]
 #[test]
 fn secret_keys_are_private() {

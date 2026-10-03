@@ -115,6 +115,8 @@ describe("managed", () => {
     const s = await svx.Client.load(configFor(stack, "example-corp")).status(artifact());
     assert.equal(s.for_you, true);
     assert.equal(s.expired, false);
+    assert.equal(s.info.post_quantum, true);
+    assert.equal(s.info.suite_id, 0x0003);
   });
 
   test("pack, register, open, revoke, audit", async (t) => {
@@ -132,6 +134,7 @@ describe("managed", () => {
       register: true,
     });
     assert.ok(packed.registered);
+    assert.match(packed.protection, /^post-quantum hybrid/);
     assert.equal(svx.inspect(packed.path).artifact_id, packed.artifact_id);
 
     const ex = svx.Client.load(configFor(stack, "example-corp"));

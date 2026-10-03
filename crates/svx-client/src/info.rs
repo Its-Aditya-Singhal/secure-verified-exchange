@@ -6,6 +6,7 @@ use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
+use svx_core::crypto::Suite;
 use svx_core::format::{EnvelopeRole, Header, Prelude};
 use svx_core::{TrustStore, keyfile};
 use svx_protocol::ManagedClient;
@@ -20,6 +21,11 @@ use crate::registry::Registry;
 pub struct ArtifactInfo {
     pub format_version: String,
     pub suite_id: u16,
+    /// Human-readable protection level of the suite, e.g. "post-quantum
+    /// hybrid (X25519 + ML-KEM-768, Ed25519 + ML-DSA-65)".
+    pub protection: String,
+    /// Whether the suite resists quantum attacks (SVX-1H).
+    pub post_quantum: bool,
     pub artifact_id: String,
     /// Unix seconds, UTC.
     pub created_at: i64,
@@ -46,6 +52,10 @@ impl ArtifactInfo {
         ArtifactInfo {
             format_version: format!("{}.{}", p.major, p.minor),
             suite_id: p.suite_id,
+            protection: Suite::from_id(p.suite_id)
+                .map_or("unknown suite", Suite::description)
+                .into(),
+            post_quantum: Suite::from_id(p.suite_id).is_ok_and(Suite::is_post_quantum),
             artifact_id: hex::encode(h.artifact_id),
             created_at: h.created_at,
             expires_at: h.expires_at,

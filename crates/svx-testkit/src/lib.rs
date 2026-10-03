@@ -13,7 +13,7 @@ use serde::Serialize;
 use svx_client::ClientConfig;
 
 use svx_core::crypto::{
-    KemPublicKey, KemSecretKey, SigningKey, VerifyingKey, os_rng, random_bytes,
+    KemPublicKey, KemSecretKey, KeyKind, SigningKey, Suite, VerifyingKey, os_rng, random_bytes,
 };
 use svx_core::format::Identifier;
 use svx_core::{Manifest, PackRequest, TrustStore};
@@ -45,13 +45,25 @@ pub struct World {
     pub example_idp: MockIdp,
     pub dns: StaticDns,
     pub db: sqlx::PgPool,
+    /// Acme's active post-quantum hybrid signing key (Ed25519 + ML-DSA-65).
     pub acme_sign: SigningKey,
+    /// Acme's retired classical Ed25519 key (verifies older files).
+    pub acme_sign_classical: SigningKey,
+    /// Example Corp's active X-Wing key (held by its key agent).
     pub example_kem: KemSecretKey,
+    /// Example Corp's retired X25519 key (still opens older files).
+    pub example_kem_classical: KemSecretKey,
+    /// The service's X25519 key for older files (not published).
+    pub service_kem_classical: KemPublicKey,
     pub service_grant: SigningKey,
     pub info: ServiceInfo,
     agent_db: sqlx::PgPool,
     admin_url: String,
     db_names: Vec<String>,
+}
+
+fn copy_kem(k: &KemSecretKey) -> KemSecretKey {
+    KemSecretKey::from_kind_bytes(k.kind(), &k.to_bytes()).unwrap()
 }
 
 fn user(sub: &str, groups: &[&str], acr: Option<&str>) -> User {
@@ -164,7 +176,11 @@ impl World {
 
         // Managed service.
         let mut rng = os_rng();
-        let service_kem = KemSecretKey::generate(&mut rng);
+        // Post-quantum hybrid keys for new files, classical ones for older
+        // files (suite SVX-1), as after a real migration.
+        let service_kem = KemSecretKey::generate_hybrid(&mut rng);
+        let service_kem_classical = KemSecretKey::generate(&mut rng);
+        let service_kem_classical_pub = service_kem_classical.public_key().clone();
         let service_grant = SigningKey::generate(&mut rng);
         let registry = SigningKey::generate(&mut rng);
         let grant_copy = SigningKey::from_bytes(&service_grant.to_bytes());
@@ -173,7 +189,14 @@ impl World {
         let state = AppState {
             db: db.clone(),
             service_id: Identifier::new(SERVICE_ID).unwrap(),
-            keys: Arc::new(LocalKeys::new(service_kem, service_grant, registry)),
+            keys: Arc::new(
+                LocalKeys::new(
+                    vec![service_kem, service_kem_classical],
+                    service_grant,
+                    registry,
+                )
+                .unwrap(),
+            ),
             oidc: Arc::new(Validator::new(true).unwrap()),
             dns: Arc::new(dns.clone()),
             dev: true,
@@ -181,7 +204,8 @@ impl World {
         let service_url = serve(svx_server::app(state).await.unwrap()).await;
 
         // Example Corp's key agent.
-        let example_kem = KemSecretKey::generate(&mut rng);
+        let example_kem = KemSecretKey::generate_hybrid(&mut rng);
+        let example_kem_classical = KemSecretKey::generate(&mut rng);
         let agent_db = fresh_db(admin_url, &agent_db_name).await;
         let agent = AgentState {
             db: agent_db.clone(),
@@ -194,7 +218,8 @@ impl World {
             service_id: Identifier::new(SERVICE_ID).unwrap(),
             service_grant_key: grant_copy.verifying_key(),
             kem_keys: Arc::new(vec![
-                KemSecretKey::from_bytes(&example_kem.to_bytes()).unwrap(),
+                copy_kem(&example_kem),
+                copy_kem(&example_kem_classical),
             ]),
             oidc: Arc::new(Validator::new(true).unwrap()),
         };
@@ -210,8 +235,11 @@ impl World {
             example_idp,
             dns,
             db,
-            acme_sign: SigningKey::generate(&mut rng),
+            acme_sign: SigningKey::generate_hybrid(&mut rng),
+            acme_sign_classical: SigningKey::generate(&mut rng),
             example_kem,
+            example_kem_classical,
+            service_kem_classical: service_kem_classical_pub,
             service_grant: grant_copy,
             info,
             agent_db,
@@ -224,24 +252,41 @@ impl World {
         w.onboard(EXAMPLE, "example-corp.example", false).await;
         let acme_admin = w.token(ACME, "acme-admin", "admin").await;
         let example_admin = w.token(EXAMPLE, "example-admin", "admin").await;
-        w.put_key(
-            ACME,
-            &acme_admin,
-            KeyKindWire::Ed25519,
-            w.acme_sign.verifying_key().to_bytes(),
-            KeyStatus::Active,
-        )
-        .await
-        .unwrap();
-        w.put_key(
-            EXAMPLE,
-            &example_admin,
-            KeyKindWire::X25519,
-            w.example_kem.public_key().to_bytes(),
-            KeyStatus::Active,
-        )
-        .await
-        .unwrap();
+        let keys = [
+            (
+                ACME,
+                &acme_admin,
+                w.acme_sign.verifying_key().to_vec(),
+                KeyKindWire::Ed25519Mldsa65,
+                KeyStatus::Active,
+            ),
+            (
+                ACME,
+                &acme_admin,
+                w.acme_sign_classical.verifying_key().to_vec(),
+                KeyKindWire::Ed25519,
+                KeyStatus::Retired,
+            ),
+            (
+                EXAMPLE,
+                &example_admin,
+                w.example_kem.public_key().to_vec(),
+                KeyKindWire::XWing,
+                KeyStatus::Active,
+            ),
+            (
+                EXAMPLE,
+                &example_admin,
+                w.example_kem_classical.public_key().to_vec(),
+                KeyKindWire::X25519,
+                KeyStatus::Retired,
+            ),
+        ];
+        for (org, admin, public_key, kind, status) in keys {
+            w.put_key(org, admin, kind, public_key, status)
+                .await
+                .unwrap();
+        }
         w.put_policy(
             &example_admin,
             POLICY,
@@ -329,7 +374,7 @@ impl World {
         org: &str,
         bearer: &str,
         kind: KeyKindWire,
-        public_key: [u8; 32],
+        public_key: Vec<u8>,
         status: KeyStatus,
     ) -> Result<serde_json::Value, ProtocolError> {
         self.client
@@ -362,15 +407,17 @@ impl World {
             .await
     }
 
+    /// The service's published (X-Wing) KEM key.
     pub fn service_kem(&self) -> KemPublicKey {
-        KemPublicKey::from_bytes(&self.info.kem_public).unwrap()
+        KemPublicKey::from_kind_bytes(KeyKind::XWingKem, &self.info.kem_public).unwrap()
     }
 
     pub fn registry_key(&self) -> VerifyingKey {
         VerifyingKey::from_bytes(&self.info.registry_public).unwrap()
     }
 
-    /// Acme packs SECRET for Example Corp.
+    /// Acme packs SECRET for Example Corp: suite SVX-1H with a hybrid
+    /// `signer`, or a legacy SVX-1 file with a classical one.
     pub fn pack_with(
         &self,
         signer: &SigningKey,
@@ -378,12 +425,25 @@ impl World {
         expires_at: Option<i64>,
         policy: &str,
     ) -> Vec<u8> {
-        let svc = self.service_kem();
+        let (suite, recipient, svc) = if signer.kind() == KeyKind::HybridSigning {
+            (
+                Suite::Svx1H,
+                self.example_kem.public_key(),
+                self.service_kem(),
+            )
+        } else {
+            (
+                Suite::Svx1,
+                self.example_kem_classical.public_key(),
+                self.service_kem_classical.clone(),
+            )
+        };
         let req = PackRequest {
+            suite,
             sender_org: Identifier::new(ACME).unwrap(),
             signing_key: signer,
             recipient_org: Identifier::new(EXAMPLE).unwrap(),
-            recipient_key: self.example_kem.public_key(),
+            recipient_key: recipient,
             service_id: Identifier::new(SERVICE_ID).unwrap(),
             service_key: &svc,
             policy_ref: Identifier::new(policy).unwrap(),
@@ -399,6 +459,17 @@ impl World {
 
     pub fn pack(&self) -> Vec<u8> {
         self.pack_with(&self.acme_sign, now() - 10, Some(now() + 3600), POLICY)
+    }
+
+    /// A file in the older classical suite (SVX-1), as made before the
+    /// post-quantum upgrade. It must still open.
+    pub fn pack_legacy(&self) -> Vec<u8> {
+        self.pack_with(
+            &self.acme_sign_classical,
+            now() - 10,
+            Some(now() + 3600),
+            POLICY,
+        )
     }
 
     /// The recipient's trust store, built from the signed registry record.
