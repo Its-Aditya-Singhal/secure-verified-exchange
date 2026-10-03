@@ -4,3 +4,15 @@ fuzz/coverage
 fuzz/Cargo.lock
 /target
 fuzz/corpus
+
+# SDK build outputs
+sdk/python/svx/*.so
+sdk/python/svx/*.pyd
+__pycache__/
+.pytest_cache/
+*.egg-info/
+sdk/node/node_modules
+sdk/node/dist
+sdk/node/*.node
+sdk/node/native.d.ts
+sdk/node/native.js

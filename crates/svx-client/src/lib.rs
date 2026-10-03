@@ -19,6 +19,7 @@
 
 pub mod account;
 pub mod admin;
+mod client;
 pub mod config;
 mod error;
 pub mod info;
@@ -29,6 +30,7 @@ pub mod pack;
 pub mod registry;
 pub mod session;
 
+pub use client::{Client, PackOptions, PackResult};
 pub use config::ClientConfig;
 pub use error::{ClientError, ErrorKind, Result};
 pub use info::{ArtifactInfo, Status, artifact_id_of, status};

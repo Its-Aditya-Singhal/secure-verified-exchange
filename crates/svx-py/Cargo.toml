@@ -1,0 +1,32 @@
+[package]
+name = "svx-py"
+description = "Python bindings for the SVX client (built with maturin; see sdk/python)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "svx_native"
+crate-type = ["cdylib"]
+# Tests live in sdk/python/tests (pytest); a Rust test harness would have
+# to link libpython.
+test = false
+doctest = false
+
+[dependencies]
+svx-client = { path = "../svx-client" }
+svx-core = { path = "../svx-core" }
+svx-protocol = { path = "../svx-protocol" }
+pyo3 = { version = "0.29", features = ["abi3-py39"] }
+serde = "1"
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread"] }
+
+# Not `lints.workspace`: PyO3's macros expand to unsafe FFI glue, which the
+# workspace-wide `forbid(unsafe_code)` would reject. Code written in this
+# crate contains no `unsafe` (checked in CI).
+[lints.clippy]
+all = { level = "warn", priority = -1 }
