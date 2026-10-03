@@ -2,7 +2,7 @@
 //!
 //! Everything an end user or administrator does with SVX, independent of any
 //! user interface: the `svx` CLI is a thin layer over this crate, and the
-//! language SDKs (Phase 4) wrap it too.
+//! language SDKs (`svx-py`, `svx-node`) bind [`Client`].
 //!
 //! * [`config`] — which managed service to use and the pinned registry key.
 //! * [`login`] — OIDC login: browser (RFC 8252 loopback) or dev.

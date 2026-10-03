@@ -16,3 +16,6 @@ sdk/node/dist
 sdk/node/*.node
 sdk/node/native.d.ts
 sdk/node/native.js
+
+# Python virtual environments
+.venv/

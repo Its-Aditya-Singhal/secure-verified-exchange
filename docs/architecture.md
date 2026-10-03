@@ -1,6 +1,6 @@
 # SVX Security Architecture
 
-Status: Phases 1–2 are implemented: the format, the cryptography, the managed service, the key agent and the release protocol. Client UX (Phase 3) and the admin UI (Phase 5) are still design only.
+Status: Phases 1–4 are implemented: the format, the cryptography, the managed service, the key agent, the release protocol, the `svx` client and CLI, the demo and the Python and Node.js SDKs. The admin UI (Phase 5) is still design only.
 
 ## 1. Components
 
@@ -204,3 +204,33 @@ Every table and query is scoped by `org_id`, which comes from the authenticated 
 | Approximate payload size | yes (chunk count × chunk size) | inherent; senders can pad if this matters |
 | File name, exact size, classification, description | **no** | in the encrypted manifest |
 | Payload | **no** | encrypted |
+
+## 11. Client layering
+
+```text
+   svx CLI         Python SDK (svx)        Node.js SDK (@svx/sdk)
+      |            typed results/errors    typed results/errors
+      |                   |                        |
+      |            svx-py (PyO3)            svx-node (napi-rs)
+      |                   |                        |
+      +-------------------+------------------------+
+                          |
+              svx-client  (Client facade; open, pack, status, admin)
+                          |
+     svx-protocol (release, registry records)  svx-oidc  svx-core (format, crypto)
+```
+
+There is one implementation of every client-side security decision, in
+`svx-client` and below. The CLI and both SDKs are presentation layers:
+
+- local verification before any login;
+- recipient and expiry checks;
+- per-open, key-bound login;
+- release from both the service and the key agent;
+- fail-closed decryption with private temporary files and no-clobber rename.
+
+The binding crates contain no hand-written `unsafe` code (CI checks this).
+They pass structured results across the boundary as JSON, and every SDK
+error carries the CLI's error category and exit code, so applications can
+tell a security refusal from an outage.
+

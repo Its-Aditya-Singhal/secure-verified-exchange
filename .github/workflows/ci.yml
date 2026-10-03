@@ -22,6 +22,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      # The SDK crates (svx-py, svx-node) build as part of the workspace;
+      # PyO3 needs a Python interpreter to configure itself.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
@@ -48,7 +53,103 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test -p svx-server -p svx-keyagent -p svx-oidc -p svx-protocol -p svx-client -p svx-cli
+      - run: cargo test -p svx-server -p svx-keyagent -p svx-oidc -p svx-protocol -p svx-client -p svx-cli -p svx-demo
+      - name: Demo scenarios (Eve, Alice, Bob, tampered, expired, revoked, audit)
+        run: cargo run -p svx-demo -- --database-url "$SVX_TEST_DATABASE_URL" run --no-color
+
+  sdk-unsafe-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: SDK binding crates must not contain hand-written unsafe code
+        run: |
+          if grep -rnw unsafe crates/svx-py/src crates/svx-node/src; then
+            echo "unsafe code found in SDK bindings" >&2
+            exit 1
+          fi
+
+  python-sdk:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: svx
+          POSTGRES_PASSWORD: svx
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U svx"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      SVX_TEST_DATABASE_URL: postgres://svx:svx@127.0.0.1:5432/postgres
+      SVX_REQUIRE_DB: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: cargo build -p svx-demo
+      - name: Build and test the Python SDK
+        working-directory: sdk/python
+        run: |
+          python -m venv .venv
+          . .venv/bin/activate
+          pip install "maturin>=1.9,<2" pytest
+          maturin develop
+          pytest -q
+      - name: Python demo example
+        run: |
+          ./target/debug/svx-demo --database-url "$SVX_TEST_DATABASE_URL" serve --state-dir "$RUNNER_TEMP/stack" &
+          STACK=$!
+          for i in $(seq 60); do [ -f "$RUNNER_TEMP/stack/state.json" ] && break; sleep 1; done
+          sdk/python/.venv/bin/python examples/python/demo.py "$RUNNER_TEMP/stack"
+          kill $STACK
+
+  node-sdk:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: svx
+          POSTGRES_PASSWORD: svx
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U svx"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      SVX_TEST_DATABASE_URL: postgres://svx:svx@127.0.0.1:5432/postgres
+      SVX_REQUIRE_DB: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: cargo build -p svx-demo
+      - name: Build, type-check and test the Node.js SDK
+        working-directory: sdk/node
+        run: |
+          npm ci
+          npm run build
+          npm run typecheck
+          npm test
+      - name: Node demo example
+        run: |
+          ./target/debug/svx-demo --database-url "$SVX_TEST_DATABASE_URL" serve --state-dir "$RUNNER_TEMP/stack" &
+          STACK=$!
+          for i in $(seq 60); do [ -f "$RUNNER_TEMP/stack/state.json" ] && break; sleep 1; done
+          node examples/node/demo.mjs "$RUNNER_TEMP/stack"
+          kill $STACK
 
   large-file:
     runs-on: ubuntu-latest

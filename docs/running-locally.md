@@ -2,6 +2,8 @@
 
 This guide runs every Phase 2 component on loopback. The mock IdPs log anyone in without a password and are for **development only**.
 
+> **Shortcut:** `cargo run -p svx-demo -- serve --state-dir /tmp/svx-stack` starts all of it in one process, with both organizations onboarded, keys registered, a policy and sample artifacts. It writes ready-made `svx` configs to the state directory. See [demo.md](demo.md). The manual steps below show how the pieces fit together and are closer to a real deployment.
+
 ## Prerequisites
 
 - Rust 1.85 or later

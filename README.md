@@ -6,7 +6,7 @@ A `.svx` file is a passive, signed and encrypted container. Its contents stay en
 
 > SVX does not make data impossible to steal. It makes an intercepted or unauthorized `.svx` file cryptographically useless for revealing its protected contents. It also provides strong identity, authorization, integrity, expiration, revocation and audit controls. See the [threat model](threat-model/THREAT_MODEL.md) for what SVX does and does not protect against.
 
-## What is in this repository (Phases 1–3)
+## What is in this repository (Phases 1–4)
 
 | Path | What |
 |------|------|
@@ -19,12 +19,18 @@ A `.svx` file is a passive, signed and encrypted container. Its contents stay en
 | [`docs/api.md`](docs/api.md) | Managed service and key agent HTTP API |
 | [`docs/running-locally.md`](docs/running-locally.md) | Run the service, key agent and dev IdPs locally |
 | [`docs/client.md`](docs/client.md) | The `svx` client: setup, open flow, admin commands, exit codes, limitations |
+| [`docs/demo.md`](docs/demo.md) | The Acme Security → Example Corp demo and the one-command dev stack |
+| [`docs/sdk-python.md`](docs/sdk-python.md), [`docs/sdk-node.md`](docs/sdk-node.md) | Python and Node.js/TypeScript SDKs |
 | `crates/svx-format` | Strict, bounded, crypto-free parser and writer |
 | `crates/svx-crypto` | STREAM ChaCha20-Poly1305, HPKE key envelopes, HKDF key schedule, Ed25519 |
 | `crates/svx-core` | Pack, verify and open APIs; key files; trust store |
 | `crates/svx-client` | Client library: config with pinned registry key, browser OIDC login, fail-closed open, managed pack, admin |
 | `crates/svx-cli` | The `svx` command |
 | `crates/svx-testkit` | Shared end-to-end harness (Postgres, dev IdPs, service, key agent) |
+| `crates/svx-demo` | `svx-demo run` (scripted, self-checking demo) and `svx-demo serve` (local dev stack) |
+| `crates/svx-py`, `sdk/python` | Python SDK (PyO3 + maturin) |
+| `crates/svx-node`, `sdk/node` | Node.js/TypeScript SDK (napi-rs) |
+| `examples/python`, `examples/node` | The demo story written against each SDK |
 | `packaging/` | `.svx` file association for Linux, Windows and macOS |
 | `crates/svx-protocol` | Managed Mode wire types, signed grants and registry records, release client, OIDC PKCE helpers |
 | `crates/svx-oidc` | ID-token validation (discovery, JWKS cache, strict claims, nonce binding) |
@@ -43,7 +49,24 @@ A `.svx` file is a passive, signed and encrypted container. Its contents stay en
 - **Streaming.** Memory use is constant, so multi-GB forensic images work.
 - **No bypass.** The CLI has no local "unpack" path. Opening an artifact requires shares released by the managed service and the recipient's key agent after authentication and authorization.
 
-## Quick start
+## See it work
+
+Requires Rust 1.85+ and Docker (or any PostgreSQL 14+ you can create databases on).
+
+```sh
+docker compose up -d
+cargo run -p svx-demo -- run
+```
+
+This starts the managed service, Example Corp's key agent and two development
+identity providers, then plays out the story. Carol at Acme Security sends
+an incident report. Eve intercepts it, forges a token and fails. Alice is
+authorized. Bob is denied. Tampered, expired and revoked copies are refused.
+The audit trail records it all. Every outcome is checked. See
+[docs/demo.md](docs/demo.md), and use `svx-demo serve` to keep the stack
+running for the CLI or the SDKs.
+
+## Quick start (offline format tools)
 
 Requires Rust 1.85 or later.
 
@@ -87,6 +110,20 @@ svx pack evidence.zip --sign-key acme.sign.key --recipient example-corp \
 svx open evidence.svx
 ```
 
+### From code
+
+```python
+import svx
+result = svx.Client().open("evidence.svx", output_dir="~/SVX")
+```
+
+```ts
+import { Client } from "@svx/sdk";
+const result = await Client.load().open("evidence.svx", { outputDir: "/home/me/SVX" });
+```
+
+Both SDKs wrap the same Rust client as the CLI. See [docs/sdk-python.md](docs/sdk-python.md) and [docs/sdk-node.md](docs/sdk-node.md).
+
 ## Development
 
 ```sh
@@ -95,13 +132,16 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo test -p svx-core --release -- --ignored        # 1 GiB streaming test
 cargo run -p svx-testvectors -- test-vectors/v1     # regenerate vectors (must be byte-identical)
-SVX_TEST_DATABASE_URL=postgres://svx@127.0.0.1:5432/postgres cargo test -p svx-server   # Managed Mode end to end
+SVX_TEST_DATABASE_URL=postgres://svx:svx@127.0.0.1:5432/postgres cargo test --workspace  # Managed Mode end to end
+cargo run -p svx-demo -- run                         # demo scenarios (exit 0 = all as expected)
+(cd sdk/python && maturin develop && pytest)        # Python SDK
+(cd sdk/node && npm ci && npm run build && npm test) # Node.js SDK
 cd fuzz && cargo +nightly fuzz run parse            # seed corpus: ../test-vectors/v1/*.svx
 ```
 
 ## Status
 
-Phase 3 of 6 (see the [roadmap](docs/roadmap.md)). The format, the cryptography, the managed service, the key agent and the key-release protocol work and are tested end to end. These scenarios are covered:
+Phase 4 of 6 (see the [roadmap](docs/roadmap.md)). The format, the cryptography, the managed service, the key agent and the key-release protocol work and are tested end to end. These scenarios are covered:
 
 - Alice, who is authorized, decrypts.
 - Bob, who is authenticated but not authorized, is denied.
@@ -109,7 +149,7 @@ Phase 3 of 6 (see the [roadmap](docs/roadmap.md)). The format, the cryptography,
 - Expired, revoked, tampered and replayed requests are rejected.
 - A compromised service cannot obtain the recipient's share.
 
-The `svx` client covers the end-user and admin workflow: `init`, `open`, `status`, `pack --recipient`, `login`, `revoke`, `policy` and `audit`. See [docs/client.md](docs/client.md).
+The `svx` client covers the end-user and admin workflow: `init`, `open`, `status`, `pack --recipient`, `login`, `revoke`, `policy` and `audit`. See [docs/client.md](docs/client.md). The Python and Node.js SDKs expose the same operations, and `svx-demo` runs the whole story as a self-checking script.
 
 **This code has not had an independent security review. Do not use it to protect real data yet.**
 
