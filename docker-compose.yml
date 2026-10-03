@@ -1,0 +1,20 @@
+# Local PostgreSQL for the SVX demo and tests. Development only.
+#
+#   docker compose up -d
+#   cargo run -p svx-demo -- run
+#
+# svx-demo's default --database-url matches these credentials.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: svx
+      POSTGRES_PASSWORD: svx
+      POSTGRES_DB: postgres
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "svx"]
+      interval: 2s
+      timeout: 3s
+      retries: 15

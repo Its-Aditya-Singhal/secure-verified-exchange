@@ -32,7 +32,71 @@ pub enum ClientError {
 
 pub type Result<T> = std::result::Result<T, ClientError>;
 
+/// Stable machine-readable error category, for SDKs and scripts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ErrorKind {
+    Config,
+    Io,
+    Rejected,
+    NotRecipient,
+    Expired,
+    Denied,
+    Unavailable,
+    Login,
+    NotLoggedIn,
+    OutputExists,
+    Other,
+}
+
+impl ErrorKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ErrorKind::Config => "config",
+            ErrorKind::Io => "io",
+            ErrorKind::Rejected => "rejected",
+            ErrorKind::NotRecipient => "not_recipient",
+            ErrorKind::Expired => "expired",
+            ErrorKind::Denied => "denied",
+            ErrorKind::Unavailable => "unavailable",
+            ErrorKind::Login => "login",
+            ErrorKind::NotLoggedIn => "not_logged_in",
+            ErrorKind::OutputExists => "output_exists",
+            ErrorKind::Other => "other",
+        }
+    }
+}
+
 impl ClientError {
+    pub fn kind(&self) -> ErrorKind {
+        match self {
+            ClientError::Config(_) => ErrorKind::Config,
+            ClientError::Io(_) => ErrorKind::Io,
+            ClientError::Rejected(_) => ErrorKind::Rejected,
+            ClientError::NotRecipient { .. } => ErrorKind::NotRecipient,
+            ClientError::Expired => ErrorKind::Expired,
+            ClientError::Denied(_) => ErrorKind::Denied,
+            ClientError::Unavailable(_) => ErrorKind::Unavailable,
+            ClientError::Login(_) => ErrorKind::Login,
+            ClientError::NotLoggedIn => ErrorKind::NotLoggedIn,
+            ClientError::OutputExists(_) => ErrorKind::OutputExists,
+            ClientError::Other(_) => ErrorKind::Other,
+        }
+    }
+
+    /// The coarse denial reason, for [`ClientError::Denied`].
+    pub fn deny_reason(&self) -> Option<&'static str> {
+        match self {
+            ClientError::Denied(r) => Some(match r {
+                DenyReason::NotAuthorized => "not_authorized",
+                DenyReason::ExpiredOrRevoked => "expired_or_revoked",
+                DenyReason::InvalidArtifact => "invalid_artifact",
+                DenyReason::InvalidRequest => "invalid_request",
+                DenyReason::Unavailable => "unavailable",
+            }),
+            _ => None,
+        }
+    }
+
     /// `1` = security refusal, `2` = local/usage error, `3` = service unavailable.
     pub fn exit_code(&self) -> u8 {
         match self {

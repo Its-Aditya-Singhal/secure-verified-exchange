@@ -9,30 +9,26 @@ use std::time::UNIX_EPOCH;
 
 use anyhow::{Context, Result, bail};
 use serde_json::json;
-use svx_core::crypto::{KemSecretKey, SigningKey, os_rng};
+use svx_core::crypto::os_rng;
 use svx_core::format::{EnvelopeRole, Header, Identifier, Prelude};
 use svx_core::{Manifest, PackRequest, TrustStore, keyfile};
 
 use crate::KeyKindArg;
 
 pub fn keygen(kind: KeyKindArg, owner: &str, out: &Path) -> Result<ExitCode> {
-    let owner = Identifier::new(owner).context("invalid owner identifier")?;
-    let mut rng = os_rng();
     match kind {
         KeyKindArg::Sign => {
-            let sk = SigningKey::generate(&mut rng);
-            keyfile::write_signing_pair(out, &owner, &sk)?;
+            let id = svx_client::keys::generate_signing(out, owner)?;
             println!(
                 "Wrote {0}.sign.key (secret) and {0}.sign.pub",
                 out.display()
             );
-            println!("Key ID: {}", hex::encode(sk.verifying_key().key_id()));
+            println!("Key ID: {id}");
         }
         KeyKindArg::Kem => {
-            let sk = KemSecretKey::generate(&mut rng);
-            keyfile::write_kem_pair(out, &owner, &sk)?;
+            let id = svx_client::keys::generate_kem(out, owner)?;
             println!("Wrote {0}.kem.key (secret) and {0}.kem.pub", out.display());
-            println!("Key ID: {}", hex::encode(sk.public_key().key_id()));
+            println!("Key ID: {id}");
         }
     }
     Ok(ExitCode::SUCCESS)
@@ -207,14 +203,26 @@ pub fn print_header(v: &serde_json::Value) {
     );
 }
 
+/// Human-readable view of verified artifact metadata.
+pub fn print_info(i: &svx_client::ArtifactInfo) {
+    println!(
+        "  Format:     SVX {} (suite {:#06x})",
+        i.format_version, i.suite_id
+    );
+    println!("  Artifact:   {}", i.artifact_id);
+    println!("  Sender:     {} (key {})", i.sender_org, i.sender_key_id);
+    println!("  Recipient:  {}", i.recipient_org);
+    println!("  Service:    {}", i.service_id);
+    println!("  Policy:     {}", i.policy_ref);
+    println!("  Created:    {}", fmt_time(i.created_at));
+    println!(
+        "  Expires:    {}",
+        i.expires_at.map(fmt_time).unwrap_or_else(|| "never".into())
+    );
+}
+
 pub fn trust_from_files(trust_files: &[PathBuf]) -> Result<TrustStore> {
-    let mut trust = TrustStore::new();
-    for t in trust_files {
-        let (org, vk) =
-            keyfile::load_verifying_key(t).with_context(|| format!("loading {}", t.display()))?;
-        trust.add(org, vk);
-    }
-    Ok(trust)
+    Ok(svx_client::info::trust_from_files(trust_files)?)
 }
 
 /// Parse an RFC 3339 expiry and require it to be in the future.

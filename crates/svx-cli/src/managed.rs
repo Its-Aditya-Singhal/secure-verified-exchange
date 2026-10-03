@@ -1,26 +1,22 @@
 //! Commands that talk to the managed service.
 
-use std::fs::File;
-use std::io::{BufReader, IsTerminal};
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
+use svx_client::account::{self, LoginMethod};
 use svx_client::config::{Paths, parse_registry_key};
-use svx_client::login::{Authenticator, BrowserLogin, DevLogin, print_url, system_browser};
+use svx_client::login::{Authenticator, print_url, system_browser};
 use svx_client::pack::ManagedPack;
 use svx_client::registry::Registry;
 use svx_client::session::{self, Session};
 use svx_client::{ClientConfig, ClientError, Output, Step, admin};
 use svx_core::format::Identifier;
 use svx_core::keyfile;
-use svx_oidc::Validator;
 use svx_protocol::{DenyReason, ManagedClient, Policy};
 
-use crate::local::{fmt_time, header_json, now, parse_expiry, print_header};
-
-const LOGIN_TIMEOUT: Duration = Duration::from_secs(300);
+use crate::local::{fmt_time, now, parse_expiry, print_info};
 
 /// Loaded configuration plus an HTTP client honouring its dev setting.
 pub struct Ctx {
@@ -42,29 +38,16 @@ impl Ctx {
         dev_user: Option<String>,
         no_browser: bool,
     ) -> Result<Box<dyn Authenticator>> {
-        Ok(match dev_user {
-            Some(user) => {
-                if !self.cfg.dev {
-                    bail!("--dev-user is only available with a dev configuration");
-                }
-                Box::new(DevLogin {
-                    client: self.client.clone(),
-                    issuer: self.cfg.idp_issuer.clone(),
-                    client_id: self.cfg.idp_client_id.clone(),
-                    user,
-                })
+        let method = match dev_user {
+            Some(user) => LoginMethod::Dev(user),
+            None if no_browser => LoginMethod::Browser(print_url()),
+            None => LoginMethod::Browser(system_browser()),
+        };
+        account::authenticator(&self.cfg, &self.client, method).map_err(|e| match e {
+            ClientError::Config(_) => {
+                anyhow!("--dev-user is only available with a dev configuration")
             }
-            None => Box::new(BrowserLogin {
-                client: self.client.clone(),
-                issuer: self.cfg.idp_issuer.clone(),
-                client_id: self.cfg.idp_client_id.clone(),
-                opener: if no_browser {
-                    print_url()
-                } else {
-                    system_browser()
-                },
-                timeout: LOGIN_TIMEOUT,
-            }),
+            e => e.into(),
         })
     }
 
@@ -157,30 +140,14 @@ pub async fn init(config: Option<&Path>, a: InitArgs) -> Result<ExitCode> {
 
 pub async fn login(ctx: &Ctx, dev_user: Option<String>, no_browser: bool) -> Result<ExitCode> {
     let auth = ctx.authenticator(dev_user, no_browser)?;
-    // Admin sessions are not bound to a release key; a fresh random nonce
-    // still prevents replay of an older token into this login.
-    let nonce = hex::encode(svx_core::crypto::random_bytes::<16>());
-    let token = match auth.id_token(&nonce).await {
-        Ok(t) => t,
-        Err(e) => return Ok(report(&e)),
-    };
-    let id = Validator::new(ctx.cfg.dev)?
-        .validate(&ctx.cfg.issuer_config(), &token, Some(&nonce))
-        .await
-        .map_err(|e| anyhow!("the IdP returned an invalid token: {e}"))?;
-    let exp = session::token_exp(&token).ok_or_else(|| anyhow!("token has no exp"))?;
-    session::save(
-        &ctx.paths.session,
-        &Session {
-            id_token: token,
-            issuer: id.issuer.clone(),
-            sub: id.sub.clone(),
-            exp,
-        },
-    )?;
-    println!("Logged in as {} ({})", id.sub, ctx.cfg.org_id);
-    println!("Session expires {}", fmt_time(exp));
-    Ok(ExitCode::SUCCESS)
+    match account::login(&ctx.cfg, auth.as_ref(), &ctx.paths.session).await {
+        Ok(id) => {
+            println!("Logged in as {} ({})", id.sub, ctx.cfg.org_id);
+            println!("Session expires {}", fmt_time(id.expires_at));
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(e) => Ok(report(&e)),
+    }
 }
 
 pub fn logout(ctx: &Ctx) -> Result<ExitCode> {
@@ -193,34 +160,29 @@ pub fn logout(ctx: &Ctx) -> Result<ExitCode> {
 }
 
 pub async fn whoami(ctx: &Ctx) -> Result<ExitCode> {
-    let s = match ctx.session() {
-        Ok(s) => s,
-        Err(_) => {
-            println!("Not logged in.");
-            return Ok(ExitCode::from(1));
-        }
-    };
-    match Validator::new(ctx.cfg.dev)?
-        .validate(&ctx.cfg.issuer_config(), &s.id_token, None)
-        .await
-    {
+    let had_session = session::load(&ctx.paths.session, now()).is_some();
+    match account::whoami(&ctx.cfg, &ctx.paths.session).await {
         Ok(id) => {
             println!("Subject:       {}", id.sub);
-            println!("Organization:  {}", ctx.cfg.org_id);
+            println!("Organization:  {}", id.org_id);
             println!("Issuer:        {}", id.issuer);
             if let Some(e) = &id.email {
                 println!("Email:         {e}");
             }
             println!("Groups:        {}", id.groups.join(", "));
             println!("Assurance:     {}", id.acr.as_deref().unwrap_or("-"));
-            println!("Expires:       {}", fmt_time(s.exp));
+            println!("Expires:       {}", fmt_time(id.expires_at));
             Ok(ExitCode::SUCCESS)
         }
-        Err(e) => {
-            let _ = session::clear(&ctx.paths.session);
-            println!("Session no longer valid ({e}); run `svx login`.");
+        Err(ClientError::NotLoggedIn) if had_session => {
+            println!("Session no longer valid; run `svx login`.");
             Ok(ExitCode::from(1))
         }
+        Err(ClientError::NotLoggedIn) => {
+            println!("Not logged in.");
+            Ok(ExitCode::from(1))
+        }
+        Err(e) => Ok(report(&e)),
     }
 }
 
@@ -290,43 +252,29 @@ pub async fn open(ctx: &Ctx, a: OpenArgs) -> Result<ExitCode> {
 }
 
 pub async fn status(ctx: &Ctx, file: &Path) -> Result<ExitCode> {
-    let registry = Registry::new(&ctx.cfg, &ctx.client)?;
-    let (_, header) = svx_core::inspect(BufReader::new(File::open(file)?))
-        .map_err(|e| anyhow!("not a valid SVX file: {e}"))?;
-    let trust = match registry.sender_trust(header.sender_org.as_str()).await {
-        Ok(t) => t,
-        Err(e @ ClientError::Unavailable(_)) => return Ok(report(&e)),
-        Err(_) => {
-            println!(
-                "REJECTED: sender {} is not a verified organization",
-                header.sender_org
-            );
-            return Ok(ExitCode::from(1));
-        }
-    };
-    match svx_core::verify(BufReader::new(File::open(file)?), &trust) {
-        Ok(v) => {
-            let j = header_json(&v.prelude, &v.header);
+    match svx_client::status(&ctx.cfg, &ctx.client, file).await {
+        Ok(st) => {
             println!("VALID: signature and integrity verified against the registry");
-            print_header(&j);
-            let mine = v.header.recipient_org.as_str() == ctx.cfg.org_id;
+            print_info(&st.info);
             println!(
                 "  For you:    {}",
-                if mine {
+                if st.for_you {
                     "yes (your organization is the recipient)"
                 } else {
                     "no"
                 }
             );
-            if v.is_expired(now()) {
+            if st.expired {
                 println!("  State:      EXPIRED");
             }
             Ok(ExitCode::SUCCESS)
         }
-        Err(e) => {
-            println!("REJECTED: {e}");
+        Err(e @ ClientError::Unavailable(_)) => Ok(report(&e)),
+        Err(ClientError::Rejected(why)) => {
+            println!("REJECTED: {why}");
             Ok(ExitCode::from(1))
         }
+        Err(e) => Err(e.into()),
     }
 }
 
@@ -409,15 +357,7 @@ pub async fn pack(ctx: &Ctx, a: ManagedPackArgs) -> Result<ExitCode> {
 
 pub async fn revoke(ctx: &Ctx, target: &str) -> Result<ExitCode> {
     let s = ctx.session()?;
-    let mut id = [0u8; 16];
-    if target.len() == 32 && hex::decode_to_slice(target, &mut id).is_ok() {
-    } else {
-        let (_, h) = svx_core::inspect(BufReader::new(
-            File::open(target).with_context(|| format!("opening {target}"))?,
-        ))
-        .map_err(|e| anyhow!("not a valid SVX file: {e}"))?;
-        id = h.artifact_id;
-    }
+    let id = svx_client::artifact_id_of(target).with_context(|| format!("reading {target}"))?;
     match admin::revoke(&ctx.cfg, &ctx.client, &s.id_token, &id).await {
         Ok(()) => {
             println!(
@@ -540,10 +480,9 @@ pub async fn audit(ctx: &Ctx, limit: u32, as_json: bool) -> Result<ExitCode> {
 
 /// `svx verify --registry`: trust from the verified registry.
 pub async fn registry_trust(ctx: &Ctx, file: &Path) -> Result<svx_core::TrustStore> {
-    let (_, h) = svx_core::inspect(BufReader::new(File::open(file)?))
-        .map_err(|e| anyhow!("not a valid SVX file: {e}"))?;
-    Ok(Registry::new(&ctx.cfg, &ctx.client)?
-        .sender_trust(h.sender_org.as_str())
-        .await
-        .unwrap_or_default())
+    match svx_client::info::registry_trust(&ctx.cfg, &ctx.client, file).await {
+        Ok(t) => Ok(t),
+        Err(ClientError::Rejected(_)) => Ok(svx_core::TrustStore::default()),
+        Err(e) => Err(e.into()),
+    }
 }

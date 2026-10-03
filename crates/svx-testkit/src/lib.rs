@@ -6,7 +6,11 @@
 //! are skipped, unless `SVX_REQUIRE_DB` is set, in which case they fail.
 
 use std::io::Cursor;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+use serde::Serialize;
+use svx_client::ClientConfig;
 
 use svx_core::crypto::{
     KemPublicKey, KemSecretKey, SigningKey, VerifyingKey, os_rng, random_bytes,
@@ -45,6 +49,9 @@ pub struct World {
     pub example_kem: KemSecretKey,
     pub service_grant: SigningKey,
     pub info: ServiceInfo,
+    agent_db: sqlx::PgPool,
+    admin_url: String,
+    db_names: Vec<String>,
 }
 
 fn user(sub: &str, groups: &[&str], acr: Option<&str>) -> User {
@@ -58,6 +65,22 @@ fn user(sub: &str, groups: &[&str], acr: Option<&str>) -> User {
 
 pub fn now() -> i64 {
     svx_protocol::unix_now()
+}
+
+/// Check that `admin_url` is reachable and allows creating databases.
+pub async fn check_database(admin_url: &str) -> Result<(), sqlx::Error> {
+    let pool = sqlx::PgPool::connect(admin_url).await?;
+    let can: (bool,) =
+        sqlx::query_as("SELECT rolcreatedb OR rolsuper FROM pg_roles WHERE rolname = current_user")
+            .fetch_one(&pool)
+            .await?;
+    pool.close().await;
+    if !can.0 {
+        return Err(sqlx::Error::Protocol(
+            "the database role lacks CREATE DATABASE rights".into(),
+        ));
+    }
+    Ok(())
 }
 
 async fn fresh_db(admin_url: &str, name: &str) -> sqlx::PgPool {
@@ -96,7 +119,20 @@ impl World {
             eprintln!("skipping: SVX_TEST_DATABASE_URL not set");
             return None;
         };
+        Some(World::connect(&admin_url, "t").await)
+    }
+
+    /// Start a fresh world with two new databases created through
+    /// `admin_url` (which needs CREATE DATABASE rights). Database names are
+    /// `svx_<prefix>_<random>_{svc,agent}`; see [`World::cleanup`].
+    pub async fn connect(admin_url: &str, prefix: &str) -> World {
+        assert!(
+            !prefix.is_empty() && prefix.bytes().all(|b| b.is_ascii_lowercase()),
+            "database prefix must be lowercase letters"
+        );
         let tag = hex::encode(random_bytes::<6>());
+        let svc_db = format!("svx_{prefix}_{tag}_svc");
+        let agent_db_name = format!("svx_{prefix}_{tag}_agent");
 
         let acme_idp = MockIdp::spawn(
             Config {
@@ -132,7 +168,7 @@ impl World {
         let service_grant = SigningKey::generate(&mut rng);
         let registry = SigningKey::generate(&mut rng);
         let grant_copy = SigningKey::from_bytes(&service_grant.to_bytes());
-        let db = fresh_db(&admin_url, &format!("svx_t_{tag}_svc")).await;
+        let db = fresh_db(admin_url, &svc_db).await;
         let dns = StaticDns::default();
         let state = AppState {
             db: db.clone(),
@@ -146,9 +182,9 @@ impl World {
 
         // Example Corp's key agent.
         let example_kem = KemSecretKey::generate(&mut rng);
-        let agent_db = fresh_db(&admin_url, &format!("svx_t_{tag}_agent")).await;
+        let agent_db = fresh_db(admin_url, &agent_db_name).await;
         let agent = AgentState {
-            db: agent_db,
+            db: agent_db.clone(),
             org_id: Identifier::new(EXAMPLE).unwrap(),
             idp: IssuerConfig {
                 issuer: example_idp.issuer().into(),
@@ -178,6 +214,9 @@ impl World {
             example_kem,
             service_grant: grant_copy,
             info,
+            agent_db,
+            admin_url: admin_url.to_owned(),
+            db_names: vec![svc_db, agent_db_name],
         };
 
         // Onboard both organizations through the public API.
@@ -213,7 +252,22 @@ impl World {
         )
         .await
         .unwrap();
-        Some(w)
+        w
+    }
+
+    /// Close connections and drop this world's databases. The in-process
+    /// services stop working afterwards.
+    pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
+        self.db.close().await;
+        self.agent_db.close().await;
+        let admin = sqlx::PgPool::connect(&self.admin_url).await?;
+        for name in &self.db_names {
+            sqlx::query(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"))
+                .execute(&admin)
+                .await?;
+        }
+        admin.close().await;
+        Ok(())
     }
 
     pub fn idp(&self, org: &str) -> &MockIdp {
@@ -392,7 +446,7 @@ impl World {
     }
 
     /// Write Acme's signing key as `<dir>/acme.sign.key` (+ `.pub`).
-    pub fn write_acme_sign_key(&self, dir: &std::path::Path) -> std::path::PathBuf {
+    pub fn write_acme_sign_key(&self, dir: &Path) -> PathBuf {
         let prefix = dir.join("acme");
         svx_core::keyfile::write_signing_pair(
             &prefix,
@@ -402,4 +456,143 @@ impl World {
         .unwrap();
         dir.join("acme.sign.key")
     }
+
+    /// A dev client configuration for `org`.
+    pub fn client_config(&self, org: &str) -> ClientConfig {
+        let idp = self.idp(org);
+        ClientConfig {
+            service_url: self.service_url.clone(),
+            registry_key: self.registry_key_hex(),
+            org_id: org.into(),
+            idp_issuer: idp.issuer().into(),
+            idp_client_id: idp.client_id().into(),
+            group_claim: "groups".into(),
+            dev: true,
+            default_output_dir: None,
+        }
+    }
+
+    /// A fresh ID token for `org`'s administrator.
+    pub async fn admin_token(&self, org: &str) -> String {
+        let admin = if org == ACME {
+            "acme-admin"
+        } else {
+            "example-admin"
+        };
+        self.token(org, admin, &hex::encode(random_bytes::<8>()))
+            .await
+    }
+
+    /// Revoke an artifact as Example Corp's administrator.
+    pub async fn revoke(&self, artifact_id: &[u8; 16]) -> Result<(), ProtocolError> {
+        let bearer = self.admin_token(EXAMPLE).await;
+        let _: serde_json::Value = self
+            .client
+            .post_json(
+                &self.service_url,
+                &format!(
+                    "/v1/admin/orgs/{EXAMPLE}/artifacts/{}/revoke",
+                    hex::encode(artifact_id)
+                ),
+                &(),
+                Some(&bearer),
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Write a description of this world into `dir` for external tools
+    /// (SDK tests, manual CLI use): `state.json`, client configs
+    /// `acme.toml` / `example.toml`, Acme's signing key, and sample
+    /// artifacts `incident-report.svx` (valid) and `expired.svx`.
+    pub fn write_state(&self, dir: &Path) -> std::io::Result<State> {
+        std::fs::create_dir_all(dir)?;
+        let other = |e: svx_client::ClientError| std::io::Error::other(e.to_string());
+        let acme_cfg = dir.join("acme.toml");
+        let example_cfg = dir.join("example.toml");
+        self.client_config(ACME).save(&acme_cfg).map_err(other)?;
+        self.client_config(EXAMPLE)
+            .save(&example_cfg)
+            .map_err(other)?;
+        let sign_key = self.write_acme_sign_key(dir);
+        let sample = dir.join("incident-report.svx");
+        std::fs::write(&sample, self.pack())?;
+        let expired = dir.join("expired.svx");
+        std::fs::write(
+            &expired,
+            self.pack_with(&self.acme_sign, now() - 100, Some(now() - 10), POLICY),
+        )?;
+        let users = |idp: &MockIdp| {
+            idp.users()
+                .iter()
+                .map(|u| StateUser {
+                    sub: u.sub.clone(),
+                    groups: u.groups.clone(),
+                })
+                .collect()
+        };
+        let state = State {
+            service_url: self.service_url.clone(),
+            agent_url: self.agent_url.clone(),
+            registry_key: self.registry_key_hex(),
+            service_id: SERVICE_ID.into(),
+            policy: POLICY.into(),
+            orgs: vec![
+                StateOrg {
+                    org_id: ACME.into(),
+                    idp_issuer: self.acme_idp.issuer().into(),
+                    idp_client_id: self.acme_idp.client_id().into(),
+                    config: acme_cfg,
+                    admin: "acme-admin".into(),
+                    users: users(&self.acme_idp),
+                },
+                StateOrg {
+                    org_id: EXAMPLE.into(),
+                    idp_issuer: self.example_idp.issuer().into(),
+                    idp_client_id: self.example_idp.client_id().into(),
+                    config: example_cfg,
+                    admin: "example-admin".into(),
+                    users: users(&self.example_idp),
+                },
+            ],
+            acme_signing_key: sign_key,
+            sample_artifact: sample,
+            expired_artifact: expired,
+            sample_plaintext: String::from_utf8_lossy(SECRET).into_owned(),
+        };
+        let json = serde_json::to_vec_pretty(&state).map_err(std::io::Error::other)?;
+        std::fs::write(dir.join("state.json"), json)?;
+        Ok(state)
+    }
+}
+
+/// What [`World::write_state`] writes to `state.json`.
+#[derive(Clone, Debug, Serialize)]
+pub struct State {
+    pub service_url: String,
+    pub agent_url: String,
+    pub registry_key: String,
+    pub service_id: String,
+    pub policy: String,
+    pub orgs: Vec<StateOrg>,
+    pub acme_signing_key: PathBuf,
+    pub sample_artifact: PathBuf,
+    pub expired_artifact: PathBuf,
+    pub sample_plaintext: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct StateOrg {
+    pub org_id: String,
+    pub idp_issuer: String,
+    pub idp_client_id: String,
+    pub config: PathBuf,
+    pub admin: String,
+    pub users: Vec<StateUser>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct StateUser {
+    pub sub: String,
+    pub groups: Vec<String>,
 }

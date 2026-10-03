@@ -11,12 +11,18 @@
 //! * [`open()`] — the fail-closed open flow.
 //! * [`pack`] — managed packing (recipient keys from the registry).
 //! * [`admin`] — revocation, policies, audit.
+//! * [`account`] — login method, admin session, `whoami`.
+//! * [`info`] — inspect, verify and status without key release.
+//! * [`keys`] — key file generation.
 
 #![forbid(unsafe_code)]
 
+pub mod account;
 pub mod admin;
 pub mod config;
 mod error;
+pub mod info;
+pub mod keys;
 pub mod login;
 mod open;
 pub mod pack;
@@ -24,9 +30,10 @@ pub mod registry;
 pub mod session;
 
 pub use config::ClientConfig;
-pub use error::{ClientError, Result};
+pub use error::{ClientError, ErrorKind, Result};
+pub use info::{ArtifactInfo, Status, artifact_id_of, status};
 pub use login::{Authenticator, BrowserLogin, DevLogin};
-pub use open::{OpenOutcome, Output, Step, open};
+pub use open::{OpenOutcome, Output, Step, open, output_path};
 
 /// Seconds since the Unix epoch, UTC.
 pub fn now() -> i64 {

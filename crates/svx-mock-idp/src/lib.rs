@@ -167,6 +167,10 @@ impl MockIdp {
         })
     }
 
+    pub fn users(&self) -> &[User] {
+        &self.inner.config.users
+    }
+
     pub fn user(&self, sub: &str) -> Option<&User> {
         self.inner.config.users.iter().find(|u| u.sub == sub)
     }

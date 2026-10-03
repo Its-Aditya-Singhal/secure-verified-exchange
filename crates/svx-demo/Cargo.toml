@@ -1,0 +1,25 @@
+[package]
+name = "svx-demo"
+description = "Scripted Acme Security → Example Corp demo and a one-command local dev stack"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+svx-client = { path = "../svx-client" }
+svx-core = { path = "../svx-core" }
+svx-mock-idp = { path = "../svx-mock-idp" }
+svx-protocol = { path = "../svx-protocol" }
+svx-testkit = { path = "../svx-testkit" }
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+hex = "0.4"
+serde_json = "1"
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+
+[lints]
+workspace = true

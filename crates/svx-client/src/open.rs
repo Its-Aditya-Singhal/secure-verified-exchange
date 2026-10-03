@@ -30,6 +30,21 @@ pub enum Step {
     Decrypting,
 }
 
+impl Step {
+    /// Stable snake_case name, for SDK callbacks.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Step::Verifying => "verifying",
+            Step::SignatureValid { .. } => "signature_valid",
+            Step::Connecting => "connecting",
+            Step::Authenticating => "authenticating",
+            Step::CheckingAuthorization => "checking_authorization",
+            Step::AccessApproved => "access_approved",
+            Step::Decrypting => "decrypting",
+        }
+    }
+}
+
 /// Where plaintext goes.
 pub enum Output {
     /// Write `<dir>/<manifest file name>`; refuse to overwrite unless asked.

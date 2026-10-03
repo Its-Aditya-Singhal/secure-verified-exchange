@@ -9,6 +9,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+svx-client = { path = "../svx-client" }
 svx-core = { path = "../svx-core" }
 svx-keyagent = { path = "../svx-keyagent" }
 svx-mock-idp = { path = "../svx-mock-idp" }
@@ -17,6 +18,7 @@ svx-protocol = { path = "../svx-protocol" }
 svx-server = { path = "../svx-server" }
 axum = "0.8"
 hex = "0.4"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres"] }
 tokio = { version = "1", features = ["full"] }
