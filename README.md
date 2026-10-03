@@ -6,7 +6,7 @@ A `.svx` file is a passive, signed and encrypted container. Its contents stay en
 
 > SVX does not make data impossible to steal. It makes an intercepted or unauthorized `.svx` file cryptographically useless for revealing its protected contents. It also provides strong identity, authorization, integrity, expiration, revocation and audit controls. See the [threat model](threat-model/THREAT_MODEL.md) for what SVX does and does not protect against.
 
-## What is in this repository (Phases 1–2)
+## What is in this repository (Phases 1–3)
 
 | Path | What |
 |------|------|
@@ -18,10 +18,14 @@ A `.svx` file is a passive, signed and encrypted container. Its contents stay en
 | [`docs/roadmap.md`](docs/roadmap.md) | The phased build plan |
 | [`docs/api.md`](docs/api.md) | Managed service and key agent HTTP API |
 | [`docs/running-locally.md`](docs/running-locally.md) | Run the service, key agent and dev IdPs locally |
+| [`docs/client.md`](docs/client.md) | The `svx` client: setup, open flow, admin commands, exit codes, limitations |
 | `crates/svx-format` | Strict, bounded, crypto-free parser and writer |
 | `crates/svx-crypto` | STREAM ChaCha20-Poly1305, HPKE key envelopes, HKDF key schedule, Ed25519 |
 | `crates/svx-core` | Pack, verify and open APIs; key files; trust store |
+| `crates/svx-client` | Client library: config with pinned registry key, browser OIDC login, fail-closed open, managed pack, admin |
 | `crates/svx-cli` | The `svx` command |
+| `crates/svx-testkit` | Shared end-to-end harness (Postgres, dev IdPs, service, key agent) |
+| `packaging/` | `.svx` file association for Linux, Windows and macOS |
 | `crates/svx-protocol` | Managed Mode wire types, signed grants and registry records, release client, OIDC PKCE helpers |
 | `crates/svx-oidc` | ID-token validation (discovery, JWKS cache, strict claims, nonce binding) |
 | `crates/svx-server` | Managed service: org registry, admin API, policy engine, key release, revocation, audit (PostgreSQL) |
@@ -67,6 +71,22 @@ $SVX verify  secret.svx --trust acme.sign.pub   # exit 0 = authentic and intact
 
 Change any byte and `svx verify` reports `REJECTED` and exits with status 1.
 
+### Managed Mode
+
+This assumes a service is already running. See [docs/running-locally.md](docs/running-locally.md) for a local stack.
+
+```sh
+# Recipient (Example Corp), once:
+svx init --service https://svx.example --registry-key <fingerprint> --org example-corp --client-id svx
+
+# Sender (Acme). Recipient and service keys come from the verified registry:
+svx pack evidence.zip --sign-key acme.sign.key --recipient example-corp \
+  --policy incident-response --expires 2026-10-10T18:00:00Z
+
+# Recipient: sign in, get authorized, decrypt locally into ~/SVX:
+svx open evidence.svx
+```
+
 ## Development
 
 ```sh
@@ -81,7 +101,7 @@ cd fuzz && cargo +nightly fuzz run parse            # seed corpus: ../test-vecto
 
 ## Status
 
-Phase 2 of 6 (see the [roadmap](docs/roadmap.md)). The format, the cryptography, the managed service, the key agent and the key-release protocol work and are tested end to end. These scenarios are covered:
+Phase 3 of 6 (see the [roadmap](docs/roadmap.md)). The format, the cryptography, the managed service, the key agent and the key-release protocol work and are tested end to end. These scenarios are covered:
 
 - Alice, who is authorized, decrypts.
 - Bob, who is authenticated but not authorized, is denied.
@@ -89,7 +109,7 @@ Phase 2 of 6 (see the [roadmap](docs/roadmap.md)). The format, the cryptography,
 - Expired, revoked, tampered and replayed requests are rejected.
 - A compromised service cannot obtain the recipient's share.
 
-The end-user `svx login` / `svx open` commands come in Phase 3.
+The `svx` client covers the end-user and admin workflow: `init`, `open`, `status`, `pack --recipient`, `login`, `revoke`, `policy` and `audit`. See [docs/client.md](docs/client.md).
 
 **This code has not had an independent security review. Do not use it to protect real data yet.**
 

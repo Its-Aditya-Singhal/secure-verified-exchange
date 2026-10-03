@@ -5,8 +5,6 @@
 //! (e.g. `postgres://svx@127.0.0.1:55432/postgres`). Without it these tests
 //! are skipped, unless `SVX_REQUIRE_DB` is set, in which case they fail.
 
-#![allow(dead_code)]
-
 use std::io::Cursor;
 use std::sync::Arc;
 
@@ -384,5 +382,24 @@ impl World {
         let mut out = Vec::new();
         v.decrypt(Cursor::new(file), &s, &r, &mut out).unwrap();
         Ok(out)
+    }
+}
+
+impl World {
+    /// The registry public key clients must pin (hex).
+    pub fn registry_key_hex(&self) -> String {
+        hex::encode(self.info.registry_public)
+    }
+
+    /// Write Acme's signing key as `<dir>/acme.sign.key` (+ `.pub`).
+    pub fn write_acme_sign_key(&self, dir: &std::path::Path) -> std::path::PathBuf {
+        let prefix = dir.join("acme");
+        svx_core::keyfile::write_signing_pair(
+            &prefix,
+            &Identifier::new(ACME).unwrap(),
+            &self.acme_sign,
+        )
+        .unwrap();
+        dir.join("acme.sign.key")
     }
 }

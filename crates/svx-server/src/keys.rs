@@ -7,7 +7,9 @@ use std::path::Path;
 use svx_core::crypto::{KemPublicKey, KemSecretKey, Share, SigningKey, VerifyingKey};
 use svx_core::format::EnvelopeRole;
 use svx_core::{CoreError, VerifiedHead, keyfile};
-use svx_protocol::{Grant, OrgRecord, SignedGrant, SignedOrgRecord};
+use svx_protocol::{
+    Grant, OrgRecord, ServiceRecord, SignedGrant, SignedOrgRecord, SignedServiceRecord,
+};
 
 pub trait KeyProvider: Send + Sync {
     fn service_kem_public(&self) -> KemPublicKey;
@@ -17,6 +19,7 @@ pub trait KeyProvider: Send + Sync {
     fn unwrap_service_share(&self, head: &VerifiedHead) -> Result<Share, CoreError>;
     fn sign_grant(&self, grant: &Grant) -> SignedGrant;
     fn sign_record(&self, record: &OrgRecord) -> SignedOrgRecord;
+    fn sign_service_record(&self, record: &ServiceRecord) -> SignedServiceRecord;
 }
 
 /// Keys held in process memory, loaded from 0600 key files.
@@ -67,5 +70,9 @@ impl KeyProvider for LocalKeys {
 
     fn sign_record(&self, record: &OrgRecord) -> SignedOrgRecord {
         SignedOrgRecord::sign(record, &self.registry)
+    }
+
+    fn sign_service_record(&self, record: &ServiceRecord) -> SignedServiceRecord {
+        SignedServiceRecord::sign(record, &self.registry)
     }
 }

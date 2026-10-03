@@ -13,7 +13,9 @@ use svx_core::crypto::{
 use svx_core::format::EnvelopeRole;
 
 use crate::grant::SignedGrant;
-use crate::registry::{OrgRecord, ServiceInfo, SignedOrgRecord};
+use crate::registry::{
+    OrgRecord, ServiceInfo, ServiceRecord, SignedOrgRecord, SignedServiceRecord,
+};
 use crate::types::*;
 
 #[derive(Debug, thiserror::Error)]
@@ -201,6 +203,17 @@ impl ManagedClient {
 
     pub async fn service_info(&self, service_url: &str) -> Result<ServiceInfo> {
         self.get_json(service_url, "/v1/service").await
+    }
+
+    /// Fetch and verify the service record against the pinned registry key.
+    pub async fn service_record(
+        &self,
+        service_url: &str,
+        registry_key: &VerifyingKey,
+    ) -> Result<ServiceRecord> {
+        let s: SignedServiceRecord = self.get_json(service_url, "/v1/service/record").await?;
+        s.verify(registry_key, crate::unix_now())
+            .map_err(|e| ProtocolError::BadResponse(e.to_string()))
     }
 
     /// Fetch and verify an organization record against the pinned registry key.

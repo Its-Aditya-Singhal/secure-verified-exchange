@@ -1,6 +1,6 @@
 # SVX Threat Model
 
-Status: draft for SVX 1.0, Phase 2. It has not had an independent security review yet. No strong security claims should be made until that review is done.
+Status: draft for SVX 1.0, Phase 3. It has not had an independent security review yet. No strong security claims should be made until that review is done.
 
 ## 1. What SVX protects
 
@@ -80,7 +80,7 @@ Status key: ✅ enforced and tested (test names in parentheses). 🔜 designed h
 - Membership of the recipient org is never enough by itself. Policies name users, groups or roles, and default to deny.
 
 ### T8. Expired artifact
-- **Outcome:** the service refuses key release after `expires_at`, using its own clock, not the client's. The client also refuses (fail closed) when its own clock says the artifact has expired. ✅ server-side (`expired_artifacts_are_denied`). The client check ships in Phase 3.
+- **Outcome:** the service refuses key release after `expires_at`, using its own clock, not the client's. The client also refuses (fail closed) when its own clock says the artifact has expired. ✅ (`expired_artifacts_are_denied`, CLI `tampered_and_expired_are_refused_before_login`)
 - Service-side policy can shorten expiry but never extend it past the signed value.
 
 ### T9. Revoked artifact
@@ -114,7 +114,7 @@ Status key: ✅ enforced and tested (test names in parentheses). 🔜 designed h
 
 ### T17. Path traversal and malicious file names in the manifest
 - **Outcome:** the manifest is validated even though it is authenticated. Path separators, `..`, control characters, Windows reserved names and trailing dots or spaces are all rejected. ✅
-- Clients must still write output only into a directory they chose, never one taken from the manifest.
+- The client writes output only into the directory the user chose (default `~/SVX`, 0700) and joins only a single validated path component. ✅ (`output_paths`, CLI `alice_opens_bob_is_denied`)
 
 ### T18. Key-share confusion (partitioning or invisible-salamander style attacks)
 - **Outcome:** prevented. The header carries an HKDF-derived **key commitment**, which is checked in constant time before any decryption, so a wrong share cannot produce a "valid" different plaintext. ✅
@@ -125,12 +125,13 @@ Status key: ✅ enforced and tested (test names in parentheses). 🔜 designed h
 ### T20. Key or plaintext leakage through logs or memory
 - **Mitigations:** every secret type zeroizes on drop and has a redacted `Debug`. The CLI never prints key material. Plaintext buffers are zeroized. Audit records will never contain payloads, keys or tokens. ✅ (key redaction tested)
 - **Limitation:** Rust cannot guarantee that no copies remain, for example after a reallocation, in swap, or in core dumps. Production clients should disable core dumps and use mlock where available.
+- The client keeps plaintext in a private 0600 temp file and renames it into place only after full authentication. Partial output is deleted on failure. The admin session file is 0600 and short-lived, and it can never release shares because release requires a key-bound nonce. ✅ (`docs/client.md`)
 
 ### T21. Network interception between client and service
 - **Outcome:** TLS 1.3 with no plaintext fallback. In addition, released shares are HPKE-sealed to a per-request ephemeral client key, so TLS-terminating middleboxes never see share plaintext. The OIDC nonce binds the ID token to that key. ✅ (`token_bound_to_another_key_is_rejected`, `compromised_service_cannot_get_org_share`)
 
 ### T22. IdP or authorization-service outage
-- **Outcome:** fail closed. No cached decryption capability survives outside the current session. A successful release that cannot be audited is refused. ✅ (service-side; client in Phase 3)
+- **Outcome:** fail closed. No cached decryption capability survives outside the current session. A successful release that cannot be audited is refused. When the service is unreachable the client exits with code 3 and writes nothing. ✅ (CLI `service_unavailable_fails_closed`)
 
 ## 5. Security claims we will make (after review)
 

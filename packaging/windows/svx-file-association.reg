@@ -1,0 +1,14 @@
+Windows Registry Editor Version 5.00
+
+; Associates .svx with "svx open" for the current user.
+; Adjust the path to svx.exe. The file is passed as data; it is never executed.
+
+[HKEY_CURRENT_USER\Software\Classes\.svx]
+@="SVX.Artifact"
+"Content Type"="application/vnd.svx"
+
+[HKEY_CURRENT_USER\Software\Classes\SVX.Artifact]
+@="SVX secure exchange artifact"
+
+[HKEY_CURRENT_USER\Software\Classes\SVX.Artifact\shell\open\command]
+@="\"C:\\Program Files\\SVX\\svx.exe\" open \"%1\""

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/vnd.svx">
+    <comment>SVX secure exchange artifact</comment>
+    <!-- \x89 S V X \r \n \x1a \n -->
+    <magic priority="80">
+      <match type="string" offset="0" value="\x89SVX\r\n\x1a\n"/>
+    </magic>
+    <glob pattern="*.svx"/>
+  </mime-type>
+</mime-info>

@@ -12,6 +12,8 @@ pub enum SignContext {
     ReleaseGrant,
     /// An organization record published by the registry.
     RegistryRecord,
+    /// The managed service's own public keys, published by the registry.
+    ServiceRecord,
 }
 
 impl SignContext {
@@ -19,6 +21,7 @@ impl SignContext {
         match self {
             SignContext::ReleaseGrant => b"SVX-1 grant\0",
             SignContext::RegistryRecord => b"SVX-1 registry\0",
+            SignContext::ServiceRecord => b"SVX-1 service\0",
         }
     }
 }

@@ -48,7 +48,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test -p svx-server -p svx-keyagent -p svx-oidc -p svx-protocol
+      - run: cargo test -p svx-server -p svx-keyagent -p svx-oidc -p svx-protocol -p svx-client -p svx-cli
 
   large-file:
     runs-on: ubuntu-latest

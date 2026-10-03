@@ -23,7 +23,10 @@ pub mod types;
 pub use client::{ManagedClient, ProtocolError, ReleaseSession, check_url};
 pub use grant::{Grant, SignedGrant};
 pub use policy::Policy;
-pub use registry::{KeyEntry, KeyKindWire, KeyStatus, OrgRecord, ServiceInfo, SignedOrgRecord};
+pub use registry::{
+    KeyEntry, KeyKindWire, KeyStatus, OrgRecord, ServiceInfo, ServiceRecord, SignedOrgRecord,
+    SignedServiceRecord,
+};
 pub use types::*;
 
 /// Current wire protocol version, included in grants and records.

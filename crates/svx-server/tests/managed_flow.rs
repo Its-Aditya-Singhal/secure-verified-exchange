@@ -1,17 +1,15 @@
 //! Managed Mode end to end: the scenarios from the product specification
 //! (§13, §29, §35) against the real service, key agent and IdPs.
 
-mod common;
-
 use std::io::Cursor;
 
-use common::*;
 use svx_core::crypto::{KemSecretKey, SigningKey, os_rng};
 use svx_protocol::admin::AuditPage;
 use svx_protocol::{
     AgentReleaseRequest, AgentReleaseResponse, DenyReason, Grant, KeyKindWire, KeyStatus, Policy,
     ProtocolError, ReleaseSession, SignedGrant,
 };
+use svx_testkit::*;
 
 macro_rules! world {
     () => {

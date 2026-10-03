@@ -16,11 +16,13 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(|| async { "ok" }))
         .route("/v1/service", get(public::service_info))
+        .route("/v1/service/record", get(public::service_record))
         .route("/v1/registry/orgs/{org}", get(public::org_record))
         .route("/v1/orgs", post(orgs::register))
         .route("/v1/orgs/{org}/verify", post(orgs::verify))
         .route("/v1/admin/orgs/{org}/keys", put(admin::put_key))
         .route("/v1/admin/orgs/{org}/admins", post(admin::add_admin))
+        .route("/v1/admin/orgs/{org}/policies", get(admin::list_policies))
         .route(
             "/v1/admin/orgs/{org}/policies/{name}",
             put(admin::put_policy),

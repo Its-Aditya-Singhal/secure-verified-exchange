@@ -1,0 +1,26 @@
+[package]
+name = "svx-testkit"
+description = "Test harness: real Postgres, dev IdPs, managed service and key agent on loopback"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+svx-core = { path = "../svx-core" }
+svx-keyagent = { path = "../svx-keyagent" }
+svx-mock-idp = { path = "../svx-mock-idp" }
+svx-oidc = { path = "../svx-oidc" }
+svx-protocol = { path = "../svx-protocol" }
+svx-server = { path = "../svx-server" }
+axum = "0.8"
+hex = "0.4"
+serde_json = "1"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres"] }
+tokio = { version = "1", features = ["full"] }
+url = "2"
+
+[lints]
+workspace = true

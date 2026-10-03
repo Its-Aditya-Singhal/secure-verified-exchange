@@ -25,6 +25,13 @@ The service's public keys. Clients **pin** `registry_public` out of band. Key ag
 { "service_id": "svx.example", "kem_public": "<hex32>", "grant_public": "<hex32>", "registry_public": "<hex32>" }
 ```
 
+### `GET /v1/service/record`
+The service's public keys, signed with the registry key under context `"SVX-1 service\0"`. Records older than 15 minutes are rejected.
+```json
+{ "record": "<b64 JSON {v, service_id, kem_public, grant_public, issued_at}>", "signature": "<b64>" }
+```
+Senders take the service KEM key from here instead of from the unsigned `/v1/service`.
+
 ### `GET /v1/registry/orgs/{org_id}`
 Signed record of a **verified** organization. Returns 404 otherwise.
 ```json
@@ -88,6 +95,7 @@ All admin endpoints share the same rules:
 | `POST /v1/admin/orgs/{org}/admins` | `{subject}` | Add an administrator |
 | `PUT /v1/admin/orgs/{org}/policies/{name}` | `Policy` | Create or replace a policy |
 | `POST /v1/admin/orgs/{org}/artifacts/{artifact_id}/revoke` | none | Revoke future access. Effective only if this org is the sender or recipient in the artifact's signed header. |
+| `GET /v1/admin/orgs/{org}/policies` | none | All policies, as `{name: Policy}` |
 | `GET /v1/admin/orgs/{org}/audit?limit=N` | none | The latest N records (maximum 1000), returned with `chain_valid` |
 
 `Policy`:

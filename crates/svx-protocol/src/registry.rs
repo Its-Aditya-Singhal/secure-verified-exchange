@@ -199,6 +199,61 @@ pub struct ServiceInfo {
     pub registry_public: [u8; 32],
 }
 
+/// `GET /v1/service/record`: the service's public keys, signed with the
+/// registry key. Senders use it to learn the service KEM key safely; they
+/// pin only the registry key.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ServiceRecord {
+    pub v: u32,
+    pub service_id: String,
+    #[serde(with = "hex_array")]
+    pub kem_public: [u8; 32],
+    #[serde(with = "hex_array")]
+    pub grant_public: [u8; 32],
+    pub issued_at: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SignedServiceRecord {
+    #[serde(with = "b64")]
+    pub record: Vec<u8>,
+    #[serde(with = "b64")]
+    pub signature: Vec<u8>,
+}
+
+impl SignedServiceRecord {
+    pub fn sign(record: &ServiceRecord, registry_key: &SigningKey) -> Self {
+        let bytes = serde_json::to_vec(record).expect("record serializes");
+        let signature = sign_context(registry_key, SignContext::ServiceRecord, &bytes).to_vec();
+        SignedServiceRecord {
+            record: bytes,
+            signature,
+        }
+    }
+
+    pub fn verify(
+        &self,
+        registry_key: &VerifyingKey,
+        now: i64,
+    ) -> Result<ServiceRecord, RecordError> {
+        verify_context(
+            registry_key,
+            SignContext::ServiceRecord,
+            &self.record,
+            &self.signature,
+        )
+        .map_err(|_| RecordError::BadSignature)?;
+        let r: ServiceRecord =
+            serde_json::from_slice(&self.record).map_err(|_| RecordError::Malformed)?;
+        if now - r.issued_at > MAX_RECORD_AGE_SECS || r.issued_at - now > 60 {
+            return Err(RecordError::Stale);
+        }
+        Ok(r)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -243,6 +298,39 @@ mod tests {
         assert_eq!(
             s.verify(&other.verifying_key(), "acme-security", 1001),
             Err(RecordError::BadSignature)
+        );
+    }
+
+    #[test]
+    fn service_record_sign_verify() {
+        let reg = SigningKey::generate(&mut os_rng());
+        let rec = ServiceRecord {
+            v: 1,
+            service_id: "svx.example".into(),
+            kem_public: [1; 32],
+            grant_public: [2; 32],
+            issued_at: 1000,
+        };
+        let s = SignedServiceRecord::sign(&rec, &reg);
+        assert_eq!(s.verify(&reg.verifying_key(), 1001).unwrap(), rec);
+        assert_eq!(
+            s.verify(&reg.verifying_key(), 5000),
+            Err(RecordError::Stale)
+        );
+        let other = SigningKey::generate(&mut os_rng());
+        assert_eq!(
+            s.verify(&other.verifying_key(), 1001),
+            Err(RecordError::BadSignature)
+        );
+        // An org-record signature is not a service-record signature.
+        let as_org = SignedOrgRecord {
+            record: s.record.clone(),
+            signature: s.signature.clone(),
+        };
+        assert!(
+            as_org
+                .verify(&reg.verifying_key(), "svx.example", 1001)
+                .is_err()
         );
     }
 

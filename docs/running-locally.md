@@ -66,3 +66,22 @@ Each test creates databases named `svx_t_<random>_{svc,agent}`. Drop them afterw
 ```sh
 psql -Atc "select 'drop database '||datname||';' from pg_database where datname like 'svx_t_%'" | psql
 ```
+
+## 4. Use the CLI against the local stack
+
+Onboarding still runs through the API (see the integration tests), because the admin portal arrives in Phase 5. Once an organization is registered, use these commands:
+
+```sh
+REG=$(curl -s http://127.0.0.1:8443/v1/service | sed 's/.*"registry_public":"\([0-9a-f]*\)".*/\1/')
+$B/svx --config example.toml init --dev --service http://127.0.0.1:8443 \
+  --registry-key "$REG" --org example-corp --client-id svx-example-corp
+$B/svx --config acme.toml init --dev --service http://127.0.0.1:8443 \
+  --registry-key "$REG" --org acme-security --client-id svx-acme
+
+$B/svx --config acme.toml pack secret.txt --sign-key acme.sign.key \
+  --recipient example-corp --policy incident-response
+$B/svx --config example.toml open secret.svx -o out --dev-user alice   # allowed
+$B/svx --config example.toml open secret.svx -o out --dev-user bob     # ACCESS DENIED (exit 1)
+```
+
+In a real deployment, obtain the registry fingerprint out of band. Do not read it from the service you are about to trust.

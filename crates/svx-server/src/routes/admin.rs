@@ -225,3 +225,18 @@ pub async fn audit(
         chain_valid,
     }))
 }
+
+/// All policies of the org, by name.
+pub async fn list_policies(
+    State(st): State<AppState>,
+    Path(org): Path<String>,
+    headers: HeaderMap,
+) -> ApiResult<Json<std::collections::BTreeMap<String, Policy>>> {
+    let admin = require_admin(&st, &org, &headers).await?;
+    let rows: Vec<(String, sqlx::types::Json<Policy>)> =
+        sqlx::query_as("SELECT name, document FROM policies WHERE org_id = $1 ORDER BY name")
+            .bind(&admin.org_id)
+            .fetch_all(&st.db)
+            .await?;
+    Ok(Json(rows.into_iter().map(|(n, j)| (n, j.0)).collect()))
+}
