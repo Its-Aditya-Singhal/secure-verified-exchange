@@ -101,6 +101,11 @@ registration, the shared artifact, Eve's failed authentication, Alice's
 approval, Bob's denial, the expired request, the revocation and the denied
 access after it. The demo checks that the hash chain is intact.
 
+**9. A folder.** Carol sends a folder of evidence. It is zipped and marked as
+a folder inside the encrypted manifest. Alice opens it and gets the folder
+back, owner-only, with the same files; no zip or partial files are left
+behind.
+
 ## Try it yourself: `svx-demo serve`
 
 `serve` starts the same stack and keeps it running, so you can drive the real

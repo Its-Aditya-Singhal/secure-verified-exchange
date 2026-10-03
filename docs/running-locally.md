@@ -11,6 +11,15 @@ This guide runs every Phase 2 component on loopback. The mock IdPs log anyone in
 
 The examples assume Postgres at `postgres://svx@127.0.0.1:5432`.
 
+Without Docker, any local PostgreSQL works. With Homebrew on macOS:
+
+```sh
+brew install postgresql@17 && brew services start postgresql@17
+psql -h 127.0.0.1 -d postgres -c "CREATE ROLE svx LOGIN PASSWORD 'svx' CREATEDB"
+```
+
+That matches the `postgres://svx:svx@127.0.0.1:5432/postgres` URL that `svx-demo` and the tests use by default. Stop it (`brew services stop postgresql@17`) before using `docker compose`, since both use port 5432.
+
 ```sh
 cargo build --release
 B=target/release

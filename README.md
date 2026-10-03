@@ -6,7 +6,7 @@ A `.svx` file is a passive, signed and encrypted container. Its contents stay en
 
 > SVX does not make data impossible to steal. It makes an intercepted or unauthorized `.svx` file cryptographically useless for revealing its protected contents. It also provides strong identity, authorization, integrity, expiration, revocation and audit controls. See the [threat model](threat-model/THREAT_MODEL.md) for what SVX does and does not protect against.
 
-## What is in this repository (Phases 1–4)
+## What is in this repository (Phases 1–5a)
 
 | Path | What |
 |------|------|
@@ -20,18 +20,20 @@ A `.svx` file is a passive, signed and encrypted container. Its contents stay en
 | [`docs/running-locally.md`](docs/running-locally.md) | Run the service, key agent and dev IdPs locally |
 | [`docs/client.md`](docs/client.md) | The `svx` client: setup, open flow, admin commands, exit codes, limitations |
 | [`docs/demo.md`](docs/demo.md) | The Acme Security → Example Corp demo and the one-command dev stack |
+| [`docs/desktop.md`](docs/desktop.md) | The Secure Verified Exchange desktop app (macOS, Windows, Linux) |
 | [`docs/sdk-python.md`](docs/sdk-python.md), [`docs/sdk-node.md`](docs/sdk-node.md) | Python and Node.js/TypeScript SDKs |
 | `crates/svx-format` | Strict, bounded, crypto-free parser and writer |
 | `crates/svx-crypto` | STREAM ChaCha20-Poly1305, HPKE key envelopes, HKDF key schedule, Ed25519 |
 | `crates/svx-core` | Pack, verify and open APIs; key files; trust store |
 | `crates/svx-client` | Client library: config with pinned registry key, browser OIDC login, fail-closed open, managed pack, admin |
 | `crates/svx-cli` | The `svx` command |
+| `crates/svx-app`, `apps/desktop` | Desktop app: command layer over `svx-client` and the Tauri 2 shell with a TypeScript UI |
 | `crates/svx-testkit` | Shared end-to-end harness (Postgres, dev IdPs, service, key agent) |
 | `crates/svx-demo` | `svx-demo run` (scripted, self-checking demo) and `svx-demo serve` (local dev stack) |
 | `crates/svx-py`, `sdk/python` | Python SDK (PyO3 + maturin) |
 | `crates/svx-node`, `sdk/node` | Node.js/TypeScript SDK (napi-rs) |
 | `examples/python`, `examples/node` | The demo story written against each SDK |
-| `packaging/` | `.svx` file association for Linux, Windows and macOS |
+| `packaging/` | `.svx` file association for CLI-only installs (the desktop installers register it themselves) |
 | `crates/svx-protocol` | Managed Mode wire types, signed grants and registry records, release client, OIDC PKCE helpers |
 | `crates/svx-oidc` | ID-token validation (discovery, JWKS cache, strict claims, nonce binding) |
 | `crates/svx-server` | Managed service: org registry, admin API, policy engine, key release, revocation, audit (PostgreSQL) |
@@ -51,7 +53,7 @@ A `.svx` file is a passive, signed and encrypted container. Its contents stay en
 
 ## See it work
 
-Requires Rust 1.88+ and Docker (or any PostgreSQL 14+ you can create databases on).
+Requires Rust 1.88+ and Docker, or any PostgreSQL 14+ with a role that can create databases (e.g. Homebrew Postgres with `CREATE ROLE svx LOGIN PASSWORD 'svx' CREATEDB`).
 
 ```sh
 docker compose up -d
@@ -136,12 +138,13 @@ SVX_TEST_DATABASE_URL=postgres://svx:svx@127.0.0.1:5432/postgres cargo test --wo
 cargo run -p svx-demo -- run                         # demo scenarios (exit 0 = all as expected)
 (cd sdk/python && maturin develop && pytest)        # Python SDK
 (cd sdk/node && npm ci && npm run build && npm test) # Node.js SDK
+(cd apps/desktop && npm ci && npm run build && npm run tauri build) # desktop app installers
 cd fuzz && cargo +nightly fuzz run parse            # seed corpus: ../test-vectors/v1/*.svx
 ```
 
 ## Status
 
-Phase 4 of 6 (see the [roadmap](docs/roadmap.md)). The format, the cryptography, the managed service, the key agent and the key-release protocol work and are tested end to end. These scenarios are covered:
+Phase 5a of 6 (see the [roadmap](docs/roadmap.md)). The format, the cryptography, the managed service, the key agent and the key-release protocol work and are tested end to end. These scenarios are covered:
 
 - Alice, who is authorized, decrypts.
 - Bob, who is authenticated but not authorized, is denied.
@@ -149,7 +152,7 @@ Phase 4 of 6 (see the [roadmap](docs/roadmap.md)). The format, the cryptography,
 - Expired, revoked, tampered and replayed requests are rejected.
 - A compromised service cannot obtain the recipient's share.
 
-The `svx` client covers the end-user and admin workflow: `init`, `open`, `status`, `pack --recipient`, `login`, `revoke`, `policy` and `audit`. See [docs/client.md](docs/client.md). The Python and Node.js SDKs expose the same operations, and `svx-demo` runs the whole story as a self-checking script.
+The `svx` client covers the end-user and admin workflow: `init`, `open`, `status`, `pack --recipient`, `login`, `revoke`, `policy` and `audit`. See [docs/client.md](docs/client.md). The Python and Node.js SDKs expose the same operations, and `svx-demo` runs the whole story as a self-checking script. The [desktop app](docs/desktop.md) puts sending (files and folders) and double-click opening behind a graphical interface on macOS, Windows and Linux.
 
 **This code has not had an independent security review. Do not use it to protect real data yet.**
 

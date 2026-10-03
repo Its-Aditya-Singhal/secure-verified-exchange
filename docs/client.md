@@ -68,6 +68,7 @@ The plaintext is handled as follows:
 - **Safe names.** File names from the manifest must be a single safe path component. Traversal, separators, control characters and reserved names are rejected.
 - **No overwriting.** Existing files are never overwritten unless you pass `--overwrite`.
 - **`--stdout`.** This streams the plaintext to a pipe. It is refused if stdout is a terminal.
+- **Folders.** A payload marked as a folder (`application/vnd.svx.folder+zip` in the signed, encrypted manifest) is extracted into a new folder named after it. Entry names must be portable relative paths (no `..`, absolute paths, drive letters, backslashes, colons, control characters or device names); only regular files and folders are allowed (no links); entry count, total size and compression ratio are limited on the bytes actually written; files are 0600 and folders 0700; everything is staged privately and an existing folder is never replaced (`--overwrite` is refused for folders). With `--stdout` the zip itself is streamed.
 
 ### Limitations, stated plainly
 
@@ -82,7 +83,7 @@ The plaintext is handled as follows:
 | `svx init …` | Configure the service, pinned registry key and organization |
 | `svx open FILE [-o DIR] [--stdout] [--overwrite]` | Verify, authenticate, authorize and decrypt |
 | `svx status FILE` | Verify against the registry and show who the artifact is for. Nothing is released and nothing is audited. |
-| `svx pack FILE --recipient ORG --policy P --sign-key KEY [--expires T] [--classification C] [--register]` | Create an artifact. The recipient and service keys come from the verified registry. |
+| `svx pack FILE\|FOLDER --recipient ORG --policy P --sign-key KEY [--expires T] [--classification C] [--register]` | Create an artifact. The recipient and service keys come from the verified registry. A folder is zipped and extracted again on open (see below). |
 | `svx login` / `svx logout` / `svx whoami` | Admin session (see below) |
 | `svx revoke FILE\|ARTIFACT_ID` | Revoke future access. Admins of the sender org or the recipient org only. |
 | `svx policy list\|show NAME\|set NAME --file F` | Manage your organization's policies. Admin. |
@@ -116,7 +117,9 @@ Double-clicking a `.svx` file runs `svx open <file>`. The file is passed to the 
 |----------|----------------|
 | Linux | `packaging/linux/install.sh` registers the `application/vnd.svx` MIME type (by extension and magic bytes) and a `.desktop` handler that runs in a terminal. |
 | Windows | Import `packaging/windows/svx-file-association.reg` after adjusting the path to `svx.exe`. |
-| macOS | `packaging/macos/Info.plist.fragment` holds the UTI declaration for the app bundle planned in Phase 5. |
+| macOS | `packaging/macos/Info.plist.fragment` holds the UTI declaration; the desktop app bundle declares it. |
+
+The [desktop app](desktop.md) installers register the association themselves and open the file in the app instead of a terminal.
 
 ## Development mode
 
