@@ -23,6 +23,7 @@ use svx_client::account::{LoginMethod, WhoAmI};
 use svx_client::config::{Paths, default_open_dir};
 use svx_client::keystore::{KeyRef, SecretStore};
 use svx_client::login::Opener;
+use svx_client::presence::{Need, PresenceGate, UserPresence};
 use svx_client::setup::{self, SetupPreview, SetupRequest};
 use svx_client::{Client, ClientConfig, ClientError, Output, PackOptions, PackResult, Step};
 use svx_protocol::Policy;
@@ -79,6 +80,10 @@ pub struct AppState {
     pub personal: bool,
     /// The personal account's email.
     pub email: Option<String>,
+    /// Whether this computer can ask for Touch ID / the password, and
+    /// whether it does now (off on development services).
+    pub presence_available: bool,
+    pub presence_active: bool,
 }
 
 /// A verified artifact, before any login.
@@ -202,6 +207,8 @@ pub struct App {
     names: Mutex<personal::LocalNames>,
     /// Set to stop waiting for a sender's approval.
     cancel: Mutex<Option<Arc<std::sync::atomic::AtomicBool>>>,
+    /// Touch ID / password before using the keys (desktop app only).
+    presence: Option<Arc<PresenceGate>>,
 }
 
 impl App {
@@ -226,9 +233,67 @@ impl App {
             target: None,
             names: Mutex::new(names),
             cancel: Mutex::new(None),
+            presence: None,
         };
         app.reload();
         Ok(app)
+    }
+
+    /// Ask the person to confirm (Touch ID, password, Windows Hello) before
+    /// the keys are used, unless they turned it off or this is a
+    /// development service.
+    pub fn with_presence(mut self, presence: Arc<dyn UserPresence>) -> Self {
+        let idle = self.prefs.lock().unwrap().relock();
+        self.presence = Some(Arc::new(PresenceGate::new(presence, idle)));
+        self.reload();
+        self
+    }
+
+    /// The gate the client should use now: none for development services
+    /// or when turned off.
+    fn active_gate(&self, cfg: &ClientConfig) -> Option<Arc<PresenceGate>> {
+        let on = self.prefs.lock().unwrap().presence_on();
+        self.presence.clone().filter(|_| on && !cfg.dev)
+    }
+
+    /// Turn the confirmation on or off and set the idle time. Turning it
+    /// off, or making the session longer, needs a confirmation first.
+    pub async fn set_presence(&self, on: bool, relock_minutes: u32) -> Result<AppState> {
+        if !prefs::RELOCK_MINUTES.contains(&relock_minutes) {
+            return Err(AppError::from(ClientError::Invalid(
+                "choose between 1 and 240 minutes".into(),
+            )));
+        }
+        let (was_on, was_relock) = {
+            let p = self.prefs.lock().unwrap();
+            (p.presence_on(), p.relock())
+        };
+        let longer = std::time::Duration::from_secs(u64::from(relock_minutes) * 60) > was_relock;
+        if let Some(gate) = &self.presence
+            && was_on
+            && (!on || longer)
+        {
+            gate.require(Need::Always, "change when you're asked to confirm it's you")
+                .await?;
+        }
+        {
+            let mut p = self.prefs.lock().unwrap();
+            p.ask_presence = Some(on);
+            p.relock_minutes = Some(relock_minutes);
+            let _ = p.save(&prefs_path(&self.paths));
+            if let Some(gate) = &self.presence {
+                gate.set_idle(p.relock());
+            }
+        }
+        self.reload();
+        Ok(self.state())
+    }
+
+    /// Lock now: the next action asks to confirm again.
+    pub fn lock(&self) {
+        if let Some(g) = &self.presence {
+            g.lock();
+        }
     }
 
     /// Sign personal accounts up with this service instead of the built-in
@@ -243,8 +308,14 @@ impl App {
         let (client, err) = if self.paths.config.exists() {
             match ClientConfig::load(&self.paths.config)
                 .and_then(|cfg| Client::with_config(self.paths.clone(), cfg))
-                .map(|c| c.with_secret_store(self.secrets.clone()))
-            {
+                .map(|c| {
+                    let gate = self.active_gate(&c.cfg);
+                    let c = c.with_secret_store(self.secrets.clone());
+                    match gate {
+                        Some(g) => c.with_presence(g),
+                        None => c,
+                    }
+                }) {
                 Ok(c) => (Some(Arc::new(c)), None),
                 Err(e) => (None, Some(e.to_string())),
             }
@@ -278,6 +349,8 @@ impl App {
             prefs: self.prefs.lock().unwrap().clone(),
             personal: cfg.is_some_and(|c| c.is_personal()),
             email: cfg.and_then(|c| c.account.as_ref().map(|a| a.email.clone())),
+            presence_available: self.presence.is_some(),
+            presence_active: client.as_ref().is_some_and(|c| c.presence.is_some()),
         }
     }
 

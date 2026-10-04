@@ -29,6 +29,10 @@ struct Cli {
     /// Configuration file (default: $SVX_CONFIG or the platform config dir).
     #[arg(long, global = true)]
     config: Option<PathBuf>,
+    /// Ask for Touch ID / the computer's password / Windows Hello before a
+    /// personal account's keys are used, as the desktop app does.
+    #[arg(long, global = true)]
+    require_presence: bool,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -344,6 +348,7 @@ async fn main() -> ExitCode {
 
 async fn run(cli: Cli) -> Result<ExitCode> {
     let config = cli.config.as_deref();
+    personal::REQUIRE_PRESENCE.store(cli.require_presence, std::sync::atomic::Ordering::Relaxed);
     match cli.cmd {
         Cmd::Init {
             service,

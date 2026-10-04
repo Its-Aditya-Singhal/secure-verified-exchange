@@ -24,6 +24,7 @@ use svx_client::keyadmin::{ExportedKemKey, NewSigningKey};
 use svx_client::login::system_browser;
 use svx_client::onboard::{OnboardRequest, PendingOrg};
 use svx_client::personal::{AccountInfo, Contact, SendResult};
+use svx_client::presence::SystemPresence;
 use svx_client::setup::SetupPreview;
 use svx_protocol::admin::AuditPage;
 use svx_protocol::email_account::PasswordStrength;
@@ -212,6 +213,16 @@ async fn restore(
     )
     .await
     .map(Some)
+}
+
+#[tauri::command]
+async fn set_presence(app: State<'_, App>, on: bool, relock_minutes: u32) -> Result<AppState> {
+    app.set_presence(on, relock_minutes).await
+}
+
+#[tauri::command]
+fn lock_now(app: State<'_, App>) {
+    app.lock();
 }
 
 #[tauri::command]
@@ -630,7 +641,9 @@ fn open_document(handle: AppHandle, app: State<'_, App>, path: PathBuf) -> Resul
 
 fn main() {
     let app = match App::new(None) {
-        Ok(a) => a,
+        // Touch ID / the Mac's password / Windows Hello before the keys
+        // are used (the client enforces it; off on development services).
+        Ok(a) => a.with_presence(std::sync::Arc::new(SystemPresence)),
         Err(e) => {
             eprintln!("Secure Verified Exchange: {e}");
             std::process::exit(2);
@@ -675,6 +688,8 @@ fn main() {
             providers,
             sign_up,
             restore,
+            set_presence,
+            lock_now,
             request_email_code,
             email_sign_up,
             email_restore,

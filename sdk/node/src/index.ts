@@ -40,6 +40,7 @@ export type ErrorKind =
   | "invalid"
   | "account_exists"
   | "cancelled"
+  | "not_confirmed"
   | "other";
 
 /** Coarse reason reported by the service for {@link AccessDeniedError}. */

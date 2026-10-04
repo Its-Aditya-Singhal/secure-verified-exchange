@@ -12,7 +12,7 @@ name = "svx"
 path = "src/main.rs"
 
 [dependencies]
-svx-client = { path = "../svx-client", version = "0.1.0", features = ["keychain"] }
+svx-client = { path = "../svx-client", version = "0.1.0", features = ["keychain", "presence"] }
 svx-core = { path = "../svx-core", version = "0.1.0" }
 svx-oidc = { path = "../svx-oidc", version = "0.1.0" }
 svx-protocol = { path = "../svx-protocol", version = "0.1.0" }

@@ -3,6 +3,8 @@
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context, Result, bail};
 use svx_client::Client;
@@ -11,15 +13,25 @@ use svx_client::config::Paths;
 use svx_client::defaults::{ServiceTarget, service_target};
 use svx_client::login::{print_url, system_browser};
 use svx_client::personal::{self, KeyChoice, SendOptions, SignUpOptions};
+use svx_client::presence::{DEFAULT_IDLE, PresenceGate, SystemPresence};
 use svx_protocol::email_account::{CodePurpose, password_strength};
 use svx_protocol::personal::{FileRules, FileStatus, RecipientState, UpdateFileRequest};
 
 use crate::local::{fmt_time, parse_expiry};
 
+/// `--require-presence`.
+pub static REQUIRE_PRESENCE: AtomicBool = AtomicBool::new(false);
+
 pub fn client(config: Option<&Path>) -> Result<Client> {
     let c = Client::load(config)?;
     if !c.cfg.is_personal() {
         bail!("this is a company setup; personal commands need `svx account signup`");
+    }
+    if REQUIRE_PRESENCE.load(Ordering::Relaxed) {
+        return Ok(c.with_presence(Arc::new(PresenceGate::new(
+            Arc::new(SystemPresence),
+            DEFAULT_IDLE,
+        ))));
     }
     Ok(c)
 }

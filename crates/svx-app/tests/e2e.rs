@@ -461,3 +461,41 @@ async fn personal_accounts_in_the_app() {
     assert_eq!(restored.account, a.account);
     w.cleanup().await.unwrap();
 }
+
+/// Turning the Touch ID / password check off, or making sessions longer,
+/// needs a confirmation; development services never ask.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn presence_settings_need_a_confirmation() {
+    use std::sync::Arc;
+    use svx_client::presence::NeverPresent;
+    let d = tempfile::tempdir().unwrap();
+    let app = App::new(Some(&d.path().join("config.toml")))
+        .unwrap()
+        .with_presence(Arc::new(NeverPresent));
+    let s = app.state();
+    assert!(s.presence_available && !s.presence_active);
+    assert_eq!(
+        app.set_presence(false, 15).await.unwrap_err().kind,
+        "not_confirmed"
+    );
+    assert_eq!(
+        app.set_presence(true, 60).await.unwrap_err().kind,
+        "not_confirmed"
+    );
+    assert_eq!(app.set_presence(true, 0).await.unwrap_err().kind, "invalid");
+    // Stricter settings need nothing.
+    let s = app.set_presence(true, 5).await.unwrap();
+    assert_eq!(s.prefs.relock_minutes, Some(5));
+
+    // A configured development service: the gate stays off.
+    if let Some(w) = World::new().await {
+        let app = App::new(Some(&d.path().join("dev/config.toml")))
+            .unwrap()
+            .with_presence(Arc::new(NeverPresent));
+        app.setup_save(form(&w, EXAMPLE, &d.path().join("out")), false)
+            .await
+            .unwrap();
+        assert!(app.state().configured && !app.state().presence_active);
+        w.cleanup().await.unwrap();
+    }
+}

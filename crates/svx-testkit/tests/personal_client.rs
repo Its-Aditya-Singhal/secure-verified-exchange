@@ -537,3 +537,101 @@ async fn email_account_signs_up_sends_and_opens() {
         .unwrap();
     w.cleanup().await.unwrap();
 }
+
+/// Counts prompts; refuses when told to.
+struct Prompts(Mutex<Vec<String>>, AtomicBool);
+
+impl svx_client::presence::UserPresence for Prompts {
+    fn confirm(&self, reason: &str) -> svx_client::Result<()> {
+        self.0.lock().unwrap().push(reason.into());
+        if self.1.load(Ordering::Relaxed) {
+            Err(ClientError::NotConfirmed)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn presence_gate_is_enforced_by_the_client() {
+    use svx_client::presence::{DEFAULT_IDLE, PresenceGate};
+    let w = world!();
+    let d = tempfile::tempdir().unwrap();
+    let prompts = Arc::new(Prompts(Mutex::new(vec![]), AtomicBool::new(true)));
+    let gate = Arc::new(PresenceGate::new(prompts.clone(), DEFAULT_IDLE));
+    let alice = sign_up_as(&w, d.path(), "alice", "alice", KeyChoice::New)
+        .await
+        .unwrap()
+        .with_presence(gate.clone());
+    let bob = sign_up_as(&w, d.path(), "bob", "bob", KeyChoice::New)
+        .await
+        .unwrap();
+    let input = d.path().join("plan.txt");
+    std::fs::write(&input, SECRET).unwrap();
+    let send = || SendOptions {
+        input: input.clone(),
+        output: None,
+        overwrite: true,
+        to: vec!["bob@example.test".into()],
+        rules: FileRules::default(),
+        expires_at: None,
+        name: None,
+    };
+
+    // Refused: nothing is sealed, nothing written.
+    assert!(matches!(
+        alice.send(send()).await,
+        Err(ClientError::NotConfirmed)
+    ));
+    assert!(!d.path().join("plan.svx").exists());
+    let backup = d.path().join("alice.svxbackup");
+    assert!(matches!(
+        alice.save_backup(&backup, "a long recovery password"),
+        Err(ClientError::NotConfirmed)
+    ));
+    assert!(!backup.exists());
+    assert!(matches!(alice.sign_out(), Err(ClientError::NotConfirmed)));
+    assert!(paths(d.path(), "alice").config.exists());
+
+    // Confirmed once: sending again doesn't ask while the session lasts.
+    prompts.1.store(false, Ordering::Relaxed);
+    let n = prompts.0.lock().unwrap().len();
+    let file = alice.send(send()).await.unwrap();
+    alice.send(send()).await.unwrap();
+    assert_eq!(prompts.0.lock().unwrap().len(), n + 1);
+
+    // Approving always asks.
+    let b = Arc::new(bob);
+    let (b2, path) = (b.clone(), file.path.clone());
+    let dir = d.path().to_path_buf();
+    let opening = tokio::spawn(async move {
+        let never = AtomicBool::new(false);
+        b2.open_personal(&path, out(&dir, "bob-out"), &mut |_| {}, &never)
+            .await
+    });
+    let req = loop {
+        if let Some(r) = alice.requests().await.unwrap().into_iter().next() {
+            break r;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+    let before = prompts.0.lock().unwrap().len();
+    alice.approve(&hex::encode(req.request_id)).await.unwrap();
+    assert_eq!(prompts.0.lock().unwrap().len(), before + 1);
+    assert!(
+        prompts
+            .0
+            .lock()
+            .unwrap()
+            .last()
+            .unwrap()
+            .contains("open your file")
+    );
+    opening.await.unwrap().unwrap();
+
+    // Locking asks again.
+    gate.lock();
+    alice.send(send()).await.unwrap();
+    assert_eq!(prompts.0.lock().unwrap().len(), before + 2);
+    w.cleanup().await.unwrap();
+}

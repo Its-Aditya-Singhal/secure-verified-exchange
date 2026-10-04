@@ -19,6 +19,9 @@ export interface Prefs {
   last_policy: string | null;
   pending_org: PendingOrg | null;
   pending_encryption_key: ExportedKemKey | null;
+  /** Ask for Touch ID / password before using the keys (null = on). */
+  ask_presence: boolean | null;
+  relock_minutes: number | null;
 }
 
 export interface OnboardRequest {
@@ -120,6 +123,10 @@ export interface AppState {
   /** A personal account (Google or email), not a company setup. */
   personal: boolean;
   email: string | null;
+  /** This computer can ask for Touch ID / the password / Windows Hello. */
+  presence_available: boolean;
+  /** ... and does now (never on development services). */
+  presence_active: boolean;
 }
 
 export interface SetupForm {
@@ -448,6 +455,9 @@ export const api = {
     call<AccountInfo>("sign_up", { issuer, reset, devUser, replace }),
   restore: (issuer: string | null, password: string, devUser: string | null, replace: boolean) =>
     call<AccountInfo | null>("restore", { issuer, password, devUser, replace }),
+  setPresence: (on: boolean, relockMinutes: number) =>
+    call<AppState>("set_presence", { on, relockMinutes }),
+  lockNow: () => call<void>("lock_now"),
   requestEmailCode: (email: string, purpose: "sign_up" | "sign_in" | "reset_password") =>
     call<CodeSent>("request_email_code", { email, purpose }),
   emailSignUp: (form: EmailForm, reset: boolean, replace: boolean) =>

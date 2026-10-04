@@ -38,6 +38,9 @@ pub enum ClientError {
     /// The user stopped waiting (for example for the sender's approval).
     #[error("cancelled")]
     Cancelled,
+    /// Touch ID / the computer's password / Windows Hello wasn't confirmed.
+    #[error("not confirmed: confirm it's you to continue")]
+    NotConfirmed,
     #[error("{0}")]
     Other(String),
 }
@@ -60,6 +63,7 @@ pub enum ErrorKind {
     Invalid,
     AccountExists,
     Cancelled,
+    NotConfirmed,
     Other,
 }
 
@@ -79,6 +83,7 @@ impl ErrorKind {
             ErrorKind::Invalid => "invalid",
             ErrorKind::AccountExists => "account_exists",
             ErrorKind::Cancelled => "cancelled",
+            ErrorKind::NotConfirmed => "not_confirmed",
             ErrorKind::Other => "other",
         }
     }
@@ -100,6 +105,7 @@ impl ClientError {
             ClientError::Invalid(_) => ErrorKind::Invalid,
             ClientError::AccountExists => ErrorKind::AccountExists,
             ClientError::Cancelled => ErrorKind::Cancelled,
+            ClientError::NotConfirmed => ErrorKind::NotConfirmed,
             ClientError::Other(_) => ErrorKind::Other,
         }
     }

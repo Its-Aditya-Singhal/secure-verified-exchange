@@ -130,6 +130,13 @@ export function explain(e: AppError): Explained {
       };
     case "cancelled":
       return { tone: "info", title: "Stopped waiting", body: "Nothing was decrypted. You can open the file again later; if the sender approves in the meantime, it opens straight away.", retry: true };
+    case "not_confirmed":
+      return {
+        tone: "info",
+        title: "Not confirmed",
+        body: "Nothing was done. Confirm it's you with Touch ID, your computer's password or Windows Hello to continue.",
+        retry: true,
+      };
     case "not_configured":
       return { tone: "info", title: "Set up needed", body: "Finish setup first.", retry: false };
     case "config":

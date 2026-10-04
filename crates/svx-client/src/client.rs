@@ -17,6 +17,7 @@ use crate::error::{ClientError, Result};
 use crate::keystore::{KeyRef, SecretStore};
 use crate::open::{OpenOutcome, Output, Step};
 use crate::pack::ManagedPack;
+use crate::presence::{Need, PresenceGate};
 use crate::registry::Registry;
 use crate::{admin, info, keyadmin, session};
 
@@ -26,6 +27,9 @@ pub struct Client {
     pub http: ManagedClient,
     /// Where keychain signing keys live (the OS keychain by default).
     pub secrets: Arc<dyn SecretStore>,
+    /// Touch ID / password before using the keys (the desktop app sets
+    /// it; none by default).
+    pub presence: Option<Arc<PresenceGate>>,
 }
 
 /// Options for [`Client::pack`].
@@ -81,7 +85,29 @@ impl Client {
             cfg,
             http,
             secrets: crate::keystore::os_keychain(),
+            presence: None,
         })
+    }
+
+    /// Ask the person to confirm before using the keys ([`crate::presence`]).
+    pub fn with_presence(mut self, gate: Arc<PresenceGate>) -> Self {
+        self.presence = Some(gate);
+        self
+    }
+
+    /// Check the presence gate, if any, for an action.
+    pub(crate) async fn present(&self, need: Need, reason: &str) -> Result<()> {
+        match &self.presence {
+            Some(g) => g.require(need, reason).await,
+            None => Ok(()),
+        }
+    }
+
+    pub(crate) fn present_blocking(&self, need: Need, reason: &str) -> Result<()> {
+        match &self.presence {
+            Some(g) => g.require_blocking(need, reason),
+            None => Ok(()),
+        }
     }
 
     /// Use another secret store for keychain keys (tests).
@@ -123,6 +149,7 @@ impl Client {
     }
 
     pub async fn pack(&self, o: PackOptions) -> Result<PackResult> {
+        self.present(Need::Session, "seal a file").await?;
         let (sender_org, signing_key) =
             crate::keystore::load_signing(self.secrets.as_ref(), &o.signing_key)?;
         let input = crate::pack::prepare_input(&o.input, o.name)?;
@@ -191,6 +218,7 @@ impl Client {
     /// Revoke by artifact ID (hex) or artifact file; returns the hex ID.
     pub async fn revoke(&self, target: &str) -> Result<String> {
         let id = info::artifact_id_of(target)?;
+        self.present(Need::Session, "revoke a file").await?;
         let bearer = account::bearer(&self.paths.session)?;
         admin::revoke(&self.cfg, &self.http, &bearer, &id).await?;
         Ok(hex::encode(id))
@@ -251,6 +279,8 @@ impl Client {
 
     /// Create this computer's signing key in the keychain and register it.
     pub async fn create_signing_key(&self) -> Result<keyadmin::NewSigningKey> {
+        self.present(Need::Always, "create your organization's signing key")
+            .await?;
         let bearer = account::bearer(&self.paths.session)?;
         keyadmin::create_signing_key(&self.cfg, &self.http, &bearer, self.secrets.as_ref()).await
     }
@@ -261,20 +291,26 @@ impl Client {
     }
 
     pub fn export_encryption_key(&self, dir: &Path) -> Result<keyadmin::ExportedKemKey> {
+        self.present_blocking(Need::Always, "make a new encryption key for your key agent")?;
         keyadmin::export_encryption_key(&self.cfg, dir)
     }
 
     pub async fn activate_encryption_key(&self, public_file: &Path) -> Result<KeyEntry> {
+        self.present(Need::Always, "switch your organization's encryption key")
+            .await?;
         let bearer = account::bearer(&self.paths.session)?;
         keyadmin::activate_encryption_key(&self.cfg, &self.http, &bearer, public_file).await
     }
 
     pub async fn set_key_status(&self, key_id: &str, status: KeyStatus) -> Result<KeyEntry> {
+        self.present(Need::Always, "retire or revoke an organization key")
+            .await?;
         let bearer = account::bearer(&self.paths.session)?;
         keyadmin::set_key_status(&self.cfg, &self.http, &bearer, key_id, status).await
     }
 
     pub fn import_signing_key(&self, path: &Path) -> Result<keyadmin::NewSigningKey> {
+        self.present_blocking(Need::Always, "import a signing key")?;
         keyadmin::import_signing_key(&self.cfg, self.secrets.as_ref(), path)
     }
 

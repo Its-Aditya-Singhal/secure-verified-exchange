@@ -35,7 +35,7 @@ export function settingsScreen(ctx: Ctx, root: HTMLElement): void {
     }
   }
 
-  root.append(
+  append(root,
     h("header", { class: "screen-head" }, h("h1", {}, "Settings")),
     card(
       "Setup",
@@ -73,12 +73,49 @@ export function settingsScreen(ctx: Ctx, root: HTMLElement): void {
       })),
       keyOut,
     ),
+    presenceCard(ctx),
     card(
       "About",
       h("p", {}, "Secure Verified Exchange 0.1.0. All checks, sign-in binding and decryption run in the SVX client library on this device; this window only shows the results."),
       h("p", { class: "muted small" }, "The svx command-line tool uses the same setup and sign-in session."),
     ),
   );
+}
+
+/** Touch ID / password before the keys are used. */
+function presenceCard(ctx: Ctx): HTMLElement | null {
+  const s = ctx.state;
+  if (!s.presence_available) return null;
+  const on = h("input", { type: "checkbox" });
+  on.checked = s.prefs.ask_presence ?? true;
+  const minutes = h("select", {},
+    ...[5, 15, 30, 60, 240].map((m) => h("option", { value: String(m) }, m < 60 ? `${m} minutes` : `${m / 60} hour${m > 60 ? "s" : ""}`)));
+  minutes.value = String(s.prefs.relock_minutes ?? 15);
+  if (!minutes.value) minutes.value = "15";
+  const out = h("div", {});
+  const save = button("Save", () => void (async () => {
+    clear(out);
+    await busy(save, "Saving…", async () => {
+      try {
+        await api.setPresence(on.checked, Number(minutes.value));
+        await ctx.refreshState();
+        out.appendChild(note("Saved.", "ok"));
+      } catch (e) {
+        out.appendChild(errorPanel(asAppError(e)));
+      }
+    });
+  })(), "primary");
+  const lock = button("Lock now", () => void api.lockNow().then(() => {
+    clear(out);
+    out.appendChild(note("Locked. The next send or open asks you to confirm.", "ok"));
+  }));
+  return card("Confirm it's you",
+    h("p", { class: "muted" }, "Before sending or opening files, approving someone, saving a backup or changing keys, the app asks for Touch ID, your computer's password or Windows Hello. It stops someone using your unlocked computer."),
+    s.dev ? note("Not asked on a development service, so test windows don't keep prompting.", "info") : null,
+    h("label", { class: "check" }, on, h("span", {}, "Ask me to confirm it's me")),
+    field("Ask again after", minutes, "of not using the app. Approving someone, backups and key changes always ask."),
+    h("div", { class: "actions" }, save, lock),
+    out);
 }
 
 function personalSettings(ctx: Ctx, root: HTMLElement): void {
@@ -234,6 +271,7 @@ function personalSettings(ctx: Ctx, root: HTMLElement): void {
       h("label", { class: "check" }, outConfirm, h("span", {}, "I have a backup, or I accept I can't open files sent to me before")),
       h("div", { class: "actions" }, signOut),
       signOutOut),
+    presenceCard(ctx),
     card("About",
       h("p", {}, "Secure Verified Exchange 0.1.0. All checks, key handling and decryption run in the SVX client library on this device; this window only shows the results.")),
   );

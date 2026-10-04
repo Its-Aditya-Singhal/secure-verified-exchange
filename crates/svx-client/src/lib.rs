@@ -41,6 +41,7 @@ pub mod onboard;
 mod open;
 pub mod pack;
 pub mod personal;
+pub mod presence;
 pub mod registry;
 pub mod session;
 pub mod setup;

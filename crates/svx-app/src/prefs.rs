@@ -22,9 +22,29 @@ pub struct Prefs {
     pub pending_org: Option<PendingOrg>,
     /// An encryption key exported for the key agent, not yet activated.
     pub pending_encryption_key: Option<ExportedKemKey>,
+    /// Ask for Touch ID / the computer's password / Windows Hello before
+    /// using the keys. `None` = on (the default).
+    pub ask_presence: Option<bool>,
+    /// Minutes an unlocked session lasts without use (default 15).
+    pub relock_minutes: Option<u32>,
 }
 
+/// Bounds for [`Prefs::relock_minutes`].
+pub const RELOCK_MINUTES: std::ops::RangeInclusive<u32> = 1..=240;
+
 impl Prefs {
+    pub fn presence_on(&self) -> bool {
+        self.ask_presence.unwrap_or(true)
+    }
+
+    pub fn relock(&self) -> std::time::Duration {
+        let m = self
+            .relock_minutes
+            .filter(|m| RELOCK_MINUTES.contains(m))
+            .unwrap_or(15);
+        std::time::Duration::from_secs(u64::from(m) * 60)
+    }
+
     /// Missing or unreadable preferences are simply empty.
     pub fn load(path: &Path) -> Prefs {
         std::fs::read(path)

@@ -40,6 +40,7 @@ use crate::error::{ClientError, Result};
 use crate::keystore::{self, KeyRef, SecretStore};
 use crate::login::{Authenticator, BrowserLogin, DevLogin};
 use crate::open::{OpenOutcome, Output, Step, write_output};
+use crate::presence::Need;
 use crate::registry::{Registry, active_kem_key};
 
 /// How often to ask again while waiting for the sender's approval.
@@ -645,6 +646,7 @@ impl Client {
                 s.feedback.join(" ")
             )));
         }
+        self.present(Need::Always, "change your password").await?;
         let _: serde_json::Value = self
             .call(
                 Method::POST,
@@ -662,6 +664,7 @@ impl Client {
     /// with `password`.
     pub fn save_backup(&self, path: &Path, password: &str) -> Result<()> {
         check_password(password)?;
+        self.present_blocking(Need::Always, "save a backup of your keys")?;
         let a = self.account_config()?;
         let d = self.device()?;
         let mut signing = Zeroizing::new(vec![d.signing.kind().byte()]);
@@ -718,6 +721,7 @@ impl Client {
 
     /// Encrypt a file for people by email and register it with its rules.
     pub async fn send(&self, o: SendOptions) -> Result<SendResult> {
+        self.present(Need::Session, "send a file").await?;
         let d = self.device()?;
         let emails = normalize_emails(&o.to)?;
         if o.expires_at.is_some_and(|t| t <= crate::now()) {
@@ -840,6 +844,7 @@ impl Client {
         progress: &mut (dyn FnMut(Step) + Send),
         cancel: &AtomicBool,
     ) -> Result<OpenOutcome> {
+        self.present(Need::Session, "open a file").await?;
         let d = self.device()?;
         let output = match output {
             Some(o) => o,
@@ -970,6 +975,8 @@ impl Client {
     }
 
     pub async fn approve(&self, request_id: &str) -> Result<ApprovalRequest> {
+        self.present(Need::Always, "let someone open your file")
+            .await?;
         self.decide(request_id, "approve").await
     }
 
@@ -1000,6 +1007,8 @@ impl Client {
 
     /// Change a sent file's rules, or revoke it (for everyone or some).
     pub async fn update_file(&self, target: &str, u: &UpdateFileRequest) -> Result<FileStatus> {
+        self.present(Need::Session, "change who can open your file")
+            .await?;
         let id = crate::info::artifact_id_of(target)?;
         self.call(
             Method::PATCH,
@@ -1018,6 +1027,7 @@ impl Client {
     /// Forget this account on this computer: delete its keys from the
     /// keychain and its configuration. Make a backup first.
     pub fn sign_out(&self) -> Result<()> {
+        self.present_blocking(Need::Always, "remove your keys from this computer")?;
         let a = self.account_config()?;
         keystore::delete(self.secrets.as_ref(), &KeyRef::parse(&a.signing_key)?)?;
         keystore::delete_kem(self.secrets.as_ref(), &self.cfg.org_id, &a.kem_key)?;
