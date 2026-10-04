@@ -239,6 +239,22 @@ fn set_check_updates(app: State<'_, App>, on: bool) -> AppState {
     app.set_check_updates(on)
 }
 
+/// The first symlink in `exe`'s path, which makes updating impossible on
+/// macOS: Tauri refuses to replace or restart a binary reached through a
+/// symlink (e.g. an app run from `/tmp`, which is `/private/tmp`). Other
+/// platforms don't have the rule.
+fn symlinked_location(exe: &std::path::Path) -> Option<std::path::PathBuf> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    exe.ancestors()
+        .find(|a| {
+            a.symlink_metadata()
+                .is_ok_and(|m| m.file_type().is_symlink())
+        })
+        .map(std::path::Path::to_path_buf)
+}
+
 /// Download and install the release [`check_update`] verified, then
 /// restart. The Tauri updater checks its own signature; on top of that
 /// the package must be the one the signed manifest names (version, URL,
@@ -247,6 +263,18 @@ fn set_check_updates(app: State<'_, App>, on: bool) -> AppState {
 async fn install_update(handle: AppHandle, pending: State<'_, PendingUpdate>) -> Result<()> {
     use tauri_plugin_updater::UpdaterExt;
     let fail = |m: String| AppError::other(format!("update failed: {m}"));
+    if let Some(link) = std::env::current_exe()
+        .ok()
+        .as_deref()
+        .and_then(symlinked_location)
+    {
+        return Err(fail(format!(
+            "this app is running from a location that goes through a symbolic link ({}), \
+             and macOS updates can't replace it there. Move the app to the Applications \
+             folder and open it from there.",
+            link.display()
+        )));
+    }
     let verified = pending
         .0
         .lock()
@@ -843,5 +871,27 @@ mod tests {
         let abs = std::env::temp_dir().join("x.svx");
         let argv = vec!["svx-desktop".to_string(), abs.display().to_string()];
         assert_eq!(file_args(&argv, Path::new("/elsewhere")), vec![abs]);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_symlinked_path_blocks_updates() {
+        let d = tempfile::tempdir().unwrap();
+        let real = d.path().join("real");
+        std::fs::create_dir(&real).unwrap();
+        std::fs::write(real.join("app"), b"x").unwrap();
+        let link = d.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        assert_eq!(symlinked_location(&link.join("app")), Some(link));
+        assert_eq!(
+            symlinked_location(&real.canonicalize().unwrap().join("app")),
+            None
+        );
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn only_macos_has_the_rule() {
+        assert_eq!(symlinked_location(std::path::Path::new("/tmp/x")), None);
     }
 }

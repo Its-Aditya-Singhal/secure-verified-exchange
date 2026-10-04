@@ -188,7 +188,8 @@ The website never receives, encrypts or decrypts files.
 - [ ] Production (free, by the user, when going live):
   - [ ] a Gmail address with an app password, for sending code and approval emails (steps in `docs/personal.md`, "Production setup")
   - [ ] a Google OAuth client ("Desktop app" client ID) for Continue with Google
-- [ ] **Open issue:** self-update fails at install with "StartingBinary found current_exe() that contains a symlink on a non-allowed platform: /tmp" (2026-10-04 manual test: 0.1.0 found and offered 0.1.1, Install failed). macOS `/tmp` is a symlink to `/private/tmp`, and the Tauri updater refuses to replace an app whose path contains a symlink. Fix next session: test from a real path (e.g. `~/Applications` or `/private/tmp`), make `docs/releasing.md` and `scripts/release.sh` use one, show a clear message when the app runs from a symlinked or read-only location, then repeat the 0.1.0 → 0.1.1 test.
+- [x] Self-update from a symlinked path (found 2026-10-04: "StartingBinary found current_exe() that contains a symlink on a non-allowed platform: /tmp"). Cause: macOS `/tmp` is a symlink to `/private/tmp`, and Tauri refuses to update an app reached through a symlink (a security rule, kept on). Fixed: the app now says so clearly and what to do (`symlinked_location` in `apps/desktop/src-tauri/src/main.rs`, with a test), and `docs/releasing.md` tests from `/private/tmp`. 
+  - [ ] Repeat the 0.1.0 → 0.1.1 test from `/private/tmp` by hand (app 0.1.0 is open from there; click Install)
 - [ ] Compatibility test suite across versions and platforms
 - [ ] Independent external security review
 - [ ] Public beta

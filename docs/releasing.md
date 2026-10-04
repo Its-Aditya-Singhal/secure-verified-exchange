@@ -52,22 +52,31 @@ svx release verify /srv/svx/updates/manifest.json --fingerprint <release key fin
 This uses a loopback http server, so the test builds use `tauri.localtest.conf.json`. That file sets the updater's `dangerousInsecureTransportProtocol`. Never publish such a build.
 
 ```sh
-# 1. The service on a fixed port, publishing from /tmp/svx-updates
-cargo run -p svx-demo -- serve --state-dir /tmp/svx-stack --service-port 8790 --updates-dir /tmp/svx-updates
+# 0. Work under the real path /private/tmp (on macOS /tmp is a symlink to it).
+#    Tauri refuses to update an app reached through a symlink, and the app says so.
+T=/private/tmp
+
+# 1. The service on a fixed port, publishing from $T/svx-updates
+cargo run -p svx-demo -- serve --state-dir $T/svx-stack --service-port 8790 --updates-dir $T/svx-updates
 
 # 2. Version 0.1.0 with that update source built in (not published)
 scripts/release.sh 0.1.0 --update-url http://127.0.0.1:8790/v1/updates --local --build-only
-cp -R "target/release/bundle/macos/Secure Verified Exchange.app" /tmp/svx-test-apps/0.1.0/
+mkdir -p "$T/svx-test-apps/0.1.0"
+cp -R "target/release/bundle/macos/Secure Verified Exchange.app" "$T/svx-test-apps/0.1.0/"
 
-# 3. Version 0.1.1, signed and published to /tmp/svx-updates
-scripts/release.sh 0.1.1 --update-url http://127.0.0.1:8790/v1/updates --local --out /tmp/svx-updates
+# 3. Version 0.1.1, signed and published to $T/svx-updates
+scripts/release.sh 0.1.1 --update-url http://127.0.0.1:8790/v1/updates --local --out $T/svx-updates
 
 # 4. Run 0.1.0 with a test configuration: it offers 0.1.1, installs it and restarts
-SVX_CONFIG=/tmp/svx-update-test/config.toml \
-  "/tmp/svx-test-apps/0.1.0/Secure Verified Exchange.app/Contents/MacOS/svx-desktop"
+SVX_CONFIG=$T/svx-update-test/config.toml \
+  "$T/svx-test-apps/0.1.0/Secure Verified Exchange.app/Contents/MacOS/svx-desktop"
 ```
 
-To check that tampered updates are refused, change a byte of the package in `/tmp/svx-updates`, or sign a manifest with another key. The app must show "update refused" and keep running the old version. `crates/svx-testkit/tests/updates.rs` covers the same cases automatically.
+To check that tampered updates are refused, change a byte of the package in `$T/svx-updates`, or sign a manifest with another key. The app must show "update refused" and keep running the old version. `crates/svx-testkit/tests/updates.rs` covers the same cases automatically.
+
+## Where the app must live
+
+On macOS the updater only works when the app's own path has no symbolic link in it. Running from `/tmp` fails because `/tmp` is a link to `/private/tmp`; the app then says "update failed: … goes through a symbolic link … Move the app to the Applications folder". Installed apps in `/Applications` or `~/Applications` are fine, and so are Linux and Windows.
 
 ## What is not covered
 
