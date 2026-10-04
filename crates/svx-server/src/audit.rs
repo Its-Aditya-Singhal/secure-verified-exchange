@@ -37,6 +37,9 @@ pub mod event {
     pub const APPROVAL_REQUESTED: &str = "approval_requested";
     pub const APPROVAL_GRANTED: &str = "approval_granted";
     pub const APPROVAL_DECLINED: &str = "approval_declined";
+    pub const SHARE_REQUESTED: &str = "share_requested";
+    pub const SHARE_GRANTED: &str = "share_granted";
+    pub const SHARE_DECLINED: &str = "share_declined";
 }
 
 /// One event to append.

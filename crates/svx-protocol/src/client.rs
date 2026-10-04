@@ -102,12 +102,14 @@ impl ReleaseSession {
         &self,
         header_region: &[u8],
         trailer: &[u8],
+        mode: crate::personal::ReleaseMode,
     ) -> crate::personal::PersonalReleaseRequest {
         crate::personal::PersonalReleaseRequest {
             header_region: header_region.to_vec(),
             trailer: trailer.to_vec(),
             client_key: self.key.public_key().to_vec(),
             txn: self.txn,
+            mode,
         }
     }
 

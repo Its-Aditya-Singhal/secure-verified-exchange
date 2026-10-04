@@ -190,6 +190,11 @@ People without Google create an account with an email address and a password; th
 - **Outcome:** mitigated. The app installs an update only if (1) the release manifest verifies with all three signatures of the SVX-2 release key whose fingerprint is built into the app, (2) its version is newer than the running one, (3) the package's Tauri (minisign) signature verifies, including the version it records, and (4) the download's size and SHA-512 match the signed manifest. Both keys are kept offline; the service only serves files. ✅ (`signed_updates_newer_only_and_matching`, `sign_verify_and_tamper`, `update_manifest` fuzz target)
 - **Limitations:** a malicious server can withhold updates (freeze), not roll back. The installers themselves are unsigned (no paid certificates), so the first download relies on its https channel, and macOS Gatekeeper warns once. Losing a release key means users must reinstall by hand; see [docs/releasing.md](../docs/releasing.md).
 
+### T29. A recipient keeps a view-only file (Phase 7, partly built)
+- **Threat:** a recipient of a file the sender limited to viewing saves, copies or shares it anyway, or asks the sender for permission under false pretences.
+- **Today:** the service refuses to release the key for *saving* a view-only file unless the sender approved that recipient's share request (24 h), and refuses before using up a one-time open. Share requests are their own kind of request: approving one doesn't open the file, approving an open doesn't allow saving, a decline stands for 24 h, only one request waits at a time, and emails name the requester only. Every step is audited. ✅ (`a_view_only_file_can_be_saved_only_with_the_senders_permission`, `view_only_rules_are_the_senders_to_change`, `share_requests_and_open_requests_stay_apart`)
+- **Not covered yet:** the in-app viewer, protected storage, capture blocking and tamper checks are not built. The release mode is the client's own claim, so a modified client could ask for `view` and then write the content to disk. No design that gives a recipient the key can prevent that against a determined attacker; the planned checks (see the checklist) raise the effort, and photographing a screen can never be stopped. Do not rely on view-only against a determined recipient.
+
 ## 5. Security claims we will make (after review)
 
 - "Encrypted before transfer."

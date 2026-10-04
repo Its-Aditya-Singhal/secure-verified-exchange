@@ -32,7 +32,8 @@ impl IntoResponse for ApiError {
                     DenyReason::NotAuthorized
                     | DenyReason::ExpiredOrRevoked
                     | DenyReason::AlreadyOpened
-                    | DenyReason::Declined => StatusCode::FORBIDDEN,
+                    | DenyReason::Declined
+                    | DenyReason::ViewOnly => StatusCode::FORBIDDEN,
                     DenyReason::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
                 };
                 (s, r, None)

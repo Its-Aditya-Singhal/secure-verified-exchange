@@ -104,6 +104,8 @@ pub enum DenyReason {
     AlreadyOpened,
     /// The sender declined this request to open the file.
     Declined,
+    /// A view-only file can't be saved: the sender hasn't allowed sharing.
+    ViewOnly,
 }
 
 impl std::fmt::Display for DenyReason {
@@ -116,6 +118,7 @@ impl std::fmt::Display for DenyReason {
             DenyReason::Unavailable => "service unavailable",
             DenyReason::AlreadyOpened => "already opened (this file can be opened once)",
             DenyReason::Declined => "the sender declined",
+            DenyReason::ViewOnly => "this file is view-only; the sender hasn't allowed sharing",
         })
     }
 }

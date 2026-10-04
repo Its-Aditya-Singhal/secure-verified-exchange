@@ -165,6 +165,17 @@ key derived from the recovery password with Argon2id (256 MiB, 4 passes; older 6
 The file is owner-only and never overwritten. There is no password
 recovery.
 
+## View-only files (in progress, Phase 7)
+
+A sender can mark a file **view-only** and choose whether recipients may **ask to keep it**. What exists today is the service side and the refusal:
+
+- The rules `view_only` and `allow_share_requests` live on the service with the other per-file rules and can be changed later.
+- A release asks to `save` or to `view`. The service refuses a `save` of a view-only file with `view_only` before anything is used up (a one-time open stays unused), unless the sender approved a **share request**.
+- A recipient asks with `POST /v1/personal/share/{id}`. The sender sees it in Requests (marked as a request to keep a copy), checks it's really them, and approves or declines; an approval lasts 24 hours. Emails name the requester only.
+- Each step is in the audit trail (`share_requested`, `share_granted`, `share_declined`).
+
+**Not built yet:** the in-app viewer, protected storage, capture blocking, watermark and tamper checks. Until then the app and CLI can't create view-only files, and a view-only file made another way can't be opened (the app says it's view-only). See `docs/phase-checklist.md`, Phase 7. Today the service enforces the rule only against an unmodified app: stopping a modified app from keeping what it was given is exactly what the remaining Phase 7 work is for.
+
 ## Limits
 
 - **One-time stops re-opening, not copying.** The copy a recipient

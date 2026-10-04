@@ -27,7 +27,8 @@ use svx_protocol::email_account::{
 };
 use svx_protocol::personal::{
     Account, ApprovalRequest, FileRules, FileStatus, History, OpenedReceipt, PersonalIdp,
-    PersonalReleaseResponse, RegisterFileRequest, SignUpRequest, UpdateFileRequest, signup_nonce,
+    PersonalReleaseResponse, RegisterFileRequest, ReleaseMode, ShareStatus, SignUpRequest,
+    UpdateFileRequest, signup_nonce,
 };
 use svx_protocol::{KeyKindWire, KeyStatus, ManagedClient, Method, OrgRecord, ReleaseSession};
 use zeroize::Zeroizing;
@@ -915,12 +916,18 @@ impl Client {
         // 3. Ask the service; repeat while the sender decides.
         progress(Step::CheckingAuthorization);
         let session = ReleaseSession::new();
-        let request = session.personal_request(&verified.header_region, &{
-            verified
-                .trailer
-                .encode()
-                .map_err(|e| ClientError::Rejected(e.to_string()))?
-        });
+        // This path writes a normal file, so it asks to save: the service
+        // refuses a view-only file unless the sender allowed sharing.
+        let request = session.personal_request(
+            &verified.header_region,
+            &{
+                verified
+                    .trailer
+                    .encode()
+                    .map_err(|e| ClientError::Rejected(e.to_string()))?
+            },
+            ReleaseMode::Save,
+        );
         let mut announced = false;
         let share = loop {
             if cancel.load(Ordering::Relaxed) {
@@ -930,7 +937,7 @@ impl Client {
                 .call(Method::POST, "/v1/personal/release", Some(&request))
                 .await?;
             match resp {
-                PersonalReleaseResponse::Released { share } => break share,
+                PersonalReleaseResponse::Released { share, .. } => break share,
                 PersonalReleaseResponse::Pending {
                     sender_email,
                     expires_at,
@@ -975,7 +982,7 @@ impl Client {
     }
 
     pub async fn approve(&self, request_id: &str) -> Result<ApprovalRequest> {
-        self.present(Need::Always, "let someone open your file")
+        self.present(Need::Always, "approve a request about your file")
             .await?;
         self.decide(request_id, "approve").await
     }
@@ -989,6 +996,31 @@ impl Client {
         self.call::<(), _>(
             Method::POST,
             &format!("/v1/me/requests/{}/{what}", hex::encode(id)),
+            None,
+        )
+        .await
+    }
+
+    /// Whether this account may save a view-only file it received (by
+    /// artifact ID or file).
+    pub async fn share_status(&self, target: &str) -> Result<ShareStatus> {
+        let id = crate::info::artifact_id_of(target)?;
+        self.call::<(), _>(
+            Method::GET,
+            &format!("/v1/personal/share/{}", hex::encode(id)),
+            None,
+        )
+        .await
+    }
+
+    /// Ask the sender to allow saving a view-only file as a normal file.
+    /// The sender decides in the app; poll with [`Client::share_status`].
+    pub async fn request_share(&self, target: &str) -> Result<ShareStatus> {
+        self.present(Need::Session, "ask to keep a file").await?;
+        let id = crate::info::artifact_id_of(target)?;
+        self.call::<(), _>(
+            Method::POST,
+            &format!("/v1/personal/share/{}", hex::encode(id)),
             None,
         )
         .await

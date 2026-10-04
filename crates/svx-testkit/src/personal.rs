@@ -15,7 +15,7 @@ use svx_protocol::email_account::{
 use svx_protocol::oidc_login::dev_auto_login;
 use svx_protocol::personal::{
     Account, FileRules, FileStatus, OpenedReceipt, PersonalReleaseResponse, RegisterFileRequest,
-    SignUpRequest, signup_nonce,
+    ReleaseMode, SignUpRequest, signup_nonce,
 };
 use svx_protocol::{Method, OrgRecord, ProtocolError, ReleaseSession};
 
@@ -274,19 +274,30 @@ impl World {
         .await
     }
 
-    /// Ask to open `file` as `p` in `session` (repeat to poll).
+    /// Ask to open `file` as `p` in `session` (repeat to poll), to save it.
     pub async fn ask(
         &self,
         p: &Person,
         file: &[u8],
         session: &ReleaseSession,
     ) -> Result<PersonalReleaseResponse, ProtocolError> {
+        self.ask_for(p, file, session, ReleaseMode::Save).await
+    }
+
+    /// Like [`ask`](Self::ask), for saving or for viewing only.
+    pub async fn ask_for(
+        &self,
+        p: &Person,
+        file: &[u8],
+        session: &ReleaseSession,
+        mode: ReleaseMode,
+    ) -> Result<PersonalReleaseResponse, ProtocolError> {
         let (header_region, trailer) = head_parts(file);
         self.call(
             p,
             Method::POST,
             "/v1/personal/release",
-            Some(&session.personal_request(&header_region, &trailer)),
+            Some(&session.personal_request(&header_region, &trailer, mode)),
         )
         .await
     }
@@ -299,7 +310,7 @@ impl World {
         session: &ReleaseSession,
         resp: PersonalReleaseResponse,
     ) -> Vec<u8> {
-        let PersonalReleaseResponse::Released { share } = resp else {
+        let PersonalReleaseResponse::Released { share, .. } = resp else {
             panic!("not released: {resp:?}");
         };
         let sender = svx_core::inspect(Cursor::new(file)).unwrap().1.sender_org;

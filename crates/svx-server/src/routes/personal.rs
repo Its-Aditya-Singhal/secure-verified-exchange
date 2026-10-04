@@ -20,8 +20,8 @@ use svx_oidc::IssuerConfig;
 use svx_protocol::personal::{
     Account, ApprovalRequest, FileRules, FileStatus, History, KEYS_ON_ANOTHER_DEVICE,
     OpenedReceipt, PersonalReleaseRequest, PersonalReleaseResponse, ReceivedFile, RecipientState,
-    RecipientStatus, RegisterFileRequest, RequestAuth, SignUpRequest, UpdateFileRequest,
-    signup_nonce,
+    RecipientStatus, RegisterFileRequest, ReleaseMode, RequestAuth, RequestKind, SHARE_TTL_SECS,
+    ShareState, ShareStatus, SignUpRequest, UpdateFileRequest, signup_nonce,
 };
 use svx_protocol::{
     DenyReason, KeyKindWire, KeyStatus, SealedShare, SignedOrgRecord, parse_client_key, unix_now,
@@ -462,6 +462,8 @@ struct FileRow {
     one_time: bool,
     expires_at: Option<i64>,
     revoked_at: Option<i64>,
+    view_only: bool,
+    allow_share_requests: bool,
 }
 
 impl FileRow {
@@ -474,6 +476,8 @@ impl FileRow {
             require_approval: self.require_approval,
             one_time: self.one_time,
             expires_at: self.expires_at,
+            view_only: self.view_only,
+            allow_share_requests: self.allow_share_requests,
         }
     }
 
@@ -487,7 +491,7 @@ impl FileRow {
 }
 
 const FILE_COLUMNS: &str = "artifact_id, sender, header_hash, created_at, signed_expires_at, \
-    require_approval, one_time, expires_at, revoked_at";
+    require_approval, one_time, expires_at, revoked_at, view_only, allow_share_requests";
 
 async fn file(st: &AppState, artifact_id: &[u8]) -> ApiResult<Option<FileRow>> {
     Ok(sqlx::query_as(&format!(
@@ -528,6 +532,7 @@ struct ApprovalRow {
     requested_at: i64,
     decided_at: Option<i64>,
     expires_at: i64,
+    kind: String,
 }
 
 impl ApprovalRow {
@@ -542,20 +547,70 @@ struct OpenRow {
     final_at: Option<i64>,
 }
 
+/// The requester's latest request of this kind (`open` or `share`).
+async fn latest_request(
+    st: &AppState,
+    artifact_id: &[u8],
+    requester: &str,
+    kind: &str,
+) -> ApiResult<Option<ApprovalRow>> {
+    Ok(sqlx::query_as(
+        "SELECT request_id, artifact_id, requester, state, requested_at, decided_at, expires_at, kind \
+         FROM approvals WHERE artifact_id = $1 AND requester = $2 AND kind = $3 \
+         ORDER BY requested_at DESC, request_id DESC LIMIT 1",
+    )
+    .bind(artifact_id)
+    .bind(requester)
+    .bind(kind)
+    .fetch_optional(&st.db)
+    .await?)
+}
+
 async fn latest_approval(
     st: &AppState,
     artifact_id: &[u8],
     requester: &str,
 ) -> ApiResult<Option<ApprovalRow>> {
-    Ok(sqlx::query_as(
-        "SELECT request_id, artifact_id, requester, state, requested_at, decided_at, expires_at \
-         FROM approvals WHERE artifact_id = $1 AND requester = $2 \
-         ORDER BY requested_at DESC, request_id DESC LIMIT 1",
-    )
-    .bind(artifact_id)
-    .bind(requester)
-    .fetch_optional(&st.db)
-    .await?)
+    latest_request(st, artifact_id, requester, "open").await
+}
+
+/// Whether `requester` may save a view-only file as a normal file, from
+/// the sender's decisions and the file's rules.
+async fn share_state(
+    st: &AppState,
+    f: &FileRow,
+    requester: &str,
+    now: i64,
+) -> ApiResult<(ShareState, Option<i64>)> {
+    if !f.view_only {
+        return Ok((ShareState::Unrestricted, None));
+    }
+    let latest = latest_request(st, &f.artifact_id, requester, "share").await?;
+    Ok(match latest {
+        Some(a) if a.state == "approved" => match a.decided_at {
+            Some(d) if now - d <= SHARE_TTL_SECS => {
+                (ShareState::Approved, Some(d + SHARE_TTL_SECS))
+            }
+            _ => fresh_share_state(f),
+        },
+        Some(a)
+            if a.state == "declined" && a.decided_at.is_some_and(|d| now - d <= SHARE_TTL_SECS) =>
+        {
+            (ShareState::Declined, None)
+        }
+        Some(a) if a.state == "pending" && a.expires_at > now => {
+            (ShareState::Pending, Some(a.expires_at))
+        }
+        _ => fresh_share_state(f),
+    })
+}
+
+fn fresh_share_state(f: &FileRow) -> (ShareState, Option<i64>) {
+    if f.allow_share_requests {
+        (ShareState::NotRequested, None)
+    } else {
+        (ShareState::Forbidden, None)
+    }
 }
 
 async fn open_row(
@@ -675,8 +730,8 @@ pub async fn register_file(
     let mut tx = st.db.begin().await?;
     let inserted = sqlx::query(
         "INSERT INTO personal_files (artifact_id, sender, header_hash, created_at, signed_expires_at, \
-         require_approval, one_time, expires_at, revoked_at, registered_at) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, $9)",
+         require_approval, one_time, expires_at, revoked_at, registered_at, view_only, allow_share_requests) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, $9, $10, $11)",
     )
     .bind(&h.artifact_id[..])
     .bind(&me.org_id)
@@ -687,6 +742,8 @@ pub async fn register_file(
     .bind(req.rules.one_time)
     .bind(req.rules.expires_at)
     .bind(now)
+    .bind(req.rules.view_only)
+    .bind(req.rules.allow_share_requests && req.rules.view_only)
     .execute(&mut *tx)
     .await;
     match inserted {
@@ -715,10 +772,11 @@ pub async fn register_file(
             event: audit::event::ARTIFACT_REGISTERED,
             artifact_id: Some(aid),
             reason: Some(format!(
-                "{} recipient(s); approval {}, one-time {}",
+                "{} recipient(s); approval {}, one-time {}, view-only {}",
                 recipients.len(),
                 on_off(req.rules.require_approval),
-                on_off(req.rules.one_time)
+                on_off(req.rules.one_time),
+                on_off(req.rules.view_only)
             )),
             ..Default::default()
         },
@@ -768,11 +826,20 @@ pub async fn update_file(
     if req.expires_at.is_some() {
         rules.expires_at = req.expires_at;
     }
+    if let Some(v) = req.view_only {
+        rules.view_only = v;
+    }
+    if let Some(v) = req.allow_share_requests {
+        rules.allow_share_requests = v;
+    }
+    // Share requests only mean something for a view-only file.
+    rules.allow_share_requests &= rules.view_only;
     check_rules(&rules, f.signed_expires_at)?;
     let now = unix_now();
     let mut tx = st.db.begin().await?;
     sqlx::query(
         "UPDATE personal_files SET require_approval = $2, one_time = $3, expires_at = $4, \
+         view_only = $7, allow_share_requests = $8, \
          revoked_at = CASE WHEN $5 THEN COALESCE(revoked_at, $6) ELSE revoked_at END \
          WHERE artifact_id = $1",
     )
@@ -782,6 +849,8 @@ pub async fn update_file(
     .bind(rules.expires_at)
     .bind(req.revoke)
     .bind(now)
+    .bind(rules.view_only)
+    .bind(rules.allow_share_requests)
     .execute(&mut *tx)
     .await?;
     for r in &req.revoke_recipients {
@@ -817,10 +886,12 @@ pub async fn update_file(
                 format!("revoked for {}", req.revoke_recipients.join(", "))
             } else {
                 format!(
-                    "approval {}, one-time {}, expiry {:?}",
+                    "approval {}, one-time {}, expiry {:?}, view-only {}, share requests {}",
                     on_off(rules.require_approval),
                     on_off(rules.one_time),
-                    rules.expires_at
+                    rules.expires_at,
+                    on_off(rules.view_only),
+                    on_off(rules.allow_share_requests)
                 )
             }),
             ..Default::default()
@@ -953,7 +1024,25 @@ pub async fn release(
         )
         .await);
     }
-    // 6. The sender's approval.
+    // 6. A view-only file can be shown in the app, but saved only with the
+    //    sender's permission. Refused before anything is used up.
+    if req.mode == ReleaseMode::Save
+        && !matches!(
+            share_state(&st, &f, &me.org_id, now).await?.0,
+            ShareState::Unrestricted | ShareState::Approved
+        )
+    {
+        return Err(refuse(
+            &st,
+            &me,
+            &aid,
+            audit::event::AUTHZ_FAILURE,
+            "view-only file: saving needs the sender's permission",
+            DenyReason::ViewOnly,
+        )
+        .await);
+    }
+    // 7. The sender's approval.
     if f.require_approval {
         let latest = latest_approval(&st, &f.artifact_id, &me.org_id).await?;
         match latest {
@@ -976,7 +1065,7 @@ pub async fn release(
             _ => return Ok(Json(request_approval(&st, &me, &f).await?)),
         }
     }
-    // 7. Single-use transaction.
+    // 8. Single-use transaction.
     match sqlx::query(
         "INSERT INTO release_txns (txn, artifact_id, org_id, at) VALUES ($1, $2, $3, $4)",
     )
@@ -1001,7 +1090,7 @@ pub async fn release(
         }
         Err(e) => return Err(e.into()),
     }
-    // 8. Release the service half, sealed to the one-time key.
+    // 9. Release the service half, sealed to the one-time key.
     let share = st.keys.unwrap_service_share(&head).map_err(|e| {
         tracing::error!(error = %e, artifact = %aid, "service share unwrap failed");
         deny(DenyReason::InvalidArtifact)
@@ -1035,7 +1124,14 @@ pub async fn release(
             event: audit::event::DECRYPTION_AUTHORIZED,
             artifact_id: Some(aid.clone()),
             txn: Some(txn_hex.clone()),
-            reason: Some(format!("from {}", f.sender)),
+            reason: Some(format!(
+                "from {}; {}",
+                f.sender,
+                match req.mode {
+                    ReleaseMode::Save => "to save",
+                    ReleaseMode::View => "to view",
+                }
+            )),
             ..Default::default()
         },
     )
@@ -1057,6 +1153,7 @@ pub async fn release(
             encapped_key,
             ciphertext,
         },
+        view_only: f.view_only,
     }))
 }
 
@@ -1144,6 +1241,11 @@ pub async fn opened(
 
 fn approval_wire(a: &ApprovalRow, email: Option<String>) -> ApprovalRequest {
     ApprovalRequest {
+        kind: if a.kind == "share" {
+            RequestKind::Share
+        } else {
+            RequestKind::Open
+        },
         request_id: a.request_id(),
         artifact_id: a.artifact_id.as_slice().try_into().unwrap_or_default(),
         requester: a.requester.clone(),
@@ -1162,7 +1264,7 @@ pub async fn requests(
 ) -> ApiResult<Json<Vec<ApprovalRequest>>> {
     let me = authenticate(&st, &method, &uri, &headers, b"").await?;
     let rows: Vec<ApprovalRow> = sqlx::query_as(
-        "SELECT a.request_id, a.artifact_id, a.requester, a.state, a.requested_at, a.decided_at, a.expires_at \
+        "SELECT a.request_id, a.artifact_id, a.requester, a.state, a.requested_at, a.decided_at, a.expires_at, a.kind \
          FROM approvals a JOIN personal_files f ON f.artifact_id = a.artifact_id \
          WHERE f.sender = $1 AND a.state = 'pending' AND a.expires_at > $2 \
          ORDER BY a.requested_at DESC LIMIT 200",
@@ -1199,7 +1301,7 @@ pub async fn decide(
         "UPDATE approvals a SET state = $3, decided_at = $4 FROM personal_files f \
          WHERE a.request_id = $1 AND f.artifact_id = a.artifact_id AND f.sender = $2 \
            AND a.state = 'pending' AND a.expires_at > $4 \
-         RETURNING a.request_id, a.artifact_id, a.requester, a.state, a.requested_at, a.decided_at, a.expires_at",
+         RETURNING a.request_id, a.artifact_id, a.requester, a.state, a.requested_at, a.decided_at, a.expires_at, a.kind",
     )
     .bind(&id[..])
     .bind(&me.org_id)
@@ -1214,10 +1316,11 @@ pub async fn decide(
         &st.db,
         &me.org_id,
         audit::Record {
-            event: if state == "approved" {
-                audit::event::APPROVAL_GRANTED
-            } else {
-                audit::event::APPROVAL_DECLINED
+            event: match (a.kind.as_str(), state) {
+                ("share", "approved") => audit::event::SHARE_GRANTED,
+                ("share", _) => audit::event::SHARE_DECLINED,
+                (_, "approved") => audit::event::APPROVAL_GRANTED,
+                _ => audit::event::APPROVAL_DECLINED,
             },
             artifact_id: Some(hex::encode(&a.artifact_id)),
             reason: Some(format!("for {}", a.requester)),
@@ -1227,6 +1330,129 @@ pub async fn decide(
     .await?;
     let email = email_of(&st, &a.requester).await?;
     Ok(Json(approval_wire(&a, email)))
+}
+
+// ----- Saving a view-only file -----
+
+/// The caller's file as a recipient: registered, named, not revoked, not
+/// expired. Anything else is refused the same way as a release would.
+async fn received_file(
+    st: &AppState,
+    me: &PersonalAccount,
+    artifact_hex: &str,
+) -> ApiResult<FileRow> {
+    let id = parse_id(artifact_hex)?;
+    let f = file(st, &id).await?.ok_or(ApiError::NotFound)?;
+    let row: Option<RecipientRow> = sqlx::query_as(
+        "SELECT recipient, revoked_at FROM personal_file_recipients WHERE artifact_id = $1 AND recipient = $2",
+    )
+    .bind(&f.artifact_id)
+    .bind(&me.org_id)
+    .fetch_optional(&st.db)
+    .await?;
+    let Some(row) = row else {
+        return Err(ApiError::NotFound);
+    };
+    if f.revoked_at.is_some()
+        || row.revoked_at.is_some()
+        || f.effective_expiry().is_some_and(|e| unix_now() >= e)
+    {
+        return Err(deny(DenyReason::ExpiredOrRevoked));
+    }
+    Ok(f)
+}
+
+fn share_status(f: &FileRow, state: (ShareState, Option<i64>)) -> ShareStatus {
+    ShareStatus {
+        artifact_id: f.id(),
+        state: state.0,
+        expires_at: state.1,
+    }
+}
+
+/// `GET /v1/personal/share/{artifact_id}`: may the caller save this file?
+pub async fn share_get(
+    State(st): State<AppState>,
+    Path(artifact_hex): Path<String>,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+) -> ApiResult<Json<ShareStatus>> {
+    let me = authenticate(&st, &method, &uri, &headers, b"").await?;
+    let f = received_file(&st, &me, &artifact_hex).await?;
+    let state = share_state(&st, &f, &me.org_id, unix_now()).await?;
+    Ok(Json(share_status(&f, state)))
+}
+
+/// `POST /v1/personal/share/{artifact_id}`: ask the sender to let the caller
+/// save a view-only file. Only one request waits at a time, and a decline
+/// stands for 24 hours, so a sender can't be badgered.
+pub async fn share_request(
+    State(st): State<AppState>,
+    Path(artifact_hex): Path<String>,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> ApiResult<Json<ShareStatus>> {
+    let me = authenticate(&st, &method, &uri, &headers, &body).await?;
+    let f = received_file(&st, &me, &artifact_hex).await?;
+    let now = unix_now();
+    let state = share_state(&st, &f, &me.org_id, now).await?;
+    match state.0 {
+        ShareState::NotRequested => {}
+        ShareState::Forbidden => return Err(deny(DenyReason::NotAuthorized)),
+        // Already decided, waiting, or nothing to ask: say where things stand.
+        _ => return Ok(Json(share_status(&f, state))),
+    }
+    let request_id = random_bytes::<16>();
+    let expires_at = now + APPROVAL_TTL_SECS;
+    sqlx::query(
+        "INSERT INTO approvals (request_id, artifact_id, requester, state, requested_at, expires_at, kind) \
+         VALUES ($1, $2, $3, 'pending', $4, $5, 'share')",
+    )
+    .bind(&request_id[..])
+    .bind(&f.artifact_id)
+    .bind(&me.org_id)
+    .bind(now)
+    .bind(expires_at)
+    .execute(&st.db)
+    .await?;
+    let aid = hex::encode(f.id());
+    audit::append(
+        &st.db,
+        &f.sender,
+        audit::Record {
+            event: audit::event::SHARE_REQUESTED,
+            artifact_id: Some(aid.clone()),
+            reason: Some(format!("{} ({})", me.email, me.org_id)),
+            ..Default::default()
+        },
+    )
+    .await?;
+    if let Some(to) = email_of(&st, &f.sender).await? {
+        notify::queue(
+            &st,
+            &format!("share:{aid}:{}:{}", me.org_id, now / 3600),
+            Email {
+                to,
+                subject: format!("{} is asking to keep a file you sent", me.email),
+                body: format!(
+                    "{} is asking for permission to save a view-only file you sent with \
+                     Secure Verified Exchange as a normal file. Once saved, it can be \
+                     copied and shared.\n\nOpen the app and go to Requests to approve or \
+                     decline. If you weren't expecting this, check with them first (by phone \
+                     or another channel).\n\nFile ID: {aid}\n",
+                    me.email
+                ),
+            },
+        )
+        .await;
+    }
+    Ok(Json(share_status(
+        &f,
+        (ShareState::Pending, Some(expires_at)),
+    )))
 }
 
 /// `GET /v1/me/history`: files the caller sent and files sent to them,
@@ -1276,6 +1502,7 @@ pub async fn history(
             state,
             requested_at,
             opened_at,
+            view_only: f.view_only,
         });
     }
     Ok(Json(out))

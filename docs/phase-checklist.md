@@ -200,8 +200,8 @@ The website never receives, encrypts or decrypts files.
 The sender can make a file **view-only**: the recipient sees it only inside the app, with no screenshots, recording, copy or save, until the sender allows sharing.
 
 - [ ] File rule `view_only`, chosen when sending: on or off, plus "let them ask to share it".
-  - Kept on the service with the other per-file rules.
-  - Also signed into the file, so a modified app can't just ignore it.
+  - [x] Kept on the service with the other per-file rules; the sender can change it later (service, client library; no app or CLI control until the viewer exists).
+  - [ ] Also signed into the file, so a modified app can't just ignore it. (Opus: format change and design.)
 - [ ] View-only files never become a normal file on disk.
   - After opening, the app keeps the content re-encrypted with a key held on this device. It isn't plaintext, it shows the app icon, and only the app opens it.
   - The content is decrypted into memory only while it's on screen.
@@ -217,10 +217,12 @@ The sender can make a file **view-only**: the recipient sees it only inside the 
 - [ ] Visible watermark: the recipient's email, the time, and the file ID across the content.
   - It deters photos of the screen and identifies who leaked a copy.
 - [ ] "Ask to share": the recipient requests permission and the sender approves or declines in Requests.
-  - This reuses the approval flow.
-  - Only after approval does the app export a normal file. Copy and screenshots then work for that file.
-  - Every step goes in the audit trail.
-- [ ] The sender can switch view-only and "let them ask" later from the file's page.
+  - [x] This reuses the approval flow (service, client library, Requests screen shows it).
+  - [x] A `save` of a view-only file is refused by the service until the sender approves; viewing is a separate release mode.
+  - [x] Every step goes in the audit trail.
+  - [ ] Only after approval does the app export a normal file (needs the viewer and its protected storage).
+  - [ ] The recipient's "Ask to share" button in the viewer.
+- [ ] The sender can switch view-only and "let them ask" later from the file's page. (Service and client done; the control in the app comes with the viewer.)
 - [ ] Tamper resistance, as far as is possible for $0:
   - [ ] the security parts stay in Rust, compiled and optimized (no JavaScript to edit);
   - [ ] the app checks its own files at start and refuses view-only files if they changed;

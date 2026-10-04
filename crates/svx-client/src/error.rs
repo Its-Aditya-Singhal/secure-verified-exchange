@@ -121,6 +121,7 @@ impl ClientError {
                 DenyReason::Unavailable => "unavailable",
                 DenyReason::AlreadyOpened => "already_opened",
                 DenyReason::Declined => "declined",
+                DenyReason::ViewOnly => "view_only",
             }),
             _ => None,
         }

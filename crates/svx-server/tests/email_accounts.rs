@@ -30,6 +30,8 @@ const NO_APPROVAL: FileRules = FileRules {
     require_approval: false,
     one_time: false,
     expires_at: None,
+    view_only: false,
+    allow_share_requests: false,
 };
 
 fn keys() -> (SigningKey, KemSecretKey) {

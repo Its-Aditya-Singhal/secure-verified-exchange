@@ -308,6 +308,7 @@ pub async fn send(c: &Client, a: SendArgs) -> Result<ExitCode> {
                 require_approval: !a.no_approval,
                 one_time: !a.no_one_time,
                 expires_at: None,
+                ..Default::default()
             },
             expires_at: a.expires.as_deref().map(parse_expiry).transpose()?,
             name: None,
@@ -458,6 +459,7 @@ pub async fn file(c: &Client, a: FileArgs) -> Result<ExitCode> {
                 expires_at: a.expires.as_deref().map(parse_expiry).transpose()?,
                 revoke: a.revoke,
                 revoke_recipients,
+                ..Default::default()
             },
         )
         .await?

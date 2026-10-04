@@ -377,6 +377,8 @@ export interface HistoryView {
 }
 
 export interface RequestView {
+  /** What they ask for: to open the file, or to keep a view-only file as a normal file. */
+  kind: "open" | "share";
   request_id: string;
   artifact_id: string;
   requester: string;

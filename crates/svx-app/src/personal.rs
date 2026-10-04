@@ -392,6 +392,7 @@ impl App {
                     require_approval: req.require_approval,
                     one_time: req.one_time,
                     expires_at: None,
+                    ..Default::default()
                 },
                 expires_at: req.expires_at,
                 name: None,

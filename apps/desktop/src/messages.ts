@@ -67,6 +67,14 @@ export function explain(e: AppError): Explained {
           retry: false,
         };
       }
+      if (e.deny_reason === "view_only") {
+        return {
+          tone: "stop",
+          title: "This file is view-only",
+          body: "The sender only lets you view it, so it can't be saved as a file. Ask them to allow sharing if you need a copy.",
+          retry: false,
+        };
+      }
       if (e.deny_reason === "declined") {
         return {
           tone: "stop",

@@ -102,6 +102,15 @@ pub struct FileRules {
     /// signed into the file.
     #[serde(default)]
     pub expires_at: Option<i64>,
+    /// The recipient can only view the file in the app. It becomes a
+    /// normal file only if the sender allows sharing (see
+    /// [`ShareStatus`]).
+    #[serde(default)]
+    pub view_only: bool,
+    /// For a view-only file: recipients may ask the sender for permission
+    /// to turn it into a normal file.
+    #[serde(default)]
+    pub allow_share_requests: bool,
 }
 
 impl Default for FileRules {
@@ -110,6 +119,8 @@ impl Default for FileRules {
             require_approval: true,
             one_time: true,
             expires_at: None,
+            view_only: false,
+            allow_share_requests: false,
         }
     }
 }
@@ -138,6 +149,10 @@ pub struct UpdateFileRequest {
     /// A new server-side expiry; it can't be later than the signed one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view_only: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_share_requests: Option<bool>,
     /// Revoke the whole file (permanent).
     #[serde(default)]
     pub revoke: bool,
@@ -201,6 +216,22 @@ pub struct PersonalReleaseRequest {
     pub client_key: Vec<u8>,
     #[serde(with = "hex_array")]
     pub txn: [u8; 16],
+    /// What the recipient will do with the content. A view-only file is
+    /// refused for [`ReleaseMode::Save`] unless the sender allowed sharing.
+    #[serde(default)]
+    pub mode: ReleaseMode,
+}
+
+/// Why the service half of the key is wanted.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReleaseMode {
+    /// Decrypt into a normal file on disk (the only mode before view-only
+    /// files existed).
+    #[default]
+    Save,
+    /// Show the content inside the app only.
+    View,
 }
 
 /// The answer to a release request or a poll.
@@ -216,7 +247,13 @@ pub enum PersonalReleaseResponse {
         expires_at: i64,
     },
     /// The service share, sealed to the request's one-time key.
-    Released { share: SealedShare },
+    Released {
+        share: SealedShare,
+        /// The file is view-only (and, if it was released for saving, the
+        /// sender has allowed sharing).
+        #[serde(default)]
+        view_only: bool,
+    },
 }
 
 /// `POST /v1/personal/opened`: the recipient finished decrypting (makes a
@@ -230,10 +267,55 @@ pub struct OpenedReceipt {
     pub txn: [u8; 16],
 }
 
+/// What a request to the sender asks for.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RequestKind {
+    /// To open the file.
+    #[default]
+    Open,
+    /// To turn a view-only file into a normal file.
+    Share,
+}
+
+/// Where a recipient stands on saving a view-only file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ShareState {
+    /// The file isn't view-only: it can be saved.
+    Unrestricted,
+    /// View-only, and the sender doesn't take requests.
+    Forbidden,
+    /// View-only; the recipient may ask.
+    NotRequested,
+    /// Waiting for the sender.
+    Pending,
+    /// The sender allowed it (for [`SHARE_TTL_SECS`] from the decision).
+    Approved,
+    Declined,
+}
+
+/// How long an approved share request lets the recipient save the file.
+pub const SHARE_TTL_SECS: i64 = 24 * 3600;
+
+/// `GET` or `POST /v1/personal/share/{artifact_id}`: whether the caller may
+/// save a view-only file (the `POST` asks the sender).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShareStatus {
+    #[serde(with = "hex_array")]
+    pub artifact_id: [u8; 16],
+    pub state: ShareState,
+    /// When a pending or approved request lapses.
+    pub expires_at: Option<i64>,
+}
+
 /// Someone asking the sender to open one of their files.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ApprovalRequest {
+    #[serde(default)]
+    pub kind: RequestKind,
     #[serde(with = "hex_array")]
     pub request_id: [u8; 16],
     #[serde(with = "hex_array")]
@@ -256,6 +338,9 @@ pub struct ReceivedFile {
     pub state: RecipientState,
     pub requested_at: Option<i64>,
     pub opened_at: Option<i64>,
+    /// The sender limited the file to viewing in the app.
+    #[serde(default)]
+    pub view_only: bool,
 }
 
 /// `GET /v1/me/history`: newest first. File names are not here: they

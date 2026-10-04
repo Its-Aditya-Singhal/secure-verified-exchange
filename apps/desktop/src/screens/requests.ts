@@ -67,8 +67,11 @@ export function requestsScreen(ctx: Ctx, root: HTMLElement): void {
     })());
     return card(null,
       h("p", { class: "request-line" },
-        h("strong", {}, who), " wants to open ", h("strong", {}, fileLabel(r.file_name, r.artifact_id))),
+        h("strong", {}, who), r.kind === "share" ? " wants to keep a copy of " : " wants to open ", h("strong", {}, fileLabel(r.file_name, r.artifact_id))),
       h("p", { class: "muted small" }, `Asked ${fmtTime(r.requested_at)} · the request lapses ${fmtTime(r.expires_at)}`),
+      r.kind === "share"
+        ? h("p", { class: "muted small" }, "It's a view-only file. If you approve, they can save it as a normal file, which can then be copied and shared. You can't take that back.")
+        : null,
       h("label", { class: "check" }, confirm,
         h("span", {}, `I checked with ${who} (by phone, in person or another channel) that it's really them.`)),
       h("div", { class: "actions" }, approve, decline,

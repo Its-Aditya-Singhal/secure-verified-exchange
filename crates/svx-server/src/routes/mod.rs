@@ -63,6 +63,10 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/me/history", get(personal::history))
         .route("/v1/personal/release", post(personal::release))
         .route("/v1/personal/opened", post(personal::opened))
+        .route(
+            "/v1/personal/share/{artifact_id}",
+            get(personal::share_get).post(personal::share_request),
+        )
         .route("/v1/artifacts", post(release::register_artifact))
         .route("/v1/release", post(release::release))
         .route("/v1/updates/manifest", get(updates::manifest))

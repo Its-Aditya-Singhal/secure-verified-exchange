@@ -380,6 +380,7 @@ async fn email_account(w: &World, dir: &Path, bob: &Client, ui: &Ui) -> Result<(
                 require_approval: false,
                 one_time: true,
                 expires_at: None,
+                ..Default::default()
             },
             expires_at: None,
             name: None,

@@ -72,6 +72,9 @@ pub fn report(e: &ClientError) -> ExitCode {
                     DenyReason::Unavailable => "service unavailable",
                     DenyReason::AlreadyOpened => "this one-time file was already opened",
                     DenyReason::Declined => "the sender declined your request",
+                    DenyReason::ViewOnly => {
+                        "this file is view-only and the sender hasn't allowed sharing"
+                    }
                 }
             );
         }

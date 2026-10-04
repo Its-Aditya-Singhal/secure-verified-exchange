@@ -7,7 +7,7 @@ use std::io::Cursor;
 use svx_protocol::personal::OrgKind;
 use svx_protocol::personal::{
     ApprovalRequest, FileRules, FileStatus, History, PersonalReleaseResponse, RecipientState,
-    UpdateFileRequest, sign_request,
+    ReleaseMode, RequestKind, ShareState, ShareStatus, UpdateFileRequest, sign_request,
 };
 use svx_protocol::{DenyReason, Method, ProtocolError, ReleaseSession};
 use svx_testkit::personal::Person;
@@ -40,6 +40,8 @@ const NO_APPROVAL: FileRules = FileRules {
     require_approval: false,
     one_time: false,
     expires_at: None,
+    view_only: false,
+    allow_share_requests: false,
 };
 
 async fn requests(w: &World, p: &Person) -> Vec<ApprovalRequest> {
@@ -461,5 +463,267 @@ async fn signed_requests_are_single_use_and_bound() {
             .status(),
         401
     );
+    w.cleanup().await.unwrap();
+}
+
+const VIEW_ONLY: FileRules = FileRules {
+    require_approval: false,
+    one_time: false,
+    expires_at: None,
+    view_only: true,
+    allow_share_requests: true,
+};
+
+async fn share(
+    w: &World,
+    p: &Person,
+    file: &FileStatus,
+    ask: bool,
+) -> Result<ShareStatus, ProtocolError> {
+    let path = format!("/v1/personal/share/{}", hex::encode(file.artifact_id));
+    if ask {
+        w.call::<(), _>(p, Method::POST, &path, None).await
+    } else {
+        w.get(p, &path).await
+    }
+}
+
+#[tokio::test]
+async fn a_view_only_file_can_be_saved_only_with_the_senders_permission() {
+    let w = world!();
+    let alice = w.sign_up("alice").await;
+    let bob = w.sign_up("bob").await;
+    let carol = w.sign_up("carol").await;
+    let (file, status) = w.send(&alice, &[&bob], VIEW_ONLY).await.unwrap();
+    assert!(status.rules.view_only && status.rules.allow_share_requests);
+
+    // Saving is refused before anything is used up; viewing is released.
+    let save = ReleaseSession::new();
+    assert_eq!(
+        denied(w.ask(&bob, &file, &save).await),
+        DenyReason::ViewOnly
+    );
+    let view = ReleaseSession::new();
+    let released = w
+        .ask_for(&bob, &file, &view, ReleaseMode::View)
+        .await
+        .unwrap();
+    assert!(matches!(
+        released,
+        PersonalReleaseResponse::Released {
+            view_only: true,
+            ..
+        }
+    ));
+    assert_eq!(w.finish_open(&bob, &file, &view, released).await, SECRET);
+
+    // Bob asks to keep it: pending, one email to Alice (no name, no link),
+    // and asking again neither duplicates the request nor the email.
+    assert_eq!(
+        share(&w, &bob, &status, false).await.unwrap().state,
+        ShareState::NotRequested
+    );
+    let asked = share(&w, &bob, &status, true).await.unwrap();
+    assert_eq!(asked.state, ShareState::Pending);
+    assert!(asked.expires_at.is_some());
+    assert_eq!(
+        share(&w, &bob, &status, true).await.unwrap().state,
+        ShareState::Pending
+    );
+    let mail = w.mail.sent();
+    assert_eq!(mail.len(), 1);
+    assert_eq!(mail[0].to, "alice@example.test");
+    assert!(mail[0].subject.contains("bob@example.test"));
+    assert!(!mail[0].body.contains("note.txt") && !mail[0].body.contains("http"));
+
+    // Alice's Requests shows it as a share request; only she can decide.
+    let pending = requests(&w, &alice).await;
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].kind, RequestKind::Share);
+    assert!(requests(&w, &bob).await.is_empty());
+    assert!(decide(&w, &bob, &pending[0], "approve").await.is_err());
+    // Still no saving while pending.
+    assert_eq!(
+        denied(w.ask(&bob, &file, &ReleaseSession::new()).await),
+        DenyReason::ViewOnly
+    );
+
+    // A decline stands: Bob can't ask again right away.
+    decide(&w, &alice, &pending[0], "decline").await.unwrap();
+    assert_eq!(
+        share(&w, &bob, &status, false).await.unwrap().state,
+        ShareState::Declined
+    );
+    assert_eq!(
+        share(&w, &bob, &status, true).await.unwrap().state,
+        ShareState::Declined
+    );
+    assert_eq!(
+        denied(w.ask(&bob, &file, &ReleaseSession::new()).await),
+        DenyReason::ViewOnly
+    );
+    assert!(requests(&w, &alice).await.is_empty());
+
+    // Another file: approved, so Bob can save it. Carol, who isn't a recipient, can't even ask.
+    let (file2, status2) = w.send(&alice, &[&bob], VIEW_ONLY).await.unwrap();
+    assert!(share(&w, &carol, &status2, true).await.is_err());
+    assert!(share(&w, &carol, &status2, false).await.is_err());
+    share(&w, &bob, &status2, true).await.unwrap();
+    let pending = requests(&w, &alice).await;
+    decide(&w, &alice, &pending[0], "approve").await.unwrap();
+    let ok = share(&w, &bob, &status2, false).await.unwrap();
+    assert_eq!(ok.state, ShareState::Approved);
+    assert!(ok.expires_at.unwrap() > now());
+    let session = ReleaseSession::new();
+    let released = w.ask(&bob, &file2, &session).await.unwrap();
+    assert!(matches!(
+        released,
+        PersonalReleaseResponse::Released {
+            view_only: true,
+            ..
+        }
+    ));
+    assert_eq!(
+        w.finish_open(&bob, &file2, &session, released).await,
+        SECRET
+    );
+    // Approval for one file says nothing about another.
+    assert_eq!(
+        denied(w.ask(&bob, &file, &ReleaseSession::new()).await),
+        DenyReason::ViewOnly
+    );
+    w.cleanup().await.unwrap();
+}
+
+#[tokio::test]
+async fn view_only_rules_are_the_senders_to_change() {
+    let w = world!();
+    let alice = w.sign_up("alice").await;
+    let bob = w.sign_up("bob").await;
+    let no_asking = FileRules {
+        allow_share_requests: false,
+        ..VIEW_ONLY
+    };
+    let (file, status) = w.send(&alice, &[&bob], no_asking).await.unwrap();
+
+    // Without "let them ask", there is nothing to ask.
+    assert_eq!(
+        share(&w, &bob, &status, false).await.unwrap().state,
+        ShareState::Forbidden
+    );
+    assert_eq!(
+        denied(share(&w, &bob, &status, true).await),
+        DenyReason::NotAuthorized
+    );
+    assert!(requests(&w, &alice).await.is_empty());
+    assert_eq!(
+        denied(w.ask(&bob, &file, &ReleaseSession::new()).await),
+        DenyReason::ViewOnly
+    );
+
+    // Alice allows asking, then lifts view-only altogether.
+    let u = UpdateFileRequest {
+        allow_share_requests: Some(true),
+        ..Default::default()
+    };
+    assert!(
+        update(&w, &alice, &status, &u)
+            .await
+            .unwrap()
+            .rules
+            .allow_share_requests
+    );
+    assert_eq!(
+        share(&w, &bob, &status, false).await.unwrap().state,
+        ShareState::NotRequested
+    );
+    let u = UpdateFileRequest {
+        view_only: Some(false),
+        ..Default::default()
+    };
+    let now_open = update(&w, &alice, &status, &u).await.unwrap();
+    assert!(!now_open.rules.view_only);
+    // "Let them ask" means nothing for a file that isn't view-only.
+    assert!(!now_open.rules.allow_share_requests);
+    assert_eq!(
+        share(&w, &bob, &status, false).await.unwrap().state,
+        ShareState::Unrestricted
+    );
+    assert_eq!(
+        share(&w, &bob, &status, true).await.unwrap().state,
+        ShareState::Unrestricted
+    );
+    assert!(requests(&w, &alice).await.is_empty());
+    let session = ReleaseSession::new();
+    let released = w.ask(&bob, &file, &session).await.unwrap();
+    assert!(matches!(
+        released,
+        PersonalReleaseResponse::Released {
+            view_only: false,
+            ..
+        }
+    ));
+
+    // Only the sender can change the rules.
+    let u = UpdateFileRequest {
+        view_only: Some(true),
+        ..Default::default()
+    };
+    assert!(update(&w, &bob, &status, &u).await.is_err());
+    // A file that was never view-only: "let them ask" is dropped at registration.
+    let loose = FileRules {
+        view_only: false,
+        allow_share_requests: true,
+        ..NO_APPROVAL
+    };
+    let (_, st) = w.send(&alice, &[&bob], loose).await.unwrap();
+    assert!(!st.rules.allow_share_requests);
+    w.cleanup().await.unwrap();
+}
+
+#[tokio::test]
+async fn share_requests_and_open_requests_stay_apart() {
+    let w = world!();
+    let alice = w.sign_up("alice").await;
+    let bob = w.sign_up("bob").await;
+    let ask_first = FileRules {
+        require_approval: true,
+        ..VIEW_ONLY
+    };
+    let (file, status) = w.send(&alice, &[&bob], ask_first).await.unwrap();
+
+    // Viewing still needs the sender's approval to open.
+    let view = ReleaseSession::new();
+    let first = w
+        .ask_for(&bob, &file, &view, ReleaseMode::View)
+        .await
+        .unwrap();
+    assert!(matches!(first, PersonalReleaseResponse::Pending { .. }));
+    share(&w, &bob, &status, true).await.unwrap();
+    let pending = requests(&w, &alice).await;
+    assert_eq!(pending.len(), 2);
+    let share_req = pending
+        .iter()
+        .find(|r| r.kind == RequestKind::Share)
+        .unwrap();
+    let open_req = pending
+        .iter()
+        .find(|r| r.kind == RequestKind::Open)
+        .unwrap();
+
+    // Approving the share request doesn't open the file...
+    decide(&w, &alice, share_req, "approve").await.unwrap();
+    let again = w
+        .ask_for(&bob, &file, &view, ReleaseMode::View)
+        .await
+        .unwrap();
+    assert!(matches!(again, PersonalReleaseResponse::Pending { .. }));
+    // ...and approving the open request doesn't allow saving.
+    decide(&w, &alice, open_req, "approve").await.unwrap();
+    let released = w
+        .ask_for(&bob, &file, &view, ReleaseMode::View)
+        .await
+        .unwrap();
+    assert!(matches!(released, PersonalReleaseResponse::Released { .. }));
     w.cleanup().await.unwrap();
 }

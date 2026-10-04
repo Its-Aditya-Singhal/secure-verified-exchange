@@ -15,7 +15,9 @@ use svx_client::keystore::MemoryStore;
 use svx_client::personal::{self, KeyChoice, SendOptions, SignUpOptions};
 use svx_client::{Client, ClientError, Output, Step};
 use svx_protocol::DenyReason;
-use svx_protocol::personal::{FileRules, RecipientState, UpdateFileRequest};
+use svx_protocol::personal::{
+    FileRules, RecipientState, RequestKind, ShareState, UpdateFileRequest,
+};
 use svx_testkit::*;
 
 macro_rules! world {
@@ -194,6 +196,7 @@ async fn rules_cancel_and_revoke() {
                 require_approval: false,
                 one_time: false,
                 expires_at: None,
+                ..Default::default()
             },
             expires_at: Some(now() + 3600),
             name: None,
@@ -310,6 +313,7 @@ async fn backup_restore_and_reset() {
         require_approval: false,
         one_time: false,
         expires_at: None,
+        ..Default::default()
     };
     let send = |output: &str| SendOptions {
         input: input.clone(),
@@ -462,6 +466,7 @@ async fn email_account_signs_up_sends_and_opens() {
                 require_approval: false,
                 one_time: true,
                 expires_at: None,
+                ..Default::default()
             },
             expires_at: None,
             name: None,
@@ -625,7 +630,7 @@ async fn presence_gate_is_enforced_by_the_client() {
             .unwrap()
             .last()
             .unwrap()
-            .contains("open your file")
+            .contains("approve a request")
     );
     opening.await.unwrap().unwrap();
 
@@ -633,5 +638,81 @@ async fn presence_gate_is_enforced_by_the_client() {
     gate.lock();
     alice.send(send()).await.unwrap();
     assert_eq!(prompts.0.lock().unwrap().len(), before + 2);
+    w.cleanup().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_view_only_file_isnt_saved_until_the_sender_allows_it() {
+    let w = world!();
+    let d = tempfile::tempdir().unwrap();
+    let alice = sign_up_as(&w, d.path(), "alice", "alice", KeyChoice::New)
+        .await
+        .unwrap();
+    let bob = sign_up_as(&w, d.path(), "bob", "bob", KeyChoice::New)
+        .await
+        .unwrap();
+    let input = d.path().join("contract.txt");
+    std::fs::write(&input, SECRET).unwrap();
+    let sent = alice
+        .send(SendOptions {
+            input,
+            output: None,
+            overwrite: false,
+            to: vec!["bob@example.test".into()],
+            rules: FileRules {
+                require_approval: false,
+                one_time: true,
+                expires_at: None,
+                view_only: true,
+                allow_share_requests: true,
+            },
+            expires_at: None,
+            name: None,
+        })
+        .await
+        .unwrap();
+    assert!(sent.rules.view_only);
+
+    // Saving is refused with its own reason, and writes nothing.
+    let never = AtomicBool::new(false);
+    let refused = bob
+        .open_personal(&sent.path, out(d.path(), "bob-1"), &mut |_| {}, &never)
+        .await
+        .unwrap_err();
+    assert!(matches!(refused, ClientError::Denied(DenyReason::ViewOnly)));
+    assert_eq!(refused.deny_reason(), Some("view_only"));
+    assert_eq!(refused.exit_code(), 1);
+    assert!(!d.path().join("bob-1").exists());
+    let h = bob.history().await.unwrap();
+    assert!(h.received[0].view_only);
+
+    // Bob asks to keep it; Alice sees a share request and approves it.
+    let st = bob.share_status(sent.path.to_str().unwrap()).await.unwrap();
+    assert_eq!(st.state, ShareState::NotRequested);
+    let st = bob
+        .request_share(sent.path.to_str().unwrap())
+        .await
+        .unwrap();
+    assert_eq!(st.state, ShareState::Pending);
+    let req = alice.requests().await.unwrap().remove(0);
+    assert_eq!(req.kind, RequestKind::Share);
+    assert_eq!(req.requester_email.as_deref(), Some("bob@example.test"));
+    alice.approve(&hex::encode(req.request_id)).await.unwrap();
+    let st = bob.share_status(sent.path.to_str().unwrap()).await.unwrap();
+    assert_eq!(st.state, ShareState::Approved);
+
+    // Now it opens as a normal file, once: the refused attempt used nothing up.
+    let opened = bob
+        .open_personal(&sent.path, out(d.path(), "bob-2"), &mut |_| {}, &never)
+        .await
+        .unwrap();
+    assert_eq!(std::fs::read(opened.path.unwrap()).unwrap(), SECRET);
+    let again = bob
+        .open_personal(&sent.path, out(d.path(), "bob-3"), &mut |_| {}, &never)
+        .await;
+    assert!(matches!(
+        again,
+        Err(ClientError::Denied(DenyReason::AlreadyOpened))
+    ));
     w.cleanup().await.unwrap();
 }
