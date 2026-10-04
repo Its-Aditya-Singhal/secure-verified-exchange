@@ -62,7 +62,7 @@ pub(crate) struct PersonalAccount {
 }
 
 impl PersonalAccount {
-    fn to_wire(&self) -> Account {
+    pub(crate) fn to_wire(&self) -> Account {
         Account {
             account: self.org_id.clone(),
             email: self.email.clone(),
@@ -175,27 +175,84 @@ pub async fn sign_up(
         .clone()
         .filter(|e| who.email_verified && valid_email(e))
         .ok_or_else(|| bad("the sign-in provider did not confirm an email address"))?;
-    let now = unix_now();
+    let account = bind_device(
+        &st,
+        Identity {
+            issuer: &who.issuer,
+            subject: &who.sub,
+            email: &email,
+            client_id: &idp.client_id,
+            names: None,
+            password_hash: None,
+        },
+        &signing,
+        &kem,
+        req.reset,
+        Existing::Allow,
+    )
+    .await?;
+    Ok(Json(account.to_wire()))
+}
 
+/// Who is binding keys: a provider identity (`issuer`, `subject`) and the
+/// confirmed email address.
+pub(crate) struct Identity<'a> {
+    pub issuer: &'a str,
+    pub subject: &'a str,
+    pub email: &'a str,
+    pub client_id: &'a str,
+    /// First and last name (email accounts).
+    pub names: Option<(&'a str, &'a str)>,
+    /// For a new email account.
+    pub password_hash: Option<String>,
+}
+
+/// What [`bind_device`] may do with an account that already exists, or
+/// doesn't.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Existing {
+    /// Create it, or register this device for it (Google).
+    Allow,
+    /// Create only: refuse if the identity has an account.
+    Refuse,
+    /// Register this device only: refuse if there's no account.
+    Require,
+}
+
+/// Create the personal account for `who`, or register this device's keys
+/// for it: the same keys (a restored backup) are accepted, other keys only
+/// with `reset` (the old ones are retired).
+pub(crate) async fn bind_device(
+    st: &AppState,
+    who: Identity<'_>,
+    signing: &VerifyingKey,
+    kem: &KemPublicKey,
+    reset: bool,
+    existing_ok: Existing,
+) -> ApiResult<PersonalAccount> {
+    let now = unix_now();
     let mut tx = st.db.begin().await?;
     // One sign-up at a time per identity.
     sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1))")
-        .bind(format!("{}\n{}", who.issuer, who.sub))
+        .bind(format!("{}\n{}", who.issuer, who.subject))
         .execute(&mut *tx)
         .await?;
     let existing: Option<PersonalAccount> = sqlx::query_as(&format!(
         "SELECT {ACCOUNT_COLUMNS} FROM personal_accounts WHERE issuer = $1 AND subject = $2"
     ))
-    .bind(&who.issuer)
-    .bind(&who.sub)
+    .bind(who.issuer)
+    .bind(who.subject)
     .fetch_optional(&mut *tx)
     .await?;
     let (account, event) = match existing {
+        None if existing_ok == Existing::Require => {
+            return Err(bad("wrong email address, password or code"));
+        }
         None => {
             let taken: bool = sqlx::query_scalar(
                 "SELECT EXISTS (SELECT 1 FROM personal_accounts WHERE lower(email) = lower($1))",
             )
-            .bind(&email)
+            .bind(who.email)
             .fetch_one(&mut *tx)
             .await?;
             if taken {
@@ -217,39 +274,61 @@ pub async fn sign_up(
                 ));
             }
             let org_id = format!("u.{}", hex::encode(random_bytes::<8>()));
-            let domain = email.rsplit_once('@').map(|(_, d)| d).unwrap_or("");
+            let domain = who.email.rsplit_once('@').map(|(_, d)| d).unwrap_or("");
+            let display = match who.names {
+                Some((first, last)) => format!("{} {}", first.trim(), last.trim()),
+                None => who.email.to_owned(),
+            };
             sqlx::query(
                 "INSERT INTO orgs (org_id, display_name, domain, idp_issuer, idp_client_id, group_claim, \
                  key_agent_url, challenge, created_at, verified_at, kind) \
                  VALUES ($1, $2, $3, $4, $5, 'groups', NULL, '', $6, $6, 'personal')",
             )
             .bind(&org_id)
-            .bind(&email)
+            .bind(&display)
             .bind(domain.to_ascii_lowercase())
-            .bind(&idp.issuer)
-            .bind(&idp.client_id)
+            .bind(who.issuer)
+            .bind(who.client_id)
             .bind(now)
             .execute(&mut *tx)
             .await?;
             sqlx::query(
-                "INSERT INTO personal_accounts (org_id, issuer, subject, email, created_at) \
-                 VALUES ($1, $2, $3, $4, $5)",
+                "INSERT INTO personal_accounts (org_id, issuer, subject, email, created_at, \
+                 first_name, last_name) VALUES ($1, $2, $3, $4, $5, $6, $7)",
             )
             .bind(&org_id)
-            .bind(&who.issuer)
-            .bind(&who.sub)
-            .bind(&email)
+            .bind(who.issuer)
+            .bind(who.subject)
+            .bind(who.email)
             .bind(now)
+            .bind(who.names.map(|n| n.0.trim()))
+            .bind(who.names.map(|n| n.1.trim()))
             .execute(&mut *tx)
             .await?;
-            insert_keys(&mut tx, &org_id, &signing, &kem, now).await?;
+            if let Some(h) = &who.password_hash {
+                sqlx::query(
+                    "INSERT INTO email_accounts (org_id, password_hash, password_changed_at) \
+                     VALUES ($1, $2, $3)",
+                )
+                .bind(&org_id)
+                .bind(h)
+                .bind(now)
+                .execute(&mut *tx)
+                .await?;
+            }
+            insert_keys(&mut tx, &org_id, signing, kem, now).await?;
             let a = PersonalAccount {
                 org_id,
-                issuer: who.issuer.clone(),
-                email,
+                issuer: who.issuer.to_owned(),
+                email: who.email.to_owned(),
                 created_at: now,
             };
             (a, "account created")
+        }
+        Some(_) if existing_ok == Existing::Refuse => {
+            return Err(ApiError::Conflict(
+                "this email already has an account: sign in instead".into(),
+            ));
         }
         Some(a) => {
             let active: Vec<Vec<u8>> = sqlx::query_scalar(
@@ -264,7 +343,7 @@ pub async fn sign_up(
             if same {
                 // This device restored the account's backup: nothing to do.
                 (a, "device signed in")
-            } else if req.reset {
+            } else if reset {
                 sqlx::query(
                     "UPDATE org_keys SET status = 'retired', retired_at = $2 \
                      WHERE org_id = $1 AND status = 'active'",
@@ -273,7 +352,7 @@ pub async fn sign_up(
                 .bind(now)
                 .execute(&mut *tx)
                 .await?;
-                insert_keys(&mut tx, &a.org_id, &signing, &kem, now).await?;
+                insert_keys(&mut tx, &a.org_id, signing, kem, now).await?;
                 (a, "keys reset")
             } else {
                 return Err(ApiError::Conflict(KEYS_ON_ANOTHER_DEVICE.into()));
@@ -286,16 +365,16 @@ pub async fn sign_up(
         &account.org_id,
         audit::Record {
             event: audit::event::KEY_CHANGED,
-            subject: Some(who.sub),
+            subject: Some(who.subject.to_owned()),
             reason: Some(event.into()),
             ..Default::default()
         },
     )
     .await?;
-    Ok(Json(account.to_wire()))
+    Ok(account)
 }
 
-fn valid_email(e: &str) -> bool {
+pub(crate) fn valid_email(e: &str) -> bool {
     e.len() <= 254
         && e.split_once('@')
             .is_some_and(|(l, d)| !l.is_empty() && d.contains('.') && !d.starts_with('.'))

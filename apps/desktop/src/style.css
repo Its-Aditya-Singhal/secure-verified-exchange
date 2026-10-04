@@ -283,12 +283,17 @@ input:disabled { opacity: 0.7; }
 .provider-buttons { display: flex; flex-direction: column; gap: 10px; }
 .btn-provider { padding: 11px 16px; font-size: 15px; }
 .btn-google { background: var(--surface); }
-.btn-apple { background: #000; border-color: #000; color: #fff; }
-.btn-apple:hover:not(:disabled) { background: #000; filter: brightness(1.25); }
-@media (prefers-color-scheme: dark) {
-  .btn-apple { background: #fff; border-color: #fff; color: #000; }
-  .btn-apple:hover:not(:disabled) { background: #fff; filter: brightness(0.92); }
-}
+.btn-email { background: var(--surface); }
+.or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
+.or::before, .or::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+.meter { display: grid; gap: 4px; }
+.meter-track { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.meter-bar { height: 100%; width: 0; background: var(--stop); transition: width 0.15s ease, background 0.15s ease; }
+.meter[data-score="2"] .meter-bar { background: var(--warn); }
+.meter.meter-ok .meter-bar { background: var(--ok); }
+.meter-label { font-size: 13px; font-weight: 600; min-height: 1em; }
+.meter-tips { margin: 0; }
+.code-input { font-family: var(--mono, ui-monospace, monospace); font-size: 22px; letter-spacing: 0.3em; max-width: 9em; }
 .promise { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .promise li { display: flex; gap: 8px; align-items: center; color: var(--muted); }
 .promise .icon { width: 16px; height: 16px; font-size: 10px; }

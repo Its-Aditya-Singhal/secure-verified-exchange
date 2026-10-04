@@ -117,7 +117,7 @@ export interface AppState {
   dev: boolean;
   output_dir: string | null;
   prefs: Prefs;
-  /** A personal account (Google/Apple), not a company setup. */
+  /** A personal account (Google or email), not a company setup. */
   personal: boolean;
   email: string | null;
 }
@@ -275,6 +275,26 @@ export interface Contact {
   email: string;
 }
 
+export interface PasswordStrength {
+  score: number;
+  ok: boolean;
+  feedback: string[];
+}
+
+export interface CodeSent {
+  challenge: string;
+  expires_at: number;
+}
+
+export interface EmailForm {
+  email: string;
+  password: string;
+  first_name: string | null;
+  last_name: string | null;
+  challenge: string;
+  code: string;
+}
+
 export interface FileRules {
   require_approval: boolean;
   one_time: boolean;
@@ -428,6 +448,17 @@ export const api = {
     call<AccountInfo>("sign_up", { issuer, reset, devUser, replace }),
   restore: (issuer: string | null, password: string, devUser: string | null, replace: boolean) =>
     call<AccountInfo | null>("restore", { issuer, password, devUser, replace }),
+  requestEmailCode: (email: string, purpose: "sign_up" | "sign_in" | "reset_password") =>
+    call<CodeSent>("request_email_code", { email, purpose }),
+  emailSignUp: (form: EmailForm, reset: boolean, replace: boolean) =>
+    call<AccountInfo>("email_sign_up", { form, reset, replace }),
+  emailRestore: (form: EmailForm, recoveryPassword: string, replace: boolean) =>
+    call<AccountInfo | null>("email_restore", { form, recoveryPassword, replace }),
+  resetPassword: (email: string, challenge: string, code: string, newPassword: string) =>
+    call<void>("reset_password", { email, challenge, code, newPassword }),
+  changePassword: (current: string, next: string) => call<void>("change_password", { current, new: next }),
+  passwordStrength: (password: string, inputs: string[]) =>
+    call<PasswordStrength>("password_strength", { password, inputs }),
   saveBackup: (password: string) => call<string | null>("save_backup", { password }),
   account: () => call<AccountInfo>("account"),
   lookup: (email: string) => call<Contact>("lookup", { email }),

@@ -2,8 +2,9 @@
 
 import { type AccountInfo, api, asAppError } from "../api";
 import { card, errorPanel, facts, note } from "../components";
-import { busy, button, clear, field, fmtTime, h } from "../dom";
+import { append, busy, button, clear, field, fmtTime, h } from "../dom";
 import type { Ctx } from "../main";
+import { changePasswordCard, emailFlow } from "./email";
 
 export function settingsScreen(ctx: Ctx, root: HTMLElement): void {
   if (ctx.state.personal) {
@@ -82,6 +83,7 @@ export function settingsScreen(ctx: Ctx, root: HTMLElement): void {
 
 function personalSettings(ctx: Ctx, root: HTMLElement): void {
   const s = ctx.state;
+  const emailAccount = s.idp_issuer === "svx:email";
   const accountBody = h("div", { class: "stack" }, note("Checking your account with the service…", "info"));
   const keysBody = h("div", { class: "stack" });
   const folderOut = h("div", {});
@@ -180,7 +182,7 @@ function personalSettings(ctx: Ctx, root: HTMLElement): void {
     }
   })(), "danger");
 
-  root.append(
+  append(root,
     h("header", { class: "screen-head" }, h("h1", {}, "Settings")),
     card("Account", accountBody,
       s.dev ? note("Development service: test accounts only. Never use this with real data.", "warn") : null),
@@ -206,12 +208,27 @@ function personalSettings(ctx: Ctx, root: HTMLElement): void {
         }
       })())),
       folderOut),
-    card("Lost a computer?",
-      h("p", {}, "Resetting gives your account new keys and signs out your other computers. Files sent to your old keys can no longer be opened."),
-      s.dev ? field("Test account", devUser) : null,
-      h("label", { class: "check" }, resetConfirm, h("span", {}, "I understand that files sent to my old keys will no longer open")),
-      h("div", { class: "actions" }, reset),
-      resetOut),
+    emailAccount && s.email ? changePasswordCard(s.email) : null,
+    emailAccount
+      ? h("div", { class: "stack" },
+        h("p", { class: "muted small" }, "Lost a computer? Resetting gives your account new keys and signs out your other computers. Files sent to your old keys can no longer be opened."),
+        emailFlow({
+          mode: "reset_keys",
+          email: s.email ?? "",
+          replace: true,
+          done: async (a) => {
+            await ctx.refreshState();
+            showAccount(a);
+            resetOut.replaceChildren(note("New keys are ready. Save a new backup: the old one no longer matches.", "ok"));
+          },
+        }),
+        resetOut)
+      : card("Lost a computer?",
+        h("p", {}, "Resetting gives your account new keys and signs out your other computers. Files sent to your old keys can no longer be opened."),
+        s.dev ? field("Test account", devUser) : null,
+        h("label", { class: "check" }, resetConfirm, h("span", {}, "I understand that files sent to my old keys will no longer open")),
+        h("div", { class: "actions" }, reset),
+        resetOut),
     card("Sign out",
       h("p", {}, "Removes your keys and settings from this computer. You can sign in again later with your backup."),
       h("label", { class: "check" }, outConfirm, h("span", {}, "I have a backup, or I accept I can't open files sent to me before")),

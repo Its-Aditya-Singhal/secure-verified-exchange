@@ -19,7 +19,7 @@
 //! * [`keystore`] — signing keys in a file or the OS keychain.
 //! * [`setup`] — first-run setup verified against the pinned registry key.
 //! * [`onboard`] — signing up a new organization.
-//! * [`personal`] — personal accounts (Google/Apple sign-in, send by email,
+//! * [`personal`] — personal accounts (Google or email sign-in, send by email,
 //!   sender approval, one-time files, history, key backup).
 //! * [`defaults`] — the service personal accounts sign up with.
 

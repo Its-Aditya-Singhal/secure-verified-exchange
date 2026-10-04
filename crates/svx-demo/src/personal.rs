@@ -301,5 +301,116 @@ pub async fn run(w: &World, dir: &Path, ui: &Ui) -> Result<()> {
         first == 200 && replay == 401,
         format!("first {first}, replay {replay}"),
     );
+
+    email_account(w, &dir, &bob, ui).await
+}
+
+/// Check 17: Dana has no Google account. She signs up with her email
+/// address and a password, proven by an emailed code, and sends Bob a file.
+async fn email_account(w: &World, dir: &Path, bob: &Client, ui: &Ui) -> Result<()> {
+    use svx_protocol::email_account::CodePurpose;
+    ui.scenario(
+        "17",
+        "Dana signs up with her email address and a password, and sends Bob a file",
+    );
+    ui.say("No Google account needed: the service emails Dana a 6-digit code to prove the");
+    ui.say("address is hers, and checks her password is strong (here and on the service).");
+    let target = ServiceTarget {
+        service_url: w.service_url.clone(),
+        registry_key: w.registry_key_hex(),
+        dev: true,
+    };
+    let email = "dana@example.test";
+    let code = |w: &World| {
+        w.mail
+            .sent()
+            .iter()
+            .rev()
+            .find(|m| m.to == email)
+            .map(|m| m.subject[..6].to_owned())
+            .unwrap_or_default()
+    };
+    let paths = Paths {
+        config: dir.join("dana/config.toml"),
+        session: dir.join("dana/session.json"),
+    };
+    let opts = || SignUpOptions {
+        target: target.clone(),
+        issuer: None,
+        keys: KeyChoice::New,
+        default_output_dir: Some(dir.join("dana/opened")),
+        replace: false,
+    };
+    let sent = personal::request_email_code(&target, email, CodePurpose::SignUp).await?;
+    ui.sys(format!(
+        "Email to {email}: \"{} is your Secure Verified Exchange code\"",
+        code(w)
+    ));
+    let creds = |password: &str| personal::EmailCredentials {
+        email: email.into(),
+        password: zeroize::Zeroizing::new(password.into()),
+        names: Some(("Dana".into(), "Example".into())),
+        challenge: sent.challenge,
+        code: code(w),
+    };
+    let weak = personal::sign_up_email(
+        &paths,
+        Arc::new(MemoryStore::default()),
+        opts(),
+        creds("Password123!"),
+    )
+    .await;
+    let (dana, _) = personal::sign_up_email(
+        &paths,
+        Arc::new(MemoryStore::default()),
+        opts(),
+        creds("Juniper-Pelican-Harbor-58"),
+    )
+    .await
+    .context("Dana signing up")?;
+    let input = dir.join("dana-recipe.txt");
+    std::fs::write(&input, NOTE)?;
+    let file = dana
+        .send(SendOptions {
+            input,
+            output: Some(dir.join("dana-recipe.svx")),
+            overwrite: false,
+            to: vec!["bob@example.test".into()],
+            rules: FileRules {
+                require_approval: false,
+                one_time: true,
+                expires_at: None,
+            },
+            expires_at: None,
+            name: None,
+        })
+        .await?;
+    let mut from = String::new();
+    let never = AtomicBool::new(false);
+    let r = bob
+        .open_personal(
+            &file.path,
+            out(dir, "bob-from-dana"),
+            &mut |s| {
+                if let Step::SignatureValid { sender } = s {
+                    from = sender;
+                }
+            },
+            &never,
+        )
+        .await;
+    let same = r
+        .as_ref()
+        .ok()
+        .and_then(|o| o.path.as_ref())
+        .is_some_and(|p| std::fs::read(p).is_ok_and(|b| b == NOTE.as_bytes()));
+    ui.sys(format!("Bob sees the sender as: {from}"));
+    ui.check(
+        "17",
+        "Email account: weak password, then a strong one",
+        "weak refused; account made, Bob opens her file",
+        matches!(&weak, Err(ClientError::Invalid(_))) && same,
+        format!("weak {}, Bob {}", kind(&weak), kind(&r)),
+    );
     Ok(())
 }

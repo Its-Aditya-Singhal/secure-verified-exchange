@@ -9,6 +9,9 @@ use serde::de::DeserializeOwned;
 use svx_core::crypto::{KemSecretKey, SigningKey, Suite, os_rng};
 use svx_core::format::{EnvelopeRole, Identifier};
 use svx_core::{Manifest, PackRequest, TrustStore, unwrap_envelope};
+use svx_protocol::email_account::{
+    CodePurpose, EmailAccountRequest, EmailCodeRequest, EmailCodeResponse, KeyMode,
+};
 use svx_protocol::oidc_login::dev_auto_login;
 use svx_protocol::personal::{
     Account, FileRules, FileStatus, OpenedReceipt, PersonalReleaseResponse, RegisterFileRequest,
@@ -70,6 +73,94 @@ impl World {
                 None,
             )
             .await
+    }
+
+    /// Ask for an emailed code; returns the challenge and the code from
+    /// the email, if one was sent.
+    pub async fn email_code(
+        &self,
+        email: &str,
+        purpose: CodePurpose,
+    ) -> Result<([u8; 16], Option<String>), ProtocolError> {
+        let before = self.mail.sent().len();
+        let r: EmailCodeResponse = self
+            .client
+            .post_json(
+                &self.service_url,
+                "/v1/auth/email/code",
+                &EmailCodeRequest {
+                    email: email.into(),
+                    purpose,
+                },
+                None,
+            )
+            .await?;
+        let code = self.mail.sent()[before..]
+            .iter()
+            .rev()
+            .find(|m| m.to.eq_ignore_ascii_case(email.trim()))
+            .map(|m| m.subject[..6].to_owned());
+        Ok((r.challenge, code))
+    }
+
+    /// `POST /v1/accounts/email`.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn email_account(
+        &self,
+        email: &str,
+        password: &str,
+        names: Option<(&str, &str)>,
+        challenge: [u8; 16],
+        code: &str,
+        sign: &SigningKey,
+        kem: &KemSecretKey,
+        keys: KeyMode,
+    ) -> Result<Account, ProtocolError> {
+        self.client
+            .post_json(
+                &self.service_url,
+                "/v1/accounts/email",
+                &EmailAccountRequest {
+                    challenge,
+                    code: code.into(),
+                    email: email.into(),
+                    password: password.into(),
+                    first_name: names.map(|n| n.0.into()),
+                    last_name: names.map(|n| n.1.into()),
+                    signing_public: sign.verifying_key().to_vec(),
+                    kem_public: kem.public_key().to_vec(),
+                    keys,
+                },
+                None,
+            )
+            .await
+    }
+
+    /// Create an email account with fresh keys.
+    pub async fn sign_up_email(&self, email: &str, password: &str, names: (&str, &str)) -> Person {
+        let mut rng = os_rng();
+        let sign = SigningKey::generate_max(&mut rng);
+        let kem = KemSecretKey::generate_max(&mut rng);
+        let (challenge, code) = self.email_code(email, CodePurpose::SignUp).await.unwrap();
+        let a = self
+            .email_account(
+                email,
+                password,
+                Some(names),
+                challenge,
+                &code.expect("a code was emailed"),
+                &sign,
+                &kem,
+                KeyMode::Keep,
+            )
+            .await
+            .unwrap();
+        Person {
+            account: a.account,
+            email: a.email,
+            sign,
+            kem,
+        }
     }
 
     /// Sign `name` up with fresh keys.

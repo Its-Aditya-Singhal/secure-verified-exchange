@@ -176,11 +176,22 @@ pub async fn status(cfg: &ClientConfig, client: &ManagedClient, path: &Path) -> 
     let v = verify_with(path, &trust)?;
     Ok(Status {
         for_you: v.info.recipients.iter().any(|r| r == &cfg.org_id),
-        sender_name: sender.account_email.unwrap_or(sender.display_name),
+        sender_name: sender_label(&sender),
         info: v.info,
         chunk_count: v.chunk_count,
         expired: v.expired,
     })
+}
+
+/// How to name a sender: a personal account's verified email, after the
+/// name it gave (email accounts) as `First Last <email>`; a company's
+/// display name.
+pub fn sender_label(sender: &svx_protocol::OrgRecord) -> String {
+    match &sender.account_email {
+        Some(e) if &sender.display_name != e => format!("{} <{e}>", sender.display_name),
+        Some(e) => e.clone(),
+        None => sender.display_name.clone(),
+    }
 }
 
 /// An artifact ID given as 32 hex digits, or read from an artifact file.

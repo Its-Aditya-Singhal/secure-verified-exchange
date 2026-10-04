@@ -1,4 +1,4 @@
-//! Personal accounts (Phase 5d): sign-up with Google or Apple, the email
+//! Personal accounts (Phase 5d): sign-up with Google or an email address, the email
 //! directory, per-file rules, sender approval and one-time opening.
 //!
 //! A personal account is a one-person organization (`u.<16 hex>`) whose
@@ -25,64 +25,9 @@ pub struct PersonalIdp {
     pub issuer: String,
     pub client_id: String,
     /// Google's "installed app" clients need this in the token exchange;
-    /// it is not a secret (it ships in every copy of the app). Never
-    /// published for relayed providers.
+    /// it is not a secret (it ships in every copy of the app).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_secret: Option<String>,
-    /// Sign-in goes through the service ([`RelayStartRequest`]): for
-    /// providers that don't allow desktop apps' loopback redirects or need
-    /// a secret only the service may hold (Apple).
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub relay: bool,
-}
-
-/// `POST /v1/auth/relay/start`: begin a relayed sign-in. The app keeps
-/// `secret`; only its hash is sent, and only the secret collects the token.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RelayStartRequest {
-    pub issuer: String,
-    /// The ID-token nonce (for sign-up: [`signup_nonce`]).
-    pub nonce: String,
-    /// `SHA-256(secret)`.
-    #[serde(with = "hex_array")]
-    pub secret_hash: [u8; 32],
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RelayStartResponse {
-    #[serde(with = "hex_array")]
-    pub relay_id: [u8; 16],
-    /// Open this in the browser.
-    pub authorize_url: String,
-    pub expires_at: i64,
-}
-
-/// `POST /v1/auth/relay/poll`.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RelayPollRequest {
-    #[serde(with = "hex_array")]
-    pub relay_id: [u8; 16],
-    #[serde(with = "hex_array")]
-    pub secret: [u8; 32],
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
-pub enum RelayPollResponse {
-    /// The person hasn't finished signing in yet.
-    Pending,
-    /// The validated ID token (handed out once).
-    Done { id_token: String },
-    /// The provider refused, or the sign-in failed or expired.
-    Failed { reason: String },
-}
-
-/// `SHA-256(secret)` for [`RelayStartRequest::secret_hash`].
-pub fn relay_secret_hash(secret: &[u8; 32]) -> [u8; 32] {
-    Sha256::digest(secret).into()
 }
 
 /// Whether an organization is a company or a personal account.

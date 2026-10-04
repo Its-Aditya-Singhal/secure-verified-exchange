@@ -15,6 +15,7 @@
 
 pub mod admin;
 pub mod client;
+pub mod email_account;
 pub mod encoding;
 pub mod grant;
 pub mod oidc_login;

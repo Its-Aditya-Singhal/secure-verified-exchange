@@ -232,7 +232,7 @@ enum Cmd {
 
 #[derive(Subcommand)]
 enum AccountSub {
-    /// Sign up (or sign in on this computer) with Google or Apple.
+    /// Sign up (or sign in on this computer) with Google or email.
     Signup {
         /// Service URL (default: the built-in service, or $SVX_SERVICE_URL).
         #[arg(long, requires = "registry_key")]
@@ -243,9 +243,18 @@ enum AccountSub {
         /// Development service (loopback http, dev sign-in).
         #[arg(long)]
         dev: bool,
-        /// Google or Apple (default: the first the service offers).
-        #[arg(long)]
+        /// Google (default: the first the service offers).
+        #[arg(long, conflicts_with = "email")]
         provider: Option<String>,
+        /// Use an email account instead: asks for the password and the
+        /// code emailed to this address. With --first-name and --last-name
+        /// it creates the account; without, it signs in on this computer.
+        #[arg(long)]
+        email: Option<String>,
+        #[arg(long, requires = "email", requires = "last_name")]
+        first_name: Option<String>,
+        #[arg(long, requires = "email", requires = "first_name")]
+        last_name: Option<String>,
         #[arg(long)]
         dev_user: Option<String>,
         #[arg(long)]
@@ -262,6 +271,19 @@ enum AccountSub {
     },
     /// Show the account and its key IDs.
     Show,
+    /// Change the password of an email account.
+    Password,
+    /// Forgot the password of an email account: set a new one with an
+    /// emailed code.
+    ResetPassword {
+        email: String,
+        #[arg(long, requires = "registry_key")]
+        service: Option<String>,
+        #[arg(long, requires = "service")]
+        registry_key: Option<String>,
+        #[arg(long)]
+        dev: bool,
+    },
     /// Save an encrypted backup of the keys (asks for a recovery password).
     Backup { file: PathBuf },
     /// Remove the account's keys and configuration from this computer.
@@ -449,6 +471,9 @@ async fn run(cli: Cli) -> Result<ExitCode> {
                 registry_key,
                 dev,
                 provider,
+                email,
+                first_name,
+                last_name,
                 dev_user,
                 no_browser,
                 restore,
@@ -462,6 +487,8 @@ async fn run(cli: Cli) -> Result<ExitCode> {
                         registry_key,
                         dev,
                         provider,
+                        email,
+                        names: first_name.zip(last_name),
                         dev_user,
                         no_browser,
                         reset,
@@ -472,6 +499,16 @@ async fn run(cli: Cli) -> Result<ExitCode> {
                 .await
             }
             AccountSub::Show => personal::show(&personal::client(config)?).await,
+            AccountSub::Password => personal::change_password(&personal::client(config)?).await,
+            AccountSub::ResetPassword {
+                email,
+                service,
+                registry_key,
+                dev,
+            } => {
+                personal::reset_password(personal::target(service, registry_key, dev)?, &email)
+                    .await
+            }
             AccountSub::Backup { file } => personal::backup(&personal::client(config)?, &file),
             AccountSub::Signout => personal::sign_out(&personal::client(config)?),
         },

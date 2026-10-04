@@ -20,6 +20,7 @@ pub mod event {
     pub const ORG_CHANGED: &str = "org_changed";
     pub const ADMIN_AUTH_FAILURE: &str = "admin_authentication_failure";
     pub const KEY_CHANGED: &str = "key_changed";
+    pub const PASSWORD_CHANGED: &str = "password_changed";
     pub const POLICY_CHANGED: &str = "policy_changed";
     pub const ARTIFACT_REGISTERED: &str = "artifact_registered";
     pub const ARTIFACT_SHARED: &str = "artifact_shared";

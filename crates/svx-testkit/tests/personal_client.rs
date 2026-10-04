@@ -384,49 +384,156 @@ async fn backup_restore_and_reset() {
     w.cleanup().await.unwrap();
 }
 
-/// A headless "browser": signs in as `user` at the dev IdP and follows its
-/// redirect to the service's relay callback, as a real browser would.
-fn relay_browser(w: &World, user: &'static str) -> svx_client::login::Opener {
-    let http = w.client.http().clone();
-    Arc::new(move |u: &url::Url| {
-        let mut u = u.clone();
-        u.query_pairs_mut().append_pair("login_hint", user);
-        let http = http.clone();
-        tokio::spawn(async move {
-            let r = http.get(u.as_str()).send().await.unwrap();
-            let to = r.headers()["location"].to_str().unwrap().to_owned();
-            let page = http.get(&to).send().await.unwrap().text().await.unwrap();
-            assert!(page.contains("signed in"), "{page}");
-        });
-        Ok(())
-    })
+/// The code in the newest email to `email`.
+fn emailed_code(w: &World, email: &str) -> String {
+    w.mail
+        .sent()
+        .iter()
+        .rev()
+        .find(|m| m.to.eq_ignore_ascii_case(email))
+        .map(|m| m.subject[..6].to_owned())
+        .expect("a code was emailed")
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn apple_style_sign_in_is_relayed_by_the_service() {
+async fn email_account_signs_up_sends_and_opens() {
+    use svx_protocol::email_account::CodePurpose;
     let w = world!();
     let d = tempfile::tempdir().unwrap();
     let t = target(&w);
-    let providers = personal::providers(&t).await.unwrap();
-    let apple = providers.iter().find(|p| p.name == "Apple").unwrap();
-    assert!(apple.relay);
-    // The relayed provider's client secret is never published.
-    assert!(apple.client_secret.is_none());
-    let (c, info) = personal::sign_up(
-        &paths(d.path(), "mac"),
+    let email = "dana@example.test";
+    let pw = "Juniper-Pelican-Harbor-58";
+    let opts = |dir: &Path, device: &str| SignUpOptions {
+        target: target(&w),
+        issuer: None,
+        keys: KeyChoice::New,
+        default_output_dir: Some(dir.join(format!("{device}-out"))),
+        replace: false,
+    };
+    let creds = |challenge, code: String, password: &str, names: bool| personal::EmailCredentials {
+        email: email.into(),
+        password: zeroize::Zeroizing::new(password.into()),
+        names: names.then(|| ("Dana".into(), "Example".into())),
+        challenge,
+        code,
+    };
+
+    // A weak password is refused before anything is sent.
+    let sent = personal::request_email_code(&t, email, CodePurpose::SignUp)
+        .await
+        .unwrap();
+    let code = emailed_code(&w, email);
+    let weak = personal::sign_up_email(
+        &paths(d.path(), "dana"),
         Arc::new(MemoryStore::default()),
-        SignUpOptions {
-            target: t,
-            issuer: Some(apple.issuer.clone()),
-            keys: KeyChoice::New,
-            default_output_dir: None,
-            replace: false,
-        },
-        LoginMethod::Browser(relay_browser(&w, "alice")),
+        opts(d.path(), "dana"),
+        creds(sent.challenge, code.clone(), "dana2024example", true),
+    )
+    .await;
+    assert!(matches!(weak, Err(ClientError::Invalid(m)) if m.contains("stronger")));
+
+    let (dana, info) = personal::sign_up_email(
+        &paths(d.path(), "dana"),
+        Arc::new(MemoryStore::default()),
+        opts(d.path(), "dana"),
+        creds(sent.challenge, code, pw, true),
     )
     .await
     .unwrap();
-    assert_eq!(info.email, "alice@privaterelay.example.test");
-    assert_eq!(c.account().await.unwrap().provider, w.relay_idp.issuer());
+    assert_eq!(info.email, email);
+    assert_eq!(info.provider, "Email");
+    assert_eq!(dana.account().await.unwrap().provider, "Email");
+    // The config is valid without an IdP URL, and loads again.
+    Client::load(Some(&paths(d.path(), "dana").config)).unwrap();
+
+    // Dana sends to Bob (Google); Bob sees her name and verified email.
+    let bob = sign_up_as(&w, d.path(), "bob", "bob", KeyChoice::New)
+        .await
+        .unwrap();
+    let input = d.path().join("plan.txt");
+    std::fs::write(&input, SECRET).unwrap();
+    let file = dana
+        .send(SendOptions {
+            input,
+            output: None,
+            overwrite: false,
+            to: vec!["bob@example.test".into()],
+            rules: FileRules {
+                require_approval: false,
+                one_time: true,
+                expires_at: None,
+            },
+            expires_at: None,
+            name: None,
+        })
+        .await
+        .unwrap();
+    let mut senders = Vec::new();
+    let never = AtomicBool::new(false);
+    let opened = bob
+        .open_personal(
+            &file.path,
+            out(d.path(), "bob-out"),
+            &mut |s| {
+                if let Step::SignatureValid { sender } = s {
+                    senders.push(sender);
+                }
+            },
+            &never,
+        )
+        .await
+        .unwrap();
+    assert_eq!(std::fs::read(opened.path.unwrap()).unwrap(), SECRET);
+    assert_eq!(
+        senders,
+        vec!["Dana Example <dana@example.test>".to_string()]
+    );
+
+    // A new computer: the password and a fresh code sign in; other keys
+    // need the backup or a reset.
+    sqlx::query("UPDATE email_challenges SET created_at = created_at - 60")
+        .execute(&w.db)
+        .await
+        .unwrap();
+    let sent = personal::request_email_code(&t, email, CodePurpose::SignIn)
+        .await
+        .unwrap();
+    let r = personal::sign_up_email(
+        &paths(d.path(), "dana2"),
+        Arc::new(MemoryStore::default()),
+        opts(d.path(), "dana2"),
+        creds(sent.challenge, emailed_code(&w, email), pw, false),
+    )
+    .await;
+    assert!(matches!(r, Err(ClientError::AccountExists)));
+
+    // Change and forgotten password.
+    dana.change_password(pw, "Saffron-Walrus-Meadow-31")
+        .await
+        .unwrap();
+    assert!(
+        dana.change_password(pw, "Another-Long-Phrase-99")
+            .await
+            .is_err()
+    );
+    sqlx::query("UPDATE email_challenges SET created_at = created_at - 60")
+        .execute(&w.db)
+        .await
+        .unwrap();
+    let sent = personal::request_email_code(&t, email, CodePurpose::ResetPassword)
+        .await
+        .unwrap();
+    personal::reset_password(
+        &t,
+        email,
+        sent.challenge,
+        &emailed_code(&w, email),
+        "Cobalt-Heron-Lantern-77",
+    )
+    .await
+    .unwrap();
+    dana.change_password("Cobalt-Heron-Lantern-77", pw)
+        .await
+        .unwrap();
     w.cleanup().await.unwrap();
 }

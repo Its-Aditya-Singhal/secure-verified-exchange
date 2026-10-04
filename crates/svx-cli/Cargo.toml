@@ -23,6 +23,7 @@ hex = "0.4"
 humantime = "2"
 # Recovery password prompts without echo.
 rpassword = "7"
+zeroize = "1"
 serde_json = "1"
 tempfile = "3"
 

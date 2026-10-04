@@ -20,7 +20,6 @@ use svx_protocol::personal::PersonalIdp;
 use svx_server::dns::SystemDns;
 use svx_server::keys::{KeyProvider, LocalKeys};
 use svx_server::notify::{LogNotifier, SmtpNotifier};
-use svx_server::relay::{AppleKey, RelayConfig};
 use svx_server::{AppState, RateLimiter, RecordCache, app};
 
 #[derive(Parser)]
@@ -51,9 +50,7 @@ struct Args {
     #[arg(long)]
     dev: bool,
     /// A sign-in provider for personal accounts (repeatable), as
-    /// `issuer=https://accounts.google.com,client_id=…[,name=Google][,client_secret=…][,relay=true]`.
-    /// Apple (`issuer=https://appleid.apple.com,client_id=<Services ID>`) is
-    /// always relayed through this service (needs --public-url and --apple-key).
+    /// `issuer=https://accounts.google.com,client_id=…[,name=Google][,client_secret=…]`.
     #[arg(long = "personal-idp", value_parser = parse_personal_idp)]
     personal_idps: Vec<PersonalIdp>,
     /// SMTP server for approval emails, e.g. `smtps://user:pass@smtp.example.com`.
@@ -63,62 +60,10 @@ struct Args {
     /// Sender address of approval emails.
     #[arg(long, env = "SVX_SMTP_FROM")]
     smtp_from: Option<String>,
-    /// This service's public base URL (https). Relayed sign-ins (Apple)
-    /// return to `<URL>/v1/auth/relay/callback`, registered with the provider.
-    #[arg(long, env = "SVX_PUBLIC_URL")]
-    public_url: Option<String>,
-    /// Apple's "Sign in with Apple" key: `team_id=…,key_id=…,file=AuthKey_….p8`.
-    #[arg(long)]
-    apple_key: Option<String>,
-}
-
-fn parse_kv(s: &str) -> Result<Vec<(String, String)>, String> {
-    s.split(',')
-        .map(|part| {
-            part.split_once('=')
-                .map(|(k, v)| (k.trim().to_owned(), v.trim().to_owned()))
-                .ok_or_else(|| format!("expected key=value, got {part:?}"))
-        })
-        .collect()
-}
-
-fn relay_config(a: &Args) -> Result<RelayConfig> {
-    let apple = match &a.apple_key {
-        None => None,
-        Some(spec) => {
-            let kv = parse_kv(spec).map_err(anyhow::Error::msg)?;
-            let get = |k: &str| {
-                kv.iter()
-                    .find(|(key, _)| key == k)
-                    .map(|(_, v)| v.clone())
-                    .with_context(|| format!("--apple-key needs {k}="))
-            };
-            let pem = std::fs::read(get("file")?).context("reading the Apple key")?;
-            Some(AppleKey::from_pem(&get("team_id")?, &get("key_id")?, &pem)?)
-        }
-    };
-    let redirect_uri = match &a.public_url {
-        Some(u) => {
-            svx_protocol::check_url(u, a.dev).context("--public-url must be https")?;
-            Some(format!(
-                "{}/v1/auth/relay/callback",
-                u.trim_end_matches('/')
-            ))
-        }
-        None => None,
-    };
-    if a.personal_idps.iter().any(|p| p.relay) && redirect_uri.is_none() {
-        bail!("relayed sign-in providers need --public-url");
-    }
-    Ok(RelayConfig {
-        redirect_uri,
-        apple,
-    })
 }
 
 fn parse_personal_idp(s: &str) -> Result<PersonalIdp, String> {
     let (mut issuer, mut client_id, mut name, mut client_secret) = (None, None, None, None);
-    let mut relay = false;
     for part in s.split(',') {
         let (k, v) = part
             .split_once('=')
@@ -129,17 +74,13 @@ fn parse_personal_idp(s: &str) -> Result<PersonalIdp, String> {
             "client_id" => client_id = v,
             "name" => name = v,
             "client_secret" => client_secret = v,
-            "relay" => relay = v.as_deref() == Some("true"),
             other => return Err(format!("unknown key {other:?}")),
         }
     }
     let issuer = issuer.ok_or("issuer= is required")?;
     let client_id = client_id.ok_or("client_id= is required")?;
-    // Apple can't sign in desktop apps directly: always relayed.
-    relay |= issuer == svx_server::relay::APPLE_ISSUER;
     let name = name.unwrap_or_else(|| match issuer.as_str() {
         "https://accounts.google.com" => "Google".into(),
-        "https://appleid.apple.com" => "Apple".into(),
         _ => issuer.clone(),
     });
     Ok(PersonalIdp {
@@ -147,7 +88,6 @@ fn parse_personal_idp(s: &str) -> Result<PersonalIdp, String> {
         issuer,
         client_id,
         client_secret,
-        relay,
     })
 }
 
@@ -173,7 +113,6 @@ async fn main() -> Result<()> {
         registry_fingerprint = %hex::encode(keys.registry_public().fingerprint()),
         "registry key loaded"
     );
-    let relay = Arc::new(relay_config(&a)?);
     let state = AppState {
         db,
         service_id: Identifier::new(&a.service_id).context("invalid service id")?,
@@ -190,7 +129,6 @@ async fn main() -> Result<()> {
         },
         limiter: Arc::new(RateLimiter::default()),
         records: Arc::new(RecordCache::default()),
-        relay,
         dev: a.dev,
     };
     let router = app(state).await?;

@@ -26,6 +26,7 @@ mod context;
 mod envelope;
 mod error;
 mod keys;
+mod password;
 mod release;
 mod schedule;
 mod stream;
@@ -42,6 +43,9 @@ pub use keys::{
     MAX_SIG_LEN, MLDSA65_PUBLIC_LEN, MLDSA65_SIG_LEN, MLDSA87_PUBLIC_LEN, MLDSA87_SIG_LEN,
     SLHDSA_PUBLIC_LEN, SLHDSA_SIG_LEN, SigningKey, VerifyingKey, X25519_PUBLIC_LEN, XWING_ENC_LEN,
     XWING_PUBLIC_LEN, key_fingerprint, key_id,
+};
+pub use password::{
+    PASSWORD_HASH_PARAMS, hash_password, hash_password_with, needs_rehash, verify_password,
 };
 pub use release::{TXN_LEN, nonce_binding, open_released_share, seal_released_share};
 pub use schedule::{ArtifactKeys, Share};

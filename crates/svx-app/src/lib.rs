@@ -31,7 +31,8 @@ use svx_protocol::admin::AuditPage;
 pub use admin::{AdminOverview, AgentStatus, OrgSettingsForm};
 pub use error::{AppError, Result};
 pub use personal::{
-    HistoryView, PersonalSendRequest, Provider, Providers, ReceivedView, RequestView, SentView,
+    CodeSent, EmailForm, HistoryView, PersonalSendRequest, Provider, Providers, ReceivedView,
+    RequestView, SentView,
 };
 pub use prefs::Prefs;
 
@@ -74,7 +75,7 @@ pub struct AppState {
     pub dev: bool,
     pub output_dir: Option<PathBuf>,
     pub prefs: Prefs,
-    /// A personal account (Google/Apple), not a company setup.
+    /// A personal account (Google or email), not a company setup.
     pub personal: bool,
     /// The personal account's email.
     pub email: Option<String>,

@@ -1,4 +1,4 @@
-//! Personal accounts: sign up with Google or Apple, keys in the keychain
+//! Personal accounts: sign up with Google or an email address, keys in the keychain
 //! with one password-protected backup, send to email addresses, open with
 //! the sender's live approval, and manage sent files afterwards.
 //!
@@ -20,6 +20,11 @@ use svx_core::crypto::{
 };
 use svx_core::format::{EnvelopeRole, Identifier};
 use svx_core::{Manifest, PackRequest, unwrap_envelope};
+use svx_protocol::email_account::{
+    ChangePasswordRequest, CodePurpose, EMAIL_ISSUER, EMAIL_PROVIDER_NAME, EmailAccountRequest,
+    EmailCodeRequest, EmailCodeResponse, KeyMode, PasswordResetRequest, password_strength,
+    valid_name,
+};
 use svx_protocol::personal::{
     Account, ApprovalRequest, FileRules, FileStatus, History, OpenedReceipt, PersonalIdp,
     PersonalReleaseResponse, RegisterFileRequest, SignUpRequest, UpdateFileRequest, signup_nonce,
@@ -33,7 +38,7 @@ use crate::config::{AccountConfig, ClientConfig, Paths, default_open_dir};
 use crate::defaults::ServiceTarget;
 use crate::error::{ClientError, Result};
 use crate::keystore::{self, KeyRef, SecretStore};
-use crate::login::{Authenticator, BrowserLogin, DevLogin, RelayLogin};
+use crate::login::{Authenticator, BrowserLogin, DevLogin};
 use crate::open::{OpenOutcome, Output, Step, write_output};
 use crate::registry::{Registry, active_kem_key};
 
@@ -151,7 +156,6 @@ pub async fn providers(target: &ServiceTarget) -> Result<Vec<PersonalIdp>> {
 
 fn authenticator(
     http: &ManagedClient,
-    service_url: &str,
     idp: &PersonalIdp,
     dev: bool,
     login: LoginMethod,
@@ -170,15 +174,6 @@ fn authenticator(
                 user,
             })
         }
-        // Apple and other relayed providers: the service receives the
-        // provider's callback.
-        LoginMethod::Browser(opener) if idp.relay => Box::new(RelayLogin {
-            client: http.clone(),
-            service_url: service_url.to_owned(),
-            issuer: idp.issuer.clone(),
-            opener,
-            timeout: LOGIN_TIMEOUT,
-        }),
         LoginMethod::Browser(opener) => Box::new(BrowserLogin {
             client: http.clone(),
             issuer: idp.issuer.clone(),
@@ -190,7 +185,7 @@ fn authenticator(
     })
 }
 
-/// Sign up (or sign in on a new device) with Google or Apple, register the
+/// Sign up (or sign in on a new device) with Google or an email address, register the
 /// device keys, keep them in the keychain and save the configuration.
 pub async fn sign_up(
     paths: &Paths,
@@ -223,7 +218,7 @@ pub async fn sign_up(
     };
     let signing_public = keys.signing.verifying_key().to_vec();
     let kem_public = keys.kem.public_key().to_vec();
-    let auth = authenticator(&http, &t.service_url, &idp, t.dev, login)?;
+    let auth = authenticator(&http, &idp, t.dev, login)?;
     let id_token = auth
         .id_token(&signup_nonce(&signing_public, &kem_public))
         .await?;
@@ -241,6 +236,65 @@ pub async fn sign_up(
             None,
         )
         .await?;
+    check_backup_owner(&keys, &account)?;
+    save_account(
+        paths,
+        secrets,
+        t,
+        &registry,
+        &idp.issuer,
+        &idp.client_id,
+        idp.client_secret.clone(),
+        &keys,
+        &account,
+        &idp.name,
+        opts.default_output_dir,
+    )
+}
+
+/// The common end of every sign-up: check a restored backup belongs to
+/// this account, keep the keys in the keychain and write the config.
+#[allow(clippy::too_many_arguments)]
+fn save_account(
+    paths: &Paths,
+    secrets: Arc<dyn SecretStore>,
+    t: &ServiceTarget,
+    registry: &svx_core::crypto::VerifyingKey,
+    issuer: &str,
+    client_id: &str,
+    client_secret: Option<String>,
+    keys: &DeviceKeys,
+    account: &Account,
+    provider: &str,
+    default_output_dir: Option<PathBuf>,
+) -> Result<(Client, AccountInfo)> {
+    let (signing_ref, _) =
+        keystore::store_signing(secrets.as_ref(), &account.account, &keys.signing)?;
+    let kem_key = keystore::store_kem(secrets.as_ref(), &account.account, &keys.kem)?;
+    let cfg = ClientConfig {
+        service_url: t.service_url.clone(),
+        registry_key: hex::encode(registry.fingerprint()),
+        registry_public: hex::encode(registry.to_vec()),
+        org_id: account.account.clone(),
+        idp_issuer: issuer.to_owned(),
+        idp_client_id: client_id.to_owned(),
+        group_claim: "groups".into(),
+        dev: t.dev,
+        default_output_dir,
+        idp_client_secret: client_secret,
+        account: Some(AccountConfig {
+            email: account.email.clone(),
+            signing_key: signing_ref.to_string(),
+            kem_key,
+        }),
+    };
+    cfg.save(&paths.config)?;
+    let client = Client::with_config(paths.clone(), cfg)?.with_secret_store(secrets);
+    let info = client.account_info_from(account, provider)?;
+    Ok((client, info))
+}
+
+fn check_backup_owner(keys: &DeviceKeys, account: &Account) -> Result<()> {
     if let Some(a) = &keys.account
         && a != &account.account
     {
@@ -250,31 +304,148 @@ pub async fn sign_up(
             account.email
         )));
     }
+    Ok(())
+}
 
-    let (signing_ref, _) =
-        keystore::store_signing(secrets.as_ref(), &account.account, &keys.signing)?;
-    let kem_key = keystore::store_kem(secrets.as_ref(), &account.account, &keys.kem)?;
-    let cfg = ClientConfig {
-        service_url: t.service_url.clone(),
-        registry_key: hex::encode(registry.fingerprint()),
-        registry_public: hex::encode(registry.to_vec()),
-        org_id: account.account.clone(),
-        idp_issuer: idp.issuer.clone(),
-        idp_client_id: idp.client_id.clone(),
-        group_claim: "groups".into(),
-        dev: t.dev,
-        default_output_dir: opts.default_output_dir,
-        idp_client_secret: idp.client_secret.clone(),
-        account: Some(AccountConfig {
-            email: account.email.clone(),
-            signing_key: signing_ref.to_string(),
-            kem_key,
-        }),
+// ----- Email accounts -----
+
+/// Ask the service to email a six-digit code to `email`. For signing in
+/// or a password reset, nothing is sent unless the address has an email
+/// account (the answer looks the same either way).
+pub async fn request_email_code(
+    target: &ServiceTarget,
+    email: &str,
+    purpose: CodePurpose,
+) -> Result<EmailCodeResponse> {
+    let http = ManagedClient::new(target.dev)?;
+    Ok(http
+        .post_json(
+            &target.service_url,
+            "/v1/auth/email/code",
+            &EmailCodeRequest {
+                email: email.trim().to_owned(),
+                purpose,
+            },
+            None,
+        )
+        .await?)
+}
+
+/// What the person typed for an email account.
+pub struct EmailCredentials {
+    pub email: String,
+    pub password: Zeroizing<String>,
+    /// For a new account (both required); `None` to sign in.
+    pub names: Option<(String, String)>,
+    /// From [`request_email_code`].
+    pub challenge: [u8; 16],
+    pub code: String,
+}
+
+/// Create an email account (`creds.names` set) or sign in on this device
+/// with one, register the device keys, keep them in the keychain and save
+/// the configuration. The password is checked here first with the same
+/// rules the service enforces.
+pub async fn sign_up_email(
+    paths: &Paths,
+    secrets: Arc<dyn SecretStore>,
+    opts: SignUpOptions,
+    creds: EmailCredentials,
+) -> Result<(Client, AccountInfo)> {
+    if paths.config.exists() && !opts.replace {
+        return Err(ClientError::Config(format!(
+            "{} exists; sign out first",
+            paths.config.display()
+        )));
+    }
+    if let Some((first, last)) = &creds.names {
+        if !valid_name(first) || !valid_name(last) {
+            return Err(ClientError::Invalid(
+                "enter your first and last name (without @, < or >)".into(),
+            ));
+        }
+        let s = password_strength(&creds.password, &[&creds.email, first, last]);
+        if !s.ok {
+            return Err(ClientError::Invalid(format!(
+                "choose a stronger password: {}",
+                s.feedback.join(" ")
+            )));
+        }
+    }
+    let t = &opts.target;
+    let http = ManagedClient::new(t.dev)?;
+    let registry =
+        crate::setup::registry_key(&http, &t.service_url, &t.registry_key, t.dev).await?;
+    let (keys, reset) = match opts.keys {
+        KeyChoice::New => (DeviceKeys::generate(), false),
+        KeyChoice::Restore(k) => (*k, false),
+        KeyChoice::Reset => (DeviceKeys::generate(), true),
     };
-    cfg.save(&paths.config)?;
-    let client = Client::with_config(paths.clone(), cfg)?.with_secret_store(secrets);
-    let info = client.account_info_from(&account, &idp.name)?;
-    Ok((client, info))
+    let account: Account = http
+        .post_json(
+            &t.service_url,
+            "/v1/accounts/email",
+            &EmailAccountRequest {
+                challenge: creds.challenge,
+                code: creds.code.trim().to_owned(),
+                email: creds.email.trim().to_owned(),
+                password: creds.password.to_string(),
+                first_name: creds.names.as_ref().map(|n| n.0.trim().to_owned()),
+                last_name: creds.names.as_ref().map(|n| n.1.trim().to_owned()),
+                signing_public: keys.signing.verifying_key().to_vec(),
+                kem_public: keys.kem.public_key().to_vec(),
+                keys: if reset { KeyMode::Reset } else { KeyMode::Keep },
+            },
+            None,
+        )
+        .await?;
+    check_backup_owner(&keys, &account)?;
+    save_account(
+        paths,
+        secrets,
+        t,
+        &registry,
+        EMAIL_ISSUER,
+        "svx",
+        None,
+        &keys,
+        &account,
+        EMAIL_PROVIDER_NAME,
+        opts.default_output_dir,
+    )
+}
+
+/// Forgot password: set a new one with an emailed code
+/// ([`CodePurpose::ResetPassword`]). Device keys are not affected.
+pub async fn reset_password(
+    target: &ServiceTarget,
+    email: &str,
+    challenge: [u8; 16],
+    code: &str,
+    new_password: &str,
+) -> Result<()> {
+    let s = password_strength(new_password, &[email]);
+    if !s.ok {
+        return Err(ClientError::Invalid(format!(
+            "choose a stronger password: {}",
+            s.feedback.join(" ")
+        )));
+    }
+    let http = ManagedClient::new(target.dev)?;
+    let _: serde_json::Value = http
+        .post_json(
+            &target.service_url,
+            "/v1/auth/email/reset",
+            &PasswordResetRequest {
+                challenge,
+                code: code.trim().to_owned(),
+                email: email.trim().to_owned(),
+                new_password: new_password.to_owned(),
+            },
+            None,
+        )
+        .await?;
+    Ok(())
 }
 
 // ----- Backups -----
@@ -463,6 +634,28 @@ impl Client {
         let a: Account = self.call::<(), _>(Method::GET, "/v1/me", None).await?;
         let provider = provider_name(&a.issuer);
         self.account_info_from(&a, &provider)
+    }
+
+    /// Change an email account's password.
+    pub async fn change_password(&self, current: &str, new: &str) -> Result<()> {
+        let s = password_strength(new, &[&self.account_config()?.email]);
+        if !s.ok {
+            return Err(ClientError::Invalid(format!(
+                "choose a stronger password: {}",
+                s.feedback.join(" ")
+            )));
+        }
+        let _: serde_json::Value = self
+            .call(
+                Method::POST,
+                "/v1/me/password",
+                Some(&ChangePasswordRequest {
+                    current_password: current.to_owned(),
+                    new_password: new.to_owned(),
+                }),
+            )
+            .await?;
+        Ok(())
     }
 
     /// Save the account's private keys to `path` (a new file), encrypted
@@ -681,10 +874,7 @@ impl Client {
         let verified = svx_core::verify(BufReader::new(File::open(path)?), &trust)
             .map_err(|e| ClientError::Rejected(e.to_string()))?;
         let h = &verified.header;
-        let sender_name = sender
-            .account_email
-            .clone()
-            .unwrap_or_else(|| sender.display_name.clone());
+        let sender_name = crate::info::sender_label(&sender);
         progress(Step::SignatureValid {
             sender: sender_name.clone(),
         });
@@ -849,7 +1039,7 @@ fn parse_hex_id(s: &str) -> Result<[u8; 16]> {
 fn provider_name(issuer: &str) -> String {
     match issuer {
         "https://accounts.google.com" => "Google".into(),
-        "https://appleid.apple.com" => "Apple".into(),
+        EMAIL_ISSUER => EMAIL_PROVIDER_NAME.into(),
         other => other.into(),
     }
 }

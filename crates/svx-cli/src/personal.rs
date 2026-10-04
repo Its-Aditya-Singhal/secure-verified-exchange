@@ -11,6 +11,7 @@ use svx_client::config::Paths;
 use svx_client::defaults::{ServiceTarget, service_target};
 use svx_client::login::{print_url, system_browser};
 use svx_client::personal::{self, KeyChoice, SendOptions, SignUpOptions};
+use svx_protocol::email_account::{CodePurpose, password_strength};
 use svx_protocol::personal::{FileRules, FileStatus, RecipientState, UpdateFileRequest};
 
 use crate::local::{fmt_time, parse_expiry};
@@ -28,6 +29,8 @@ pub struct SignUpArgs {
     pub registry_key: Option<String>,
     pub dev: bool,
     pub provider: Option<String>,
+    pub email: Option<String>,
+    pub names: Option<(String, String)>,
     pub dev_user: Option<String>,
     pub no_browser: bool,
     pub reset: bool,
@@ -42,16 +45,130 @@ fn password(prompt: &str) -> Result<String> {
     rpassword::prompt_password(prompt).context("reading the recovery password")
 }
 
-pub async fn sign_up(config: Option<&Path>, a: SignUpArgs) -> Result<ExitCode> {
-    let target = match (a.service, a.registry_key) {
+/// The service to sign up with: given, or the built-in one.
+pub fn target(
+    service: Option<String>,
+    registry_key: Option<String>,
+    dev: bool,
+) -> Result<ServiceTarget> {
+    Ok(match (service, registry_key) {
         (Some(service_url), Some(registry_key)) => ServiceTarget {
             service_url,
             registry_key,
-            dev: a.dev,
+            dev,
         },
         (None, None) => service_target()?,
         _ => bail!("give both --service and --registry-key, or neither"),
+    })
+}
+
+/// The account password: `$SVX_ACCOUNT_PASSWORD` (scripts), or asked.
+fn account_password(prompt: &str) -> Result<String> {
+    if let Ok(p) = std::env::var("SVX_ACCOUNT_PASSWORD") {
+        return Ok(p);
+    }
+    rpassword::prompt_password(prompt).context("reading the password")
+}
+
+/// A new account password, checked with the service's rules and typed twice.
+fn new_account_password(prompt: &str, inputs: &[&str]) -> Result<String> {
+    loop {
+        let pw = account_password(prompt)?;
+        let s = password_strength(&pw, inputs);
+        if !s.ok {
+            let why = format!("choose a stronger password: {}", s.feedback.join(" "));
+            if std::env::var_os("SVX_ACCOUNT_PASSWORD").is_some() {
+                bail!(why);
+            }
+            eprintln!("{why}");
+            continue;
+        }
+        if std::env::var_os("SVX_ACCOUNT_PASSWORD").is_none()
+            && rpassword::prompt_password("Repeat it: ")? != pw
+        {
+            eprintln!("The passwords don't match.");
+            continue;
+        }
+        return Ok(pw);
+    }
+}
+
+/// Ask for the code that was emailed (`$SVX_EMAIL_CODE` for scripts).
+fn email_code(email: &str) -> Result<String> {
+    if let Ok(c) = std::env::var("SVX_EMAIL_CODE") {
+        return Ok(c);
+    }
+    eprint!("Enter the 6-digit code sent to {email}: ");
+    let mut line = String::new();
+    std::io::stdin().read_line(&mut line)?;
+    Ok(line.trim().to_owned())
+}
+
+async fn sign_up_email(
+    paths: &Paths,
+    target: ServiceTarget,
+    email: &str,
+    names: Option<(String, String)>,
+    keys: KeyChoice,
+    force: bool,
+) -> Result<personal::AccountInfo> {
+    let password = match &names {
+        Some((f, l)) => new_account_password(
+            "Choose a password (at least 12 characters): ",
+            &[email, f, l],
+        )?,
+        None => account_password("Password: ")?,
     };
+    let purpose = if names.is_some() {
+        CodePurpose::SignUp
+    } else {
+        CodePurpose::SignIn
+    };
+    let sent = personal::request_email_code(&target, email, purpose).await?;
+    let code = email_code(email)?;
+    let (_, info) = personal::sign_up_email(
+        paths,
+        svx_client::keystore::os_keychain(),
+        SignUpOptions {
+            target,
+            issuer: None,
+            keys,
+            default_output_dir: None,
+            replace: force,
+        },
+        personal::EmailCredentials {
+            email: email.to_owned(),
+            password: zeroize::Zeroizing::new(password),
+            names,
+            challenge: sent.challenge,
+            code,
+        },
+    )
+    .await?;
+    Ok(info)
+}
+
+pub async fn sign_up(config: Option<&Path>, a: SignUpArgs) -> Result<ExitCode> {
+    let target = target(a.service, a.registry_key, a.dev)?;
+    if let Some(email) = &a.email {
+        if a.names.is_some() && (a.restore.is_some() || a.reset) {
+            bail!("--restore and --reset are for signing in to an existing account");
+        }
+        let keys = match (&a.restore, a.reset) {
+            (Some(_), true) => bail!("use --restore or --reset, not both"),
+            (Some(file), false) => {
+                let pw = password("Recovery password: ")?;
+                KeyChoice::Restore(Box::new(personal::read_backup(file, &pw)?))
+            }
+            (None, true) => KeyChoice::Reset,
+            (None, false) => KeyChoice::New,
+        };
+        let paths = Paths::resolve(config)?;
+        let info = sign_up_email(&paths, target, email, a.names, keys, a.force).await?;
+        println!("Signed in as {} ({})", info.email, info.account);
+        println!("Keys are in this computer's keychain. Save a backup: svx account backup FILE");
+        return Ok(ExitCode::SUCCESS);
+    }
     let providers = personal::providers(&target).await?;
     let issuer = match &a.provider {
         Some(name) => providers
@@ -110,6 +227,29 @@ pub async fn show(c: &Client) -> Result<ExitCode> {
     println!("Account:        {}", a.account);
     println!("Signing key:    {}", a.signing_key_id);
     println!("Encryption key: {}", a.kem_key_id);
+    Ok(ExitCode::SUCCESS)
+}
+
+pub async fn change_password(c: &Client) -> Result<ExitCode> {
+    let email = c
+        .cfg
+        .account
+        .as_ref()
+        .map(|a| a.email.clone())
+        .unwrap_or_default();
+    let current = account_password("Current password: ")?;
+    let new = new_account_password("New password (at least 12 characters): ", &[&email])?;
+    c.change_password(&current, &new).await?;
+    println!("Password changed.");
+    Ok(ExitCode::SUCCESS)
+}
+
+pub async fn reset_password(target: ServiceTarget, email: &str) -> Result<ExitCode> {
+    let sent = personal::request_email_code(&target, email, CodePurpose::ResetPassword).await?;
+    let code = email_code(email)?;
+    let new = new_account_password("New password (at least 12 characters): ", &[email])?;
+    personal::reset_password(&target, email, sent.challenge, &code, &new).await?;
+    println!("Password changed. Sign in with it: svx account signup --email {email}");
     Ok(ExitCode::SUCCESS)
 }
 

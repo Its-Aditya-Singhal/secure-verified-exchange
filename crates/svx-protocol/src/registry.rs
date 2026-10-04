@@ -380,7 +380,7 @@ pub struct ServiceRecord {
     #[serde(with = "hex_vec")]
     pub grant_public: Vec<u8>,
     pub issued_at: i64,
-    /// Sign-in providers for personal accounts (Google, Apple).
+    /// Sign-in providers for personal accounts (Google).
     #[serde(default)]
     pub personal_idps: Vec<PersonalIdp>,
 }

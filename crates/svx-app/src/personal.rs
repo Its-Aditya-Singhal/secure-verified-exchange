@@ -1,4 +1,4 @@
-//! Personal accounts in the desktop app: sign up with Google or Apple,
+//! Personal accounts in the desktop app: sign up with Google or email,
 //! backup and restore, send by email, requests, history and per-file rules.
 //! Everything forwards to `svx_client::personal`; this module only shapes
 //! data for the UI and keeps file names in a local `history.json` (the
@@ -13,8 +13,9 @@ use serde::{Deserialize, Serialize};
 use svx_client::account::LoginMethod;
 use svx_client::defaults::{ServiceTarget, service_target};
 use svx_client::personal::{
-    self, AccountInfo, Contact, KeyChoice, SendOptions, SendResult, SignUpOptions,
+    self, AccountInfo, Contact, EmailCredentials, KeyChoice, SendOptions, SendResult, SignUpOptions,
 };
+use svx_protocol::email_account::{CodePurpose, PasswordStrength, password_strength};
 use svx_protocol::personal::{
     ApprovalRequest, FileRules, FileStatus, ReceivedFile, UpdateFileRequest,
 };
@@ -34,6 +35,68 @@ pub struct Providers {
     pub service_url: String,
     pub dev: bool,
     pub providers: Vec<Provider>,
+}
+
+/// What the email sign-up / sign-in form sends.
+#[derive(Clone, Debug, Deserialize)]
+pub struct EmailForm {
+    pub email: String,
+    pub password: String,
+    /// Both for a new account; neither to sign in.
+    #[serde(default)]
+    pub first_name: Option<String>,
+    #[serde(default)]
+    pub last_name: Option<String>,
+    /// From [`App::request_email_code`] (hex).
+    pub challenge: String,
+    pub code: String,
+}
+
+impl EmailForm {
+    fn credentials(self) -> Result<EmailCredentials> {
+        let mut challenge = [0u8; 16];
+        hex::decode_to_slice(self.challenge.trim(), &mut challenge).map_err(|_| {
+            AppError::from(svx_client::ClientError::Invalid(
+                "ask for a new code".into(),
+            ))
+        })?;
+        let names = match (self.first_name, self.last_name) {
+            (Some(f), Some(l)) => Some((f, l)),
+            (None, None) => None,
+            _ => {
+                return Err(AppError::from(svx_client::ClientError::Invalid(
+                    "enter your first and last name".into(),
+                )));
+            }
+        };
+        Ok(EmailCredentials {
+            email: self.email,
+            password: zeroize::Zeroizing::new(self.password),
+            names,
+            challenge,
+            code: self.code,
+        })
+    }
+}
+
+fn purpose(p: &str) -> Result<CodePurpose> {
+    Ok(match p {
+        "sign_up" => CodePurpose::SignUp,
+        "sign_in" => CodePurpose::SignIn,
+        "reset_password" => CodePurpose::ResetPassword,
+        _ => {
+            return Err(AppError::from(svx_client::ClientError::Invalid(
+                "unknown code purpose".into(),
+            )));
+        }
+    })
+}
+
+/// A code was sent (if the address may receive one).
+#[derive(Clone, Debug, Serialize)]
+pub struct CodeSent {
+    pub challenge: String,
+    pub expires_at: i64,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -179,7 +242,7 @@ impl App {
         Ok(info)
     }
 
-    /// Continue with Google / Apple: a new account, or this device for an
+    /// Continue with Google: a new account, or this device for an
     /// account that has no keys elsewhere. `reset` replaces the account's
     /// keys (files sent to the old ones can't be opened any more).
     pub async fn sign_up(
@@ -209,6 +272,97 @@ impl App {
         let keys = personal::read_backup(backup, password)?;
         self.sign_up_with(issuer, KeyChoice::Restore(Box::new(keys)), login, replace)
             .await
+    }
+
+    /// Email a six-digit code for `purpose` (`sign_up`, `sign_in`,
+    /// `reset_password`).
+    pub async fn request_email_code(&self, email: &str, purpose_name: &str) -> Result<CodeSent> {
+        let r =
+            personal::request_email_code(&self.target()?, email, purpose(purpose_name)?).await?;
+        Ok(CodeSent {
+            challenge: hex::encode(r.challenge),
+            expires_at: r.expires_at,
+        })
+    }
+
+    async fn email_with(
+        &self,
+        form: EmailForm,
+        keys: KeyChoice,
+        replace: bool,
+    ) -> Result<AccountInfo> {
+        let (_, info) = personal::sign_up_email(
+            &self.paths,
+            self.secrets.clone(),
+            SignUpOptions {
+                target: self.target()?,
+                issuer: None,
+                keys,
+                default_output_dir: None,
+                replace,
+            },
+            form.credentials()?,
+        )
+        .await?;
+        self.reload();
+        Ok(info)
+    }
+
+    /// Create an email account, or sign in with one on this device.
+    /// `reset` replaces the account's keys.
+    pub async fn email_sign_up(
+        &self,
+        form: EmailForm,
+        reset: bool,
+        replace: bool,
+    ) -> Result<AccountInfo> {
+        let keys = if reset {
+            KeyChoice::Reset
+        } else {
+            KeyChoice::New
+        };
+        self.email_with(form, keys, replace).await
+    }
+
+    /// Sign in with an email account on a new device, using a backup.
+    pub async fn email_restore(
+        &self,
+        backup: &Path,
+        recovery_password: &str,
+        form: EmailForm,
+        replace: bool,
+    ) -> Result<AccountInfo> {
+        let keys = personal::read_backup(backup, recovery_password)?;
+        self.email_with(form, KeyChoice::Restore(Box::new(keys)), replace)
+            .await
+    }
+
+    /// Forgot password: set a new one with an emailed code.
+    pub async fn reset_password(
+        &self,
+        email: &str,
+        challenge: &str,
+        code: &str,
+        new_password: &str,
+    ) -> Result<()> {
+        let mut c = [0u8; 16];
+        hex::decode_to_slice(challenge.trim(), &mut c).map_err(|_| {
+            AppError::from(svx_client::ClientError::Invalid(
+                "ask for a new code".into(),
+            ))
+        })?;
+        personal::reset_password(&self.target()?, email, c, code, new_password).await?;
+        Ok(())
+    }
+
+    pub async fn change_password(&self, current: &str, new: &str) -> Result<()> {
+        Ok(self.client()?.change_password(current, new).await?)
+    }
+
+    /// The strength meter: the same check the service enforces.
+    pub fn password_strength(&self, password: &str, inputs: &[String]) -> PasswordStrength {
+        let inputs: Vec<&str> = inputs.iter().map(String::as_str).collect();
+        password_strength(password, &inputs)
     }
 
     pub fn save_backup(&self, path: &Path, password: &str) -> Result<()> {

@@ -1,4 +1,5 @@
-// First screen: continue with Google or Apple. The app makes this
+// First screen: continue with Google, or create an account with an email
+// address and a password. The app makes this
 // device's keys (in Rust, kept in the keychain); afterwards it suggests a
 // backup. Company setup stays available as a link.
 
@@ -7,6 +8,7 @@ import { brandSymbol } from "../brand";
 import { card, errorPanel, note } from "../components";
 import { busy, button, clear, field, h, icon } from "../dom";
 import type { Ctx } from "../main";
+import { type EmailMode, emailFlow } from "./email";
 
 export function welcomeScreen(ctx: Ctx, root: HTMLElement): void {
   const body = h("div", { class: "stack" });
@@ -109,10 +111,6 @@ export function welcomeScreen(ctx: Ctx, root: HTMLElement): void {
     }
     clear(body);
     const list = providers.providers;
-    if (!list.length) {
-      body.appendChild(note("This service doesn't offer personal accounts. Use company setup below.", "info"));
-      return;
-    }
     const buttons = list.map((p) => {
       const b = h("button", { type: "button", class: `btn btn-provider btn-${p.name.toLowerCase()}` },
         `Continue with ${p.name}`);
@@ -121,9 +119,22 @@ export function welcomeScreen(ctx: Ctx, root: HTMLElement): void {
     });
     let restoreShown = false;
     const restoreSlot = h("div", {});
+    const emailSlot = h("div", {});
+    const showEmail = (mode: EmailMode) => {
+      clear(out);
+      emailSlot.replaceChildren(emailFlow({ mode, done: finish, onSwitch: showEmail }));
+      emailSlot.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    const emailButton = h("button", { type: "button", class: "btn btn-provider btn-email" }, "Create account with email");
+    emailButton.addEventListener("click", () => showEmail("sign_up"));
     body.append(
       card(null,
-        h("div", { class: "provider-buttons" }, ...buttons),
+        h("div", { class: "provider-buttons" }, ...buttons,
+          buttons.length ? h("div", { class: "or" }, h("span", {}, "or")) : null,
+          emailButton),
+        h("p", { class: "muted small center" },
+          "Already have an email account? ",
+          button("Sign in with email", () => showEmail("sign_in"), "link")),
         providers.dev ? field("Test account", devUser, "Development stack: alice, bob or carol") : null,
         h("ul", { class: "promise" },
           h("li", {}, icon("ok"), "Your keys are made on this device and stay in its keychain."),
@@ -131,16 +142,17 @@ export function welcomeScreen(ctx: Ctx, root: HTMLElement): void {
           h("li", {}, icon("ok"), "Send by email address: the app finds the right keys for you.")),
         h("p", { class: "muted small" },
           "New computer? ",
-          button("Restore from a backup", () => {
-            if (restoreShown) return;
+          button("Restore a Google account from a backup", () => {
+            if (restoreShown || !list.length) return;
             restoreShown = true;
             restoreSlot.appendChild(restoreCard(list[0]));
           }, "link")),
       ),
       restoreSlot,
+      emailSlot,
     );
     if (providers.dev) devUser.focus();
-    else buttons[0].focus();
+    else (buttons[0] ?? emailButton).focus();
   }
 
   void load();

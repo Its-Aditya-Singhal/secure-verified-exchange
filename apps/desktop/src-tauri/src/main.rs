@@ -14,8 +14,9 @@ use std::sync::Mutex;
 
 use serde::Deserialize;
 use svx_app::{
-    AdminOverview, App, AppError, AppState, HistoryView, OpenResult, PersonalSendRequest, Progress,
-    Providers, Recipient, RequestView, SendRequest, SentView, SetupForm, StatusView,
+    AdminOverview, App, AppError, AppState, CodeSent, EmailForm, HistoryView, OpenResult,
+    PersonalSendRequest, Progress, Providers, Recipient, RequestView, SendRequest, SentView,
+    SetupForm, StatusView,
 };
 use svx_client::PackResult;
 use svx_client::account::WhoAmI;
@@ -25,6 +26,7 @@ use svx_client::onboard::{OnboardRequest, PendingOrg};
 use svx_client::personal::{AccountInfo, Contact, SendResult};
 use svx_client::setup::SetupPreview;
 use svx_protocol::admin::AuditPage;
+use svx_protocol::email_account::PasswordStrength;
 use svx_protocol::personal::{ApprovalRequest, UpdateFileRequest};
 use svx_protocol::{KeyEntry, KeyStatus, Policy};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -210,6 +212,75 @@ async fn restore(
     )
     .await
     .map(Some)
+}
+
+#[tauri::command]
+async fn request_email_code(
+    app: State<'_, App>,
+    email: String,
+    purpose: String,
+) -> Result<CodeSent> {
+    app.request_email_code(&email, &purpose).await
+}
+
+#[tauri::command]
+async fn email_sign_up(
+    app: State<'_, App>,
+    form: EmailForm,
+    reset: bool,
+    replace: bool,
+) -> Result<AccountInfo> {
+    app.email_sign_up(form, reset, replace).await
+}
+
+/// Ask for the backup file, then sign in with the email account on this
+/// device.
+#[tauri::command]
+async fn email_restore(
+    handle: AppHandle,
+    app: State<'_, App>,
+    form: EmailForm,
+    recovery_password: String,
+    replace: bool,
+) -> Result<Option<AccountInfo>> {
+    let Some(path) = dialog(handle, |d| {
+        d.set_title("Choose your SVX backup")
+            .add_filter("SVX backups", &["svxbackup"])
+            .blocking_pick_file()
+    })
+    .await?
+    else {
+        return Ok(None);
+    };
+    app.email_restore(&path, &recovery_password, form, replace)
+        .await
+        .map(Some)
+}
+
+#[tauri::command]
+async fn reset_password(
+    app: State<'_, App>,
+    email: String,
+    challenge: String,
+    code: String,
+    new_password: String,
+) -> Result<()> {
+    app.reset_password(&email, &challenge, &code, &new_password)
+        .await
+}
+
+#[tauri::command]
+async fn change_password(app: State<'_, App>, current: String, new: String) -> Result<()> {
+    app.change_password(&current, &new).await
+}
+
+#[tauri::command]
+fn password_strength(
+    app: State<'_, App>,
+    password: String,
+    inputs: Vec<String>,
+) -> PasswordStrength {
+    app.password_strength(&password, &inputs)
 }
 
 /// Ask where to save, then write the encrypted backup.
@@ -604,6 +675,12 @@ fn main() {
             providers,
             sign_up,
             restore,
+            request_email_code,
+            email_sign_up,
+            email_restore,
+            reset_password,
+            change_password,
+            password_strength,
             save_backup,
             account,
             lookup,

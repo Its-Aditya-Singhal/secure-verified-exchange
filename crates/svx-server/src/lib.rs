@@ -21,7 +21,6 @@ pub mod error;
 pub mod keys;
 pub mod notify;
 pub mod policy;
-pub mod relay;
 mod routes;
 
 use std::collections::HashMap;
@@ -46,7 +45,7 @@ pub struct AppState {
     pub keys: Arc<dyn keys::KeyProvider>,
     pub oidc: Arc<Validator>,
     pub dns: Arc<dyn dns::DnsVerifier>,
-    /// Sign-in providers for personal accounts (Google, Apple).
+    /// Sign-in providers for personal accounts (Google).
     pub personal_idps: Arc<Vec<PersonalIdp>>,
     /// Sends approval-request emails.
     pub notifier: Arc<dyn notify::Notifier>,
@@ -54,8 +53,6 @@ pub struct AppState {
     /// Recently signed registry records (SLH-DSA signing takes a fraction
     /// of a second, so unchanged records are not signed on every request).
     pub records: Arc<RecordCache>,
-    /// Relayed sign-in (Apple): the callback URL and Apple's key.
-    pub relay: Arc<relay::RelayConfig>,
     /// Allows plain-http loopback IdPs and key agents. Never in production.
     pub dev: bool,
 }

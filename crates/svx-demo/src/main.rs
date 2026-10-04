@@ -181,10 +181,6 @@ async fn run(cli: Cli) -> Result<ExitCode> {
                     None => println!("  {user:<6} (no confirmed email: sign-up is refused)"),
                 }
             }
-            println!("Dev \"Apple\" (relayed through the service, like real Apple sign-in):");
-            for (user, email) in &state.relay_users {
-                println!("  {user:<6} {}", email.as_deref().unwrap_or("-"));
-            }
             let env = format!(
                 "SVX_SERVICE_URL={} SVX_REGISTRY_FINGERPRINT={} SVX_DEV=1",
                 state.service_url, state.registry_key

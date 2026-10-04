@@ -47,7 +47,7 @@ pub struct ClientConfig {
     /// (Google). PKCE protects the sign-in either way.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idp_client_secret: Option<String>,
-    /// Set for a personal account (Google or Apple sign-in); `org_id` is
+    /// Set for a personal account (Google or email sign-in); `org_id` is
     /// then the account ID.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<AccountConfig>,
@@ -99,8 +99,13 @@ impl ClientConfig {
     pub fn validate(&self) -> Result<()> {
         check_url(&self.service_url, self.dev)
             .map_err(|_| ClientError::Config("service_url must be https".into()))?;
-        check_url(&self.idp_issuer, self.dev)
-            .map_err(|_| ClientError::Config("idp_issuer must be https".into()))?;
+        // Email accounts sign in with the service itself, not an IdP.
+        let email_account =
+            self.account.is_some() && self.idp_issuer == svx_protocol::email_account::EMAIL_ISSUER;
+        if !email_account {
+            check_url(&self.idp_issuer, self.dev)
+                .map_err(|_| ClientError::Config("idp_issuer must be https".into()))?;
+        }
         Identifier::new(&self.org_id).map_err(|_| ClientError::Config("invalid org_id".into()))?;
         if self.idp_client_id.is_empty() {
             return Err(ClientError::Config("idp_client_id is empty".into()));
