@@ -60,6 +60,11 @@ struct Args {
     /// Sender address of approval emails.
     #[arg(long, env = "SVX_SMTP_FROM")]
     smtp_from: Option<String>,
+    /// Publish desktop app updates from this directory: `manifest.json`
+    /// (signed offline with the release key, `svx release sign`) and the
+    /// packages it names, served under /v1/updates.
+    #[arg(long, env = "SVX_UPDATES_DIR")]
+    updates_dir: Option<PathBuf>,
 }
 
 fn parse_personal_idp(s: &str) -> Result<PersonalIdp, String> {
@@ -98,6 +103,7 @@ async fn main() -> Result<()> {
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
+    svx_protocol::install_tls_provider();
     let a = Args::parse();
     if a.tls_cert.is_none() && !(a.dev && a.listen.ip().is_loopback()) {
         bail!("TLS is required (--tls-cert/--tls-key); plain HTTP only with --dev on loopback");
@@ -129,6 +135,7 @@ async fn main() -> Result<()> {
         },
         limiter: Arc::new(RateLimiter::default()),
         records: Arc::new(RecordCache::default()),
+        updates: a.updates_dir.map(Arc::new),
         dev: a.dev,
     };
     let router = app(state).await?;

@@ -19,3 +19,7 @@ sdk/node/native.js
 
 # Python virtual environments
 .venv/
+
+# Release outputs (scripts/release.sh)
+/dist-release
+.DS_Store

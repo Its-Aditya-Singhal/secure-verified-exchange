@@ -53,6 +53,8 @@ pub struct AppState {
     /// Recently signed registry records (SLH-DSA signing takes a fraction
     /// of a second, so unchanged records are not signed on every request).
     pub records: Arc<RecordCache>,
+    /// Desktop app updates to publish (`--updates-dir`), if any.
+    pub updates: Option<Arc<std::path::PathBuf>>,
     /// Allows plain-http loopback IdPs and key agents. Never in production.
     pub dev: bool,
 }

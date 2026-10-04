@@ -27,6 +27,8 @@ pub struct Prefs {
     pub ask_presence: Option<bool>,
     /// Minutes an unlocked session lasts without use (default 15).
     pub relock_minutes: Option<u32>,
+    /// Check for app updates at start and daily. `None` = on.
+    pub check_updates: Option<bool>,
 }
 
 /// Bounds for [`Prefs::relock_minutes`].

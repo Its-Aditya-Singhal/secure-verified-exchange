@@ -1,0 +1,75 @@
+# Releasing the desktop app
+
+Desktop releases update themselves from the SVX service. This costs nothing: there are no paid signing certificates, and the update server is the SVX service itself (or any static host). Updates are protected by two signatures made with our own keys. The service is not trusted for any of this. See [desktop.md](desktop.md#updates) for what the app checks.
+
+## Keys
+
+Both keys are kept off the repository, in `~/.svx-release` (owner-only, `chmod 700`). Back the folder up somewhere offline: without these keys, installed apps can't be updated any more and would have to be reinstalled.
+
+| File | What | Made with |
+|------|------|-----------|
+| `release.sign.key`, `release.sign.pub` | **SVX-2 release key** (Ed25519 + ML-DSA-87 + SLH-DSA). Signs `manifest.json`. Its fingerprint is built into every release build as `SVX_RELEASE_KEY`. | `svx keygen --kind sign --owner svx-release --out ~/.svx-release/release` |
+| `tauri.key`, `tauri.key.password` | **Tauri updater key** (minisign Ed25519). Signs each package. Its public half is `plugins.updater.pubkey` in `apps/desktop/src-tauri/tauri.conf.json`. | `npx tauri signer generate -w ~/.svx-release/tauri.key -p <password>` |
+
+`svx release fingerprint ~/.svx-release/release.sign.pub` prints the fingerprint.
+
+**Rotating a key.** Ship one release built with both the old and the new key's trust, then switch:
+- For the release key: build that release with the new `SVX_RELEASE_KEY`, signed with the old key.
+- For the Tauri key: put the new `pubkey` in that release, and sign its package with the old key.
+
+A lost key can't be rotated this way. Users then reinstall by hand.
+
+## Making a release
+
+```sh
+scripts/release.sh 0.2.0 --update-url https://svx.example/v1/updates --notes "Faster opening."
+```
+
+The script does five things:
+
+1. Reads the release key fingerprint.
+2. Builds the app with that fingerprint and `SVX_UPDATE_URL` built in. It uses `tauri.release.conf.json`, which turns on `createUpdaterArtifacts`, and sets the version.
+3. Signs the package with the Tauri key. The signature records the version, and the app requires that (`requireSignedVersion`).
+4. Runs `svx release sign`. That copies the package to `dist-release/0.2.0/` with a plain file name and writes `manifest.json`: version, notes, and for each platform the URL, size, SHA-512 and Tauri signature. The manifest is signed with the release key and checked again as the app will check it.
+5. Prints where the result is.
+
+Copy `dist-release/0.2.0/` to the service's updates directory, then run:
+
+```sh
+svx-server … --updates-dir /srv/svx/updates
+svx release verify /srv/svx/updates/manifest.json --fingerprint <release key fingerprint>
+```
+
+**Platforms.** Build each one on that platform:
+- On macOS the script makes the `.app.tar.gz` update package.
+- On Linux it makes the AppImage.
+- On Windows, build the `msi` or `nsis` bundle with the same environment variables, then add it with another `--platform windows-x86_64=…` to `svx release sign`.
+
+`manifest.json` lists every platform of a release, so sign once, after collecting all the packages.
+
+## Testing updates locally
+
+This uses a loopback http server, so the test builds use `tauri.localtest.conf.json`. That file sets the updater's `dangerousInsecureTransportProtocol`. Never publish such a build.
+
+```sh
+# 1. The service on a fixed port, publishing from /tmp/svx-updates
+cargo run -p svx-demo -- serve --state-dir /tmp/svx-stack --service-port 8790 --updates-dir /tmp/svx-updates
+
+# 2. Version 0.1.0 with that update source built in (not published)
+scripts/release.sh 0.1.0 --update-url http://127.0.0.1:8790/v1/updates --local --build-only
+cp -R "target/release/bundle/macos/Secure Verified Exchange.app" /tmp/svx-test-apps/0.1.0/
+
+# 3. Version 0.1.1, signed and published to /tmp/svx-updates
+scripts/release.sh 0.1.1 --update-url http://127.0.0.1:8790/v1/updates --local --out /tmp/svx-updates
+
+# 4. Run 0.1.0 with a test configuration: it offers 0.1.1, installs it and restarts
+SVX_CONFIG=/tmp/svx-update-test/config.toml \
+  "/tmp/svx-test-apps/0.1.0/Secure Verified Exchange.app/Contents/MacOS/svx-desktop"
+```
+
+To check that tampered updates are refused, change a byte of the package in `/tmp/svx-updates`, or sign a manifest with another key. The app must show "update refused" and keep running the old version. `crates/svx-testkit/tests/updates.rs` covers the same cases automatically.
+
+## What is not covered
+
+- **Freeze attacks.** A malicious update server can keep serving an old manifest, so the app never learns about a newer version. It can't install anything old: the app only ever moves forward.
+- **Unsigned first install.** The first download comes from the website or a direct link. Its integrity depends on that channel (https) until the app is installed. From then on, updates are verified as above.

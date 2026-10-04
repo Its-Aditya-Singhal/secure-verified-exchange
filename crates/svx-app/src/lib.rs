@@ -25,6 +25,7 @@ use svx_client::keystore::{KeyRef, SecretStore};
 use svx_client::login::Opener;
 use svx_client::presence::{Need, PresenceGate, UserPresence};
 use svx_client::setup::{self, SetupPreview, SetupRequest};
+use svx_client::update::{self, AvailableUpdate};
 use svx_client::{Client, ClientConfig, ClientError, Output, PackOptions, PackResult, Step};
 use svx_protocol::Policy;
 use svx_protocol::admin::AuditPage;
@@ -84,6 +85,8 @@ pub struct AppState {
     /// whether it does now (off on development services).
     pub presence_available: bool,
     pub presence_active: bool,
+    /// This build checks for updates (it has a release key built in).
+    pub updates_available: bool,
 }
 
 /// A verified artifact, before any login.
@@ -289,6 +292,27 @@ impl App {
         Ok(self.state())
     }
 
+    /// A newer, verified release of the app, if this build has an update
+    /// source and the person didn't turn checking off.
+    pub async fn check_update(&self, current_version: &str) -> Result<Option<AvailableUpdate>> {
+        if !self.prefs.lock().unwrap().check_updates.unwrap_or(true) {
+            return Ok(None);
+        }
+        let Some(src) = update::update_source() else {
+            return Ok(None);
+        };
+        Ok(update::check(&src, current_version, &update::platform_key()).await?)
+    }
+
+    pub fn set_check_updates(&self, on: bool) -> AppState {
+        {
+            let mut p = self.prefs.lock().unwrap();
+            p.check_updates = Some(on);
+            let _ = p.save(&prefs_path(&self.paths));
+        }
+        self.state()
+    }
+
     /// Lock now: the next action asks to confirm again.
     pub fn lock(&self) {
         if let Some(g) = &self.presence {
@@ -351,6 +375,7 @@ impl App {
             email: cfg.and_then(|c| c.account.as_ref().map(|a| a.email.clone())),
             presence_available: self.presence.is_some(),
             presence_active: client.as_ref().is_some_and(|c| c.presence.is_some()),
+            updates_available: update::update_source().is_some(),
         }
     }
 

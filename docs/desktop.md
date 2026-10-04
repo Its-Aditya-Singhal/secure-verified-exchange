@@ -12,11 +12,11 @@ crates/svx-app/          command layer over svx_client::Client (no UI; tested di
 
 ## Install
 
-Phase 5 builds are **unsigned**. Each CI run uploads installers as workflow artifacts (`svx-desktop-macOS`, `-Windows`, `-Linux`).
+Builds are **unsigned**: signing and notarization need a paid Apple Developer ID and a Windows code-signing certificate, which this project doesn't buy (see "Updates" below for how updates are still protected). Each CI run uploads installers as workflow artifacts (`svx-desktop-macOS`, `-Windows`, `-Linux`).
 
 | Platform | Installer | First launch |
 |----------|-----------|--------------|
-| macOS 11+ | `.dmg` (drag to Applications) | Right-click the app → **Open** once (Gatekeeper; signing and notarization come in Phase 6) |
+| macOS 11+ | `.dmg` (drag to Applications) | Right-click the app → **Open** once (Gatekeeper warns about unsigned apps) |
 | Windows 10+ | `.msi` or NSIS `.exe` | SmartScreen may warn: **More info → Run anyway** |
 | Linux | `.deb` (registers the `.svx` type) or `.AppImage` | AppImage: the `.svx` association needs `packaging/linux/install.sh`'s MIME file, or use the `.deb` |
 
@@ -24,7 +24,7 @@ The installers register `.svx` (MIME type `application/vnd.svx`, macOS UTI `org.
 
 ## First run
 
-**Personal accounts (the default first screen):** **Continue with Google** or **Continue with Apple**. The app makes this device's keys in the keychain and suggests saving a backup. Then the sidebar shows Send, Open, History, Requests and Settings. See [personal.md](personal.md). The rest of this section is company setup, reached with **Company or test server setup**.
+**Personal accounts (the default first screen):** **Continue with Google** or **Create account with email** (name, email, password with a strength meter, then an emailed 6-digit code). The app makes this device's keys in the keychain and suggests saving a backup. Then the sidebar shows Send, Open, History, Requests and Settings. See [personal.md](personal.md). The rest of this section is company setup, reached with **Company or test server setup**.
 
 
 **A new organization** chooses **Register a new organization…**: enter the service URL and registry key fingerprint, your organization's name, ID and domain, and your company sign-in. The app shows a DNS TXT record to add to your domain; once it exists, **Verify and sign in** proves you control both the domain and the sign-in, and makes you the first administrator. The registration is remembered if you close the app while DNS updates. Then create this computer's signing key, and you can send.
@@ -99,9 +99,33 @@ All administration happens here (there is no web portal). Sign in with your comp
 - **Open:** no sign-in step; when the sender must approve, the timeline shows "Waiting for … to approve" with **Stop waiting**.
 - **History:** sent and received files, with people, dates and status. A sent file's page has the recipients' states, the two switches, an earlier expiry, revoke for one person or everyone, and **Send a new copy**.
 - **Requests:** approve or decline, after ticking that you checked it's really them. The sidebar shows how many are waiting.
-- **Settings:** account, key IDs, backup, reset keys, sign out, output folder.
+- **Settings:** account, key IDs, backup, reset keys (email accounts: with a code and the password), change password (email accounts), sign out, output folder, "Confirm it's you", updates.
 
 File names of personal files are kept only in `history.json` next to the configuration.
+
+## Confirm it's you (Touch ID)
+
+Before the keys are used, the app asks for **Touch ID or the Mac's password** (Windows: **Windows Hello** face, fingerprint or PIN; Linux: not available). The `svx-client` library enforces it, not the UI:
+
+| Asks | For |
+|------|-----|
+| once, then not again until the app has been idle for 15 minutes (5 min to 4 h in Settings) | sending, opening, changing a file's rules, revoking |
+| every time | approving someone, saving a backup, changing the password, signing out, creating, importing, rotating or retiring organization keys |
+
+Refusing stops the action before anything is signed, decrypted or written (error kind `not_confirmed`). Settings → **Confirm it's you** turns it off or changes the idle time; turning it off or making sessions longer asks first. **Lock now** ends the session. Development services never ask, so test windows don't keep prompting. The CLI asks with `svx --require-presence …`.
+
+This is a software check: it stops someone using your unlocked computer, not malware running as you. Keys bound to the Secure Enclave or TPM would need a signed app (a paid Apple Developer ID); see threat model T26.
+
+## Updates
+
+The app checks for updates at start and once a day (Settings → **Updates** turns it off or checks now) and shows **Install and restart**. An update is installed only if:
+
+1. the release manifest is signed with the **SVX-2 release key** whose fingerprint is built into the app (all three signatures: Ed25519, ML-DSA-87, SLH-DSA), and its version is newer than the running one (no downgrades);
+2. the update server's offer names that same version, URL and package signature;
+3. the package's **Tauri updater signature** (minisign, the public key in `tauri.conf.json`) verifies, including the version recorded in it;
+4. the downloaded bytes have exactly the size and SHA-512 in the signed manifest.
+
+Checks 1 and 4 are in `svx_client::update`; the Tauri updater does 3 and the install. Updates come from the SVX service (`svx-server --updates-dir`); see [releasing.md](releasing.md). Builds without a built-in release key don't check for updates. On macOS, after an update the keychain may ask once to let the new version use its keys (unsigned apps get a new code identity each build).
 
 ## Try it against the dev stack
 
@@ -139,9 +163,9 @@ Workspace-wide `cargo build/test/clippy` works without Node: the shell's build s
 
 ## Known limitations
 
-- Builds are unsigned; no auto-update (Phase 6). The Windows installer shows the app icon for `.svx` files (the document icon needs a custom installer template).
+- Builds are unsigned (no paid certificates); updates are signed with our own keys instead. The Windows installer shows the app icon for `.svx` files (the document icon needs a custom installer template).
 - Recipients are entered by organization ID; there is no directory search yet.
-- Keychain keys are software keys protected by the OS keychain; hardware-backed keys (Secure Enclave, TPM) come later.
+- Keychain keys are software keys protected by the OS keychain and the Touch ID / password check; hardware-backed keys (Secure Enclave, TPM) need a signed app.
 - macOS builds are per architecture (Apple silicon from CI), not universal.
 - No device-code sign-in; the browser must be on the same machine.
 - A policy's access window (`not_before`/`not_after`) is kept but not editable in the app yet.

@@ -338,3 +338,4 @@ input[type="email"], input[type="password"] {
 .status-not_opened { background: var(--surface-2); color: var(--muted); }
 .step-hint.step-hint-show { display: block; }
 .request-line { margin: 0; font-size: 15px; }
+.update-banner { margin-bottom: 16px; }

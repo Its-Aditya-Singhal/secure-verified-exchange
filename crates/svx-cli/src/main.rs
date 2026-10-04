@@ -14,6 +14,7 @@
 mod local;
 mod managed;
 mod personal;
+mod release;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -205,6 +206,10 @@ enum Cmd {
         #[arg(long = "revoke-for")]
         revoke_for: Vec<String>,
     },
+    /// Desktop app releases: sign the update manifest (offline, with the
+    /// release key from `svx keygen --kind sign`).
+    #[command(subcommand)]
+    Release(ReleaseSub),
     /// Generate an organization key pair (test/dev; production keys live in a KMS/HSM).
     Keygen {
         #[arg(long, value_enum)]
@@ -231,6 +236,46 @@ enum Cmd {
         registry: bool,
         #[arg(long)]
         json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum ReleaseSub {
+    /// Sign a release: write `manifest.json` and copy the packages into
+    /// OUT, ready for `svx-server --updates-dir OUT`.
+    Sign {
+        /// The release signing key (`*.sign.key`, SVX-2).
+        #[arg(long)]
+        key: PathBuf,
+        /// The new version (`major.minor.patch`, as in tauri.conf.json).
+        #[arg(long)]
+        version: String,
+        #[arg(long, default_value = "")]
+        notes: String,
+        /// Where the packages will be downloadable, e.g.
+        /// `https://svx.example/v1/updates/files`.
+        #[arg(long)]
+        base_url: String,
+        /// `<os>-<arch>=<package>` (repeatable), e.g.
+        /// `darwin-aarch64=…/Secure Verified Exchange.app.tar.gz`. Its Tauri
+        /// signature is read from `<package>.sig`.
+        #[arg(long = "platform", required = true)]
+        platforms: Vec<String>,
+        /// Output directory (created if needed).
+        #[arg(long)]
+        out: PathBuf,
+    },
+    /// Print a release key's fingerprint (what release builds pin as
+    /// SVX_RELEASE_KEY).
+    Fingerprint {
+        /// The release key's public half (`*.sign.pub`).
+        key: PathBuf,
+    },
+    /// Check a published manifest against a release key fingerprint.
+    Verify {
+        manifest: PathBuf,
+        #[arg(long)]
+        fingerprint: String,
     },
 }
 
@@ -334,6 +379,7 @@ pub enum KeyKindArg {
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    svx_protocol::install_tls_provider();
     match run(Cli::parse()).await {
         Ok(code) => code,
         Err(e) => {
@@ -570,6 +616,19 @@ async fn run(cli: Cli) -> Result<ExitCode> {
             .await
         }
         Cmd::Keygen { kind, owner, out } => local::keygen(kind, &owner, &out),
+        Cmd::Release(ReleaseSub::Sign {
+            key,
+            version,
+            notes,
+            base_url,
+            platforms,
+            out,
+        }) => release::sign(&key, &version, &notes, &base_url, &platforms, &out),
+        Cmd::Release(ReleaseSub::Fingerprint { key }) => release::fingerprint(&key),
+        Cmd::Release(ReleaseSub::Verify {
+            manifest,
+            fingerprint,
+        }) => release::verify(&manifest, &fingerprint),
         Cmd::Inspect { file, json } => local::inspect(&file, json),
         Cmd::Verify {
             file,

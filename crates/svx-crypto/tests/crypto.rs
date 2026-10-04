@@ -574,6 +574,10 @@ fn max_context_signatures_full_and_fast() {
     verify_context(&vk, SignContext::RegistryRecord, b"record", &rec).unwrap();
     let svc = sign_context(&sk, SignContext::ServiceRecord, b"record").unwrap();
     assert_eq!(svc.len(), MAX_SIG_LEN);
+    let release = sign_context(&sk, SignContext::ReleaseManifest, b"record").unwrap();
+    assert_eq!(release.len(), MAX_SIG_LEN);
+    verify_context(&vk, SignContext::ReleaseManifest, b"record", &release).unwrap();
+    assert!(verify_context(&vk, SignContext::RegistryRecord, b"record", &release).is_err());
     // Short-lived objects carry Ed25519 + ML-DSA-87.
     let grant = sign_context(&sk, SignContext::ReleaseGrant, b"grant").unwrap();
     assert_eq!(grant.len(), MAX_FAST_SIG_LEN);

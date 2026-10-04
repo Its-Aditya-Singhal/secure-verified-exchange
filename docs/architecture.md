@@ -209,7 +209,7 @@ Every table and query is scoped by `org_id`, which comes from the authenticated 
 
 ## 10a. Personal accounts
 
-A personal account is a one-person organization (`u.<16 hex>`) whose IdP is Google or Apple and whose registry record carries its verified email. The split-key model is unchanged: the service share is released by the service, and the recipient share is sealed to the recipient's own MLKEM1024-P384 key (one envelope per recipient) instead of an org key agent. Authorization is the sender's per-file rules (approval, one-time, expiry, revocation) instead of an org policy, and requests are signed with the device key instead of a fresh OIDC login. Details: [personal.md](personal.md).
+A personal account is a one-person organization (`u.<16 hex>`) whose sign-in is Google or an email address and password, and whose registry record carries its verified email. The split-key model is unchanged: the service share is released by the service, and the recipient share is sealed to the recipient's own MLKEM1024-P384 key (one envelope per recipient) instead of an org key agent. Authorization is the sender's per-file rules (approval, one-time, expiry, revocation) instead of an org policy, and requests are signed with the device key instead of a fresh OIDC login. Details: [personal.md](personal.md).
 
 ## 11. Client layering
 

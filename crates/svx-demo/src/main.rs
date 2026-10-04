@@ -57,6 +57,14 @@ enum Cmd {
     Serve {
         #[arg(long)]
         state_dir: PathBuf,
+        /// Run the service on this port (default: any free one). A fixed
+        /// port keeps URLs built into a test app valid across restarts.
+        #[arg(long, default_value_t = 0)]
+        service_port: u16,
+        /// Publish desktop app updates from this directory (default: a
+        /// temporary one). `scripts/release.sh --local` writes here.
+        #[arg(long)]
+        updates_dir: Option<PathBuf>,
     },
 }
 
@@ -72,12 +80,12 @@ async fn main() -> ExitCode {
     }
 }
 
-async fn start(database_url: &str) -> Result<World> {
+async fn start(database_url: &str, opts: &svx_testkit::WorldOptions) -> Result<World> {
     // World panics on setup failures; check connectivity first for a clear error.
     svx_testkit::check_database(database_url)
         .await
         .with_context(|| format!("connecting to PostgreSQL at {}", redact(database_url)))?;
-    Ok(World::connect(database_url, "demo").await)
+    Ok(World::connect_with(database_url, "demo", opts).await)
 }
 
 fn redact(url: &str) -> String {
@@ -111,7 +119,7 @@ async fn run(cli: Cli) -> Result<ExitCode> {
                 }
             };
             ui.banner("Starting the SVX demo stack (managed service, key agent, two IdPs)...");
-            let world = start(&cli.database_url).await?;
+            let world = start(&cli.database_url, &svx_testkit::WorldOptions::default()).await?;
             let outcome = scenarios::run_all(&world, &dir, &ui).await;
             world.cleanup().await.context("dropping demo databases")?;
             outcome?;
@@ -130,14 +138,30 @@ async fn run(cli: Cli) -> Result<ExitCode> {
                 ExitCode::from(1)
             })
         }
-        Cmd::Serve { state_dir } => {
-            let world = start(&cli.database_url).await?;
+        Cmd::Serve {
+            state_dir,
+            service_port,
+            updates_dir,
+        } => {
+            let world = start(
+                &cli.database_url,
+                &svx_testkit::WorldOptions {
+                    service_port,
+                    updates_dir,
+                },
+            )
+            .await?;
             let state = world.write_state(&state_dir)?;
             let example_cfg = &state.orgs[1].config;
             let acme_cfg = &state.orgs[0].config;
             println!("SVX dev stack is running (fictional organizations, dev logins).");
             println!("  Service:        {}", state.service_url);
             println!("  Key agent:      {}", state.agent_url);
+            println!(
+                "  App updates:    {}/v1/updates (from {})",
+                state.service_url,
+                world.updates_dir.display()
+            );
             for o in &state.orgs {
                 let users: Vec<_> = o.users.iter().map(|u| u.sub.as_str()).collect();
                 println!(

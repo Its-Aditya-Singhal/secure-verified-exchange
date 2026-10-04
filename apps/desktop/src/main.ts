@@ -4,10 +4,10 @@
 import "./style.css";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { type AppState, type SetupForm, api } from "./api";
+import { type AppState, type AvailableUpdate, type SetupForm, api, asAppError } from "./api";
 import { brandLockup } from "./brand";
 import { errorPanel } from "./components";
-import { clear, h } from "./dom";
+import { busy, button, clear, h, icon } from "./dom";
 import { setPersonalWording } from "./messages";
 import { adminScreen } from "./screens/admin";
 import { fileScreen } from "./screens/file";
@@ -41,11 +41,14 @@ export interface Ctx {
   onFiles: ((paths: string[]) => void) | null;
   /** Re-count requests waiting for my approval (personal accounts). */
   refreshRequests(): Promise<void>;
+  /** Look for an app update now (throws when `show` and it fails). */
+  checkForUpdate(show?: boolean): Promise<AvailableUpdate | null>;
 }
 
 const app = document.getElementById("app")!;
 let route: Route = "open";
 let pendingRequests = 0;
+let update: AvailableUpdate | null = null;
 
 const ctx: Ctx = {
   state: null as unknown as AppState,
@@ -63,6 +66,7 @@ const ctx: Ctx = {
   pickUpPending: () => pickUpPending(),
   onFiles: null,
   refreshRequests: () => refreshRequests(),
+  checkForUpdate: (show) => checkForUpdate(show),
 };
 
 const PERSONAL_NAV: [Route, string][] = [
@@ -115,6 +119,7 @@ function render(arg?: unknown) {
     app.append(h("div", { class: "shell" }, side, main));
   }
 
+  if (update) main.appendChild(updateBanner(update));
   if (s.config_error && route === "setup") {
     main.appendChild(errorPanel({
       kind: "config",
@@ -156,6 +161,40 @@ function render(arg?: unknown) {
   }
 }
 
+/** A newer, verified release: install and restart. */
+function updateBanner(u: AvailableUpdate): HTMLElement {
+  const out = h("div", {});
+  const install = button(`Install ${u.version} and restart`, () => void busy(install, "Installing…", async () => {
+    try {
+      await api.installUpdate();
+    } catch (e) {
+      out.replaceChildren(errorPanel(asAppError(e)));
+    }
+  }), "primary");
+  return h("div", { class: "panel panel-info update-banner", role: "status" },
+    h("div", { class: "panel-head" }, icon("info"), h("h3", {}, `Version ${u.version} is available`)),
+    u.notes ? h("p", {}, u.notes) : null,
+    h("p", { class: "muted small" }, "Signed by the SVX release key built into this app; the download is checked before it's installed."),
+    h("div", { class: "actions" }, install, button("Later", () => { update = null; render(); })),
+    out);
+}
+
+/** Look for a verified update now and then; errors are ignored (offline). */
+async function checkForUpdate(show = false): Promise<AvailableUpdate | null> {
+  if (!ctx.state.updates_available) return null;
+  try {
+    const u = await api.checkUpdate();
+    if (u && (!update || update.version !== u.version)) {
+      update = u;
+      if (!show) render();
+    }
+    return u;
+  } catch (e) {
+    if (show) throw e;
+    return null;
+  }
+}
+
 /** .svx files handed to the app by the OS always go to the Open screen. */
 async function pickUpPending() {
   // Leave files queued until setup is done.
@@ -182,6 +221,8 @@ async function start() {
   await pickUpPending();
   void refreshRequests();
   window.setInterval(() => void refreshRequests(), 20_000);
+  void checkForUpdate();
+  window.setInterval(() => void checkForUpdate(), 24 * 3600_000);
   await getCurrentWebview().onDragDropEvent((ev) => {
     if (ev.payload.type !== "drop" || !ctx.state.configured) return;
     const paths = ev.payload.paths;

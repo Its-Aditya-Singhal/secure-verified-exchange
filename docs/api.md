@@ -161,7 +161,7 @@ See [personal.md](personal.md). Except for sign-up, every endpoint here needs a 
 METHOD \n path?query \n hex(SHA-256(body)) \n time \n hex(nonce) \n account \n hex(key_id)
 ```
 
-The key must be an active `ed25519-mldsa65` key of the account, the time within 60 s, and the nonce unused (replays get 401 and an audit record).
+The key must be an active `ed25519-mldsa87-slhdsa` key of the account, the time within 60 s, and the nonce unused (replays get 401 and an audit record).
 
 | Endpoint | What |
 |----------|------|
@@ -179,15 +179,16 @@ The key must be an active `ed25519-mldsa65` key of the account, the time within 
 
 The company `POST /v1/release` refuses personal and multi-recipient files.
 
-### Relayed sign-in (Apple)
+### Email accounts
+
+Accounts whose sign-in provider is the service itself (issuer `svx:email`). Errors carry a `detail`.
 
 | Endpoint | What |
 |----------|------|
-| `POST /v1/auth/relay/start` | `{issuer, nonce, secret_hash}` for a provider with `relay: true` → `{relay_id, authorize_url, expires_at}`. The URL carries the service's `state`, PKCE challenge and `response_mode=form_post`. |
-| `GET`/`POST /v1/auth/relay/callback` | The provider's return (query or form post). Exchanges the code with the service's client secret (Apple: ES256 JWT) and validates the ID token with the app's nonce. Shows a plain page; each `state` completes once. |
-| `POST /v1/auth/relay/poll` | `{relay_id, secret}` (`SHA-256(secret)` must match) → `{"status": "pending"}`, `{"status": "done", id_token}` (once) or `{"status": "failed", reason}`. Wrong secret → 401. Sign-ins expire after 10 minutes. |
-
-Relayed providers' client secrets are never published in the service record.
+| `POST /v1/auth/email/code` | `{email, purpose: "sign_up" \| "sign_in" \| "reset_password"}` → `{challenge, expires_at}`. Emails a 6-digit code (10 min, 5 tries, single use). Sign-in and reset codes are sent only to email accounts; the answer is the same either way. 5 codes an hour per address, 30 s apart → 409. |
+| `POST /v1/accounts/email` | `{challenge, code, email, password, first_name?, last_name?, signing_public, kem_public, keys: "keep" \| "reset"}`. A `sign_up` code creates the account (names required, password checked with `password_strength`, any existing account with this email → 409); a `sign_in` code needs the password and registers this device's keys like `POST /v1/accounts`. 10 wrong passwords lock the account for 15 min (409). |
+| `POST /v1/auth/email/reset` | `{challenge, code, email, new_password}` with a `reset_password` code. Unlocks the account; keys are unchanged. |
+| `POST /v1/me/password` | Signed by the device: `{current_password, new_password}`. Email accounts only. |
 
 ## Key agent
 
@@ -206,3 +207,13 @@ On success it returns `{"share": {...}}`, the recipient-org share HPKE-sealed to
 
 ### `GET /v1/agent/keys`
 The KEM keys the agent holds: `{"org_id": "...", "keys": [{"key_id": "<hex16>", "kind": "xwing"}]}`. Public information, no authentication. Administrators' apps use it to activate a new encryption key only once the agent holds it. See [key-agent.md](key-agent.md).
+
+## Desktop app updates
+
+Served when `svx-server --updates-dir DIR` is set. The service holds no release key and isn't trusted for updates; see [releasing.md](releasing.md).
+
+| Endpoint | What |
+|----------|------|
+| `GET /v1/updates/manifest` | `DIR/manifest.json` as published: `{payload, signature, public_key}`, the release manifest signed offline (context `SVX-1 release manifest`, all three signatures of an SVX-2 key). The app checks `public_key` against the fingerprint built into it. |
+| `GET /v1/updates/tauri/{target}/{arch}/{current}` | The same release in the Tauri updater's format (`{version, notes, url, signature}`), or 204 if it isn't newer than `current` or has no package for `{target}-{arch}`. |
+| `GET /v1/updates/files/{name}` | A package from `DIR` (plain file names only). |

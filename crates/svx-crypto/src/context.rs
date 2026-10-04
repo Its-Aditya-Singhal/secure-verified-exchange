@@ -24,6 +24,9 @@ pub enum SignContext {
     ServiceRecord,
     /// A request from a personal account's device, signed with its key.
     AccountRequest,
+    /// A desktop app release (versions, download hashes), signed offline
+    /// with the release key the app pins.
+    ReleaseManifest,
 }
 
 impl SignContext {
@@ -33,13 +36,16 @@ impl SignContext {
             SignContext::RegistryRecord => b"SVX-1 registry\0",
             SignContext::ServiceRecord => b"SVX-1 service\0",
             SignContext::AccountRequest => b"SVX-1 account request\0",
+            SignContext::ReleaseManifest => b"SVX-1 release manifest\0",
         }
     }
 
     /// Which parts of a Max key sign in this context.
     fn set(self) -> SigSet {
         match self {
-            SignContext::RegistryRecord | SignContext::ServiceRecord => SigSet::Full,
+            SignContext::RegistryRecord
+            | SignContext::ServiceRecord
+            | SignContext::ReleaseManifest => SigSet::Full,
             SignContext::ReleaseGrant | SignContext::AccountRequest => SigSet::Fast,
         }
     }

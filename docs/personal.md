@@ -1,6 +1,7 @@
 # Personal accounts (Phase 5d)
 
-Anyone can use SVX without company IT: sign in with Google or Apple, send
+Anyone can use SVX without company IT: sign in with Google, or create an
+account with an email address and a password, send
 files to email addresses, and keep control of each file after sending it.
 Company setup is still available ("Company or test server setup" on the
 welcome screen).
@@ -10,8 +11,10 @@ All people and addresses here are fictional (`alice@example.test`,
 
 ## What a person sees
 
-1. **Welcome.** "Continue with Google" or "Continue with Apple". The app
-   makes this device's keys and keeps them in the system keychain. It then
+1. **Welcome.** "Continue with Google", or "Create account with email"
+   (first name, last name, email, password twice, with a live strength
+   meter, then the 6-digit code emailed to that address). The app makes
+   this device's keys and keeps them in the system keychain. It then
    suggests saving one encrypted backup, locked with a recovery password.
 2. **Send.** Pick a file or folder, type email addresses (each is checked
    in the signed directory), and choose:
@@ -33,7 +36,8 @@ All people and addresses here are fictional (`alice@example.test`,
    switch approval and one-time on or off, bring the expiry forward, revoke
    one person or everyone, or send a new copy.
 6. **Settings.** Account, key IDs, backup, reset keys, sign out, output
-   folder.
+   folder, "Confirm it's you" (Touch ID / password, see
+   [desktop.md](desktop.md)) and, for email accounts, change password.
 
 ## How it works
 
@@ -44,7 +48,7 @@ share of every file key, audit and revocation.
 
 | Piece | Company | Personal |
 |-------|---------|----------|
-| Who signs in | company IdP, every open | Google or Apple, once per device |
+| Who signs in | company IdP, every open | Google, or email + password + emailed code, once per device |
 | Recipient's half of the key | the org's key agent | the person's own MLKEM1024-P384 key, in their keychain |
 | Who decides | the recipient org's policy | the sender's per-file rules |
 | Requests to the service | ID token bound to the open | signed with the device key |
@@ -53,7 +57,7 @@ share of every file key, audit and revocation.
 
 1. The app generates an SVX-2 signing key (Ed25519 + ML-DSA-87 + SLH-DSA)
    and an MLKEM1024-P384 encryption key.
-2. It signs in with Google or Apple (browser, PKCE) asking for an ID token
+2. It signs in with Google (browser, PKCE) asking for an ID token
    whose `nonce` is `signup_nonce(signing_public, kem_public)`, so a
    captured token can't register anyone else's keys.
 3. `POST /v1/accounts`: the service checks the token, requires a verified
@@ -109,26 +113,50 @@ and times only. The app keeps names in a local `history.json`.
    once; without it the open becomes final 10 minutes after release (so a
    crash mid-decryption can be retried).
 
-### Relayed sign-in (Apple)
+### Email accounts
 
-Apple can't send a desktop app's browser back to `127.0.0.1`, and its
-client secret (an ES256 JWT signed with the team's key) must stay on the
-service. So for relayed providers:
+For people who don't use Google, the service is its own sign-in provider
+(issuer `svx:email`; the account is bound to the lower-cased address).
+Proving the address is what matters, because the directory sends files to
+whoever owns `bob@…`. So every step that binds keys to an account needs a
+**fresh code emailed to that address**, and an existing account also needs
+its **password**:
 
-1. The app picks the ID-token nonce (binding its keys, as always) and a
-   random 32-byte secret, and sends `POST /v1/auth/relay/start` with the
-   nonce and `SHA-256(secret)`. The service returns the authorization URL
-   (its own `state` and PKCE) and the app opens it in the browser.
-2. Apple form-posts the code to `/v1/auth/relay/callback`. The service
-   exchanges it with its client secret and PKCE verifier and validates the
-   ID token, nonce included. The browser only sees "Return to the app".
-3. The app collects the token with `POST /v1/auth/relay/poll` and the
-   secret, once, then signs up as with Google.
+| Step | Needs |
+|------|-------|
+| Create the account | code (`sign_up`), first and last name, a strong password |
+| Sign in on a new computer, or reset keys | code (`sign_in`) + password; then the backup, or a key reset |
+| Forgot password | code (`reset_password`) + a strong new password; keys are not touched |
+| Change password | the signed-in device + current password |
 
-A sign-in lives 10 minutes; the token is handed out once, only for the
-secret, and is useless for keys other than those its nonce binds. Apple
-"Hide my email" addresses work: the directory finds the account by that
-address.
+1. `POST /v1/auth/email/code {email, purpose}` → `{challenge, expires_at}`.
+   The code is 6 random digits, valid for 10 minutes, at most 5 tries
+   (right or wrong), used once. The service keeps only
+   `SHA-256("SVX email code\0" ‖ challenge ‖ code)`, never the code, and
+   the email holds the code and nothing else (no link). An address gets at
+   most 5 codes an hour, 30 seconds apart; the whole service at most 120 a
+   minute. The answer is the same whether or not an account exists:
+   sign-in and reset codes are only sent to email accounts.
+2. `POST /v1/accounts/email {challenge, code, email, password, first_name,
+   last_name, signing_public, kem_public, keys}`. The same key checks as
+   Google sign-up (SVX-2 kinds, a backup's keys belong to their account,
+   `account_exists` for other keys unless `keys: "reset"`).
+
+**Passwords** must be 12–128 characters, score at least 3 of 4 on
+[zxcvbn](https://github.com/dropbox/zxcvbn) (which refuses common
+passwords, keyboard patterns, dates and the like) and not be built from
+the person's own name or email. One check in `svx-protocol`
+(`password_strength`) drives the app's live meter and is enforced again by
+the service, so bypassing the app doesn't help. The service stores
+Argon2id hashes (64 MiB, 3 passes; costs stored with each hash). Ten wrong
+passwords in a row lock the account for 15 minutes.
+
+Names are shown to recipients next to the verified email, as
+`Alice Example <alice@example.test>`. Only the email is verified; a name
+can't contain `@`, `<` or `>`, so it can't pose as another address.
+
+The password doesn't encrypt anything: files are protected by the device
+keys, as for Google accounts. It only guards registering keys.
 
 ### Backups
 
@@ -160,7 +188,8 @@ cargo run -p svx-demo -- serve --state-dir /tmp/svx-stack
 
 It prints the dev "Google" accounts (alice, bob, carol at `example.test`;
 eve has no confirmed email) and the command to start the desktop app
-against the stack:
+against the stack. Email accounts work with any address: the code emails
+are printed by `svx-demo serve` instead of being sent.
 
 ```sh
 cd apps/desktop
@@ -179,6 +208,10 @@ The CLI shares the account and keychain with the app:
 
 ```sh
 svx account signup --service http://127.0.0.1:PORT --registry-key <hex> --dev --dev-user alice
+svx account signup --service http://127.0.0.1:PORT --registry-key <hex> --dev \
+  --email dana@example.test --first-name Dana --last-name Example   # asks for a password and the code
+svx account password                     # change it (email accounts)
+svx account reset-password dana@example.test --service … --registry-key … --dev
 svx send notes.txt --to bob@example.test
 svx requests
 svx approve <request-id>
@@ -190,13 +223,21 @@ svx file <file-id> --revoke-for bob@example.test
 
 - **Google:** a "Desktop app" OAuth client ID (and its non-secret client
   secret): `svx-server --personal-idp issuer=https://accounts.google.com,client_id=…,client_secret=…`.
-- **Apple:** an Apple Developer account, a Services ID (its ID is the
-  `client_id`) with the return URL `https://<service>/v1/auth/relay/callback`
-  and the service's domain registered, and a "Sign in with Apple" key
-  (`AuthKey_<key_id>.p8`):
-  `svx-server --public-url https://<service> --personal-idp issuer=https://appleid.apple.com,client_id=<Services ID> --apple-key team_id=<Team ID>,key_id=<Key ID>,file=AuthKey_<Key ID>.p8`.
-  Apple doesn't allow loopback redirects or secrets in apps, so Apple
-  sign-in is always **relayed** (below).
-- **Email:** an SMTP account: `--smtp-url smtps://user:pass@smtp.example.com --smtp-from "SVX <no-reply@example.com>"`.
+- **Email (free): Gmail SMTP.** Codes and approval notices need an SMTP
+  account; a Gmail address works and costs nothing (about 500 emails a
+  day, plenty for a beta):
+  1. Use a separate Gmail address for the service, e.g.
+     `<notification-mailbox>`, and turn on 2-Step Verification for it.
+  2. Google Account → Security → **App passwords**: create one named
+     "SVX". Copy the 16 letters (no spaces).
+  3. Run the service with
+     `--smtp-url "smtps://notification-mailbox%40example.com:<app password>@smtp.gmail.com:465"`
+     `--smtp-from "Secure Verified Exchange <<notification-mailbox>>"`
+     (`@` in the user name is written `%40`). Prefer the environment
+     variables `SVX_SMTP_URL` and `SVX_SMTP_FROM`, so the password isn't
+     in the process list or shell history.
+  Without SMTP the service only logs emails (development).
+- **No Apple sign-in.** It needs a paid Apple Developer account; email
+  accounts cover people without Google instead.
 - **The official service** is built into release apps with
   `SVX_OFFICIAL_SERVICE_URL` and `SVX_OFFICIAL_REGISTRY_FINGERPRINT`.

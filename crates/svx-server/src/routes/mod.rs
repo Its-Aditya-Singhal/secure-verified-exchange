@@ -4,6 +4,7 @@ mod orgs;
 mod personal;
 mod public;
 mod release;
+mod updates;
 
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
@@ -64,6 +65,12 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/personal/opened", post(personal::opened))
         .route("/v1/artifacts", post(release::register_artifact))
         .route("/v1/release", post(release::release))
+        .route("/v1/updates/manifest", get(updates::manifest))
+        .route(
+            "/v1/updates/tauri/{target}/{arch}/{current}",
+            get(updates::tauri),
+        )
+        .route("/v1/updates/files/{name}", get(updates::file))
         .layer(DefaultBodyLimit::max(MAX_BODY))
         .with_state(state)
 }

@@ -23,6 +23,7 @@ pub mod personal;
 pub mod policy;
 pub mod registry;
 pub mod types;
+pub mod update;
 
 pub use client::{ManagedClient, ProtocolError, ReleaseSession, check_url};
 pub use grant::{Grant, SignedGrant};
@@ -33,6 +34,16 @@ pub use registry::{
 };
 /// HTTP method of a signed request ([`ManagedClient::signed`]).
 pub use reqwest::Method;
+
+/// Make aws-lc-rs, which offers and prefers the post-quantum X25519MLKEM768
+/// key exchange, the TLS provider of this process. Call it first in every
+/// binary: when another dependency also enables rustls' `ring` backend
+/// (the desktop app's updater does), rustls can't pick one by itself, and
+/// a `ring` default would silently drop the post-quantum key exchange.
+pub fn install_tls_provider() {
+    // Err only if a provider is already installed (ours, in tests).
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+}
 pub use types::*;
 
 /// Current wire protocol version, included in grants and records. Version 2

@@ -26,6 +26,7 @@ use svx_client::onboard::{OnboardRequest, PendingOrg};
 use svx_client::personal::{AccountInfo, Contact, SendResult};
 use svx_client::presence::SystemPresence;
 use svx_client::setup::SetupPreview;
+use svx_client::update::AvailableUpdate;
 use svx_protocol::admin::AuditPage;
 use svx_protocol::email_account::PasswordStrength;
 use svx_protocol::personal::{ApprovalRequest, UpdateFileRequest};
@@ -213,6 +214,75 @@ async fn restore(
     )
     .await
     .map(Some)
+}
+
+/// The verified release [`check_update`] found, for [`install_update`].
+#[derive(Default)]
+struct PendingUpdate(Mutex<Option<AvailableUpdate>>);
+
+/// Look for a newer release. Only a manifest signed with the release key
+/// built into this app counts (checked in `svx_client::update`).
+#[tauri::command]
+async fn check_update(
+    handle: AppHandle,
+    app: State<'_, App>,
+    pending: State<'_, PendingUpdate>,
+) -> Result<Option<AvailableUpdate>> {
+    let current = handle.package_info().version.to_string();
+    let u = app.check_update(&current).await?;
+    *pending.0.lock().unwrap() = u.clone();
+    Ok(u)
+}
+
+#[tauri::command]
+fn set_check_updates(app: State<'_, App>, on: bool) -> AppState {
+    app.set_check_updates(on)
+}
+
+/// Download and install the release [`check_update`] verified, then
+/// restart. The Tauri updater checks its own signature; on top of that
+/// the package must be the one the signed manifest names (version, URL,
+/// signature) and match its size and SHA-512.
+#[tauri::command]
+async fn install_update(handle: AppHandle, pending: State<'_, PendingUpdate>) -> Result<()> {
+    use tauri_plugin_updater::UpdaterExt;
+    let fail = |m: String| AppError::other(format!("update failed: {m}"));
+    let verified = pending
+        .0
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or_else(|| fail("check for updates first".into()))?;
+    let src = svx_client::update::update_source().ok_or_else(|| fail("no update source".into()))?;
+    let endpoint = src
+        .tauri_endpoint()
+        .parse()
+        .map_err(|e| fail(format!("{e}")))?;
+    let updater = handle
+        .updater_builder()
+        .endpoints(vec![endpoint])
+        .and_then(|b| b.build())
+        .map_err(|e| fail(e.to_string()))?;
+    let offered = updater
+        .check()
+        .await
+        .map_err(|e| fail(e.to_string()))?
+        .ok_or_else(|| fail("the update is no longer offered".into()))?;
+    if offered.version != verified.version
+        || offered.download_url.as_str() != verified.package.url
+        || offered.signature.trim() != verified.package.signature.trim()
+    {
+        return Err(fail(
+            "the update server's offer doesn't match the signed release".into(),
+        ));
+    }
+    let bytes = offered
+        .download(|_, _| {}, || {})
+        .await
+        .map_err(|e| fail(e.to_string()))?;
+    svx_client::update::verify_package(&bytes, &verified.package)?;
+    offered.install(bytes).map_err(|e| fail(e.to_string()))?;
+    handle.restart()
 }
 
 #[tauri::command]
@@ -640,6 +710,7 @@ fn open_document(handle: AppHandle, app: State<'_, App>, path: PathBuf) -> Resul
 }
 
 fn main() {
+    svx_protocol::install_tls_provider();
     let app = match App::new(None) {
         // Touch ID / the Mac's password / Windows Hello before the keys
         // are used (the client enforces it; off on development services).
@@ -660,9 +731,11 @@ fn main() {
     }
     let builder = builder
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .manage(app)
         .manage(Pending::default())
+        .manage(PendingUpdate::default())
         .setup(|a| {
             let argv: Vec<String> = std::env::args().collect();
             let cwd = std::env::current_dir().unwrap_or_default();
@@ -690,6 +763,9 @@ fn main() {
             restore,
             set_presence,
             lock_now,
+            check_update,
+            set_check_updates,
+            install_update,
             request_email_code,
             email_sign_up,
             email_restore,

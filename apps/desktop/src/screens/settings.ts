@@ -74,12 +74,40 @@ export function settingsScreen(ctx: Ctx, root: HTMLElement): void {
       keyOut,
     ),
     presenceCard(ctx),
+    updatesCard(ctx),
     card(
       "About",
       h("p", {}, "Secure Verified Exchange 0.1.0. All checks, sign-in binding and decryption run in the SVX client library on this device; this window only shows the results."),
       h("p", { class: "muted small" }, "The svx command-line tool uses the same setup and sign-in session."),
     ),
   );
+}
+
+/** App updates: signed releases from the SVX update server. */
+function updatesCard(ctx: Ctx): HTMLElement | null {
+  const s = ctx.state;
+  if (!s.updates_available) return null;
+  const on = h("input", { type: "checkbox" });
+  on.checked = s.prefs.check_updates ?? true;
+  on.addEventListener("change", () => void api.setCheckUpdates(on.checked).then(() => ctx.refreshState()));
+  const out = h("div", {});
+  const check = button("Check now", () => void busy(check, "Checking…", async () => {
+    clear(out);
+    try {
+      const u = await ctx.checkForUpdate(true);
+      out.appendChild(u
+        ? note(`Version ${u.version} is available: see the banner above.`, "info")
+        : note("You have the latest version.", "ok"));
+      if (u) ctx.go("settings");
+    } catch (e) {
+      out.appendChild(errorPanel(asAppError(e)));
+    }
+  }));
+  return card("Updates",
+    h("p", { class: "muted" }, "Updates are installed only if they're signed with the SVX release key built into this app, and the download matches the signed release exactly."),
+    h("label", { class: "check" }, on, h("span", {}, "Check for updates automatically")),
+    h("div", { class: "actions" }, check),
+    out);
 }
 
 /** Touch ID / password before the keys are used. */
@@ -272,6 +300,7 @@ function personalSettings(ctx: Ctx, root: HTMLElement): void {
       h("div", { class: "actions" }, signOut),
       signOutOut),
     presenceCard(ctx),
+    updatesCard(ctx),
     card("About",
       h("p", {}, "Secure Verified Exchange 0.1.0. All checks, key handling and decryption run in the SVX client library on this device; this window only shows the results.")),
   );

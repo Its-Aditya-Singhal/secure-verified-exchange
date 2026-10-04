@@ -118,7 +118,13 @@ Alice approves (her email names Bob but not the file and has no link) (11).
 The one-time file doesn't open a second time (12). Alice revokes Carol while
 Carol waits (13) and declines Bob's request for another file (14). Eve, with
 no confirmed email, can't sign up, and Carol can't open a file sent to Bob
-(15). A replayed signed request is refused (16). See [personal.md](personal.md).
+(15). A replayed signed request is refused (16).
+
+**17. Email account.** Dana has no Google account: she asks for a code
+(printed as the email the service sends), is refused with
+`Password123!`, signs up with a strong password, and sends Bob a file,
+which he opens and sees as from `Dana Example <dana@example.test>`. See
+[personal.md](personal.md).
 
 ## Try it yourself: `svx-demo serve`
 

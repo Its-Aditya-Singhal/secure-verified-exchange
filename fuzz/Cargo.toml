@@ -9,8 +9,12 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+serde_json = "1"
+svx-client = { path = "../crates/svx-client" }
 svx-core = { path = "../crates/svx-core" }
+svx-protocol = { path = "../crates/svx-protocol" }
 svx-testvectors = { path = "../crates/svx-testvectors" }
+tempfile = "3"
 
 # Not part of the main workspace: requires nightly + cargo-fuzz.
 [workspace]
@@ -32,6 +36,69 @@ bench = false
 [[bin]]
 name = "manifest"
 path = "fuzz_targets/manifest.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "backup_open"
+path = "fuzz_targets/backup_open.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "grant_verify"
+path = "fuzz_targets/grant_verify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "registry_record"
+path = "fuzz_targets/registry_record.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "request_auth"
+path = "fuzz_targets/request_auth.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "wire_json"
+path = "fuzz_targets/wire_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "folder_extract"
+path = "fuzz_targets/folder_extract.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "keyfile_parse"
+path = "fuzz_targets/keyfile_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "password_check"
+path = "fuzz_targets/password_check.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "update_manifest"
+path = "fuzz_targets/update_manifest.rs"
 test = false
 doc = false
 bench = false

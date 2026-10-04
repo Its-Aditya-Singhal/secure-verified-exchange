@@ -53,6 +53,9 @@ pub struct World {
     pub personal_idp: MockIdp,
     /// Approval emails the service sent.
     pub mail: Arc<MemoryNotifier>,
+    /// Where the service publishes desktop app updates from.
+    pub updates_dir: PathBuf,
+    owns_updates_dir: bool,
     pub db: sqlx::PgPool,
     /// Acme's active SVX-2 signing key (Ed25519 + ML-DSA-87 + SLH-DSA).
     pub acme_sign: SigningKey,
@@ -151,6 +154,12 @@ impl World {
     /// `admin_url` (which needs CREATE DATABASE rights). Database names are
     /// `svx_<prefix>_<random>_{svc,agent}`; see [`World::cleanup`].
     pub async fn connect(admin_url: &str, prefix: &str) -> World {
+        World::connect_with(admin_url, prefix, &WorldOptions::default()).await
+    }
+
+    /// [`World::connect`] with a fixed service port and updates directory
+    /// (`svx-demo serve`, for testing app updates against a stable URL).
+    pub async fn connect_with(admin_url: &str, prefix: &str, opts: &WorldOptions) -> World {
         assert!(
             !prefix.is_empty() && prefix.bytes().all(|b| b.is_ascii_lowercase()),
             "database prefix must be lowercase letters"
@@ -206,7 +215,9 @@ impl World {
         .await
         .unwrap();
         let mail = Arc::new(MemoryNotifier::default());
-        let service_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let service_listener = tokio::net::TcpListener::bind(("127.0.0.1", opts.service_port))
+            .await
+            .expect("the service port is free");
 
         // Managed service.
         let mut rng = os_rng();
@@ -222,6 +233,12 @@ impl World {
                 .unwrap();
         let db = fresh_db(admin_url, &svc_db).await;
         let dns = StaticDns::default();
+        // Desktop app updates the service publishes (empty until a release
+        // is put there with `svx release sign`).
+        let updates_dir = opts.updates_dir.clone().unwrap_or_else(|| {
+            std::env::temp_dir().join(format!("svx-updates-{}", hex::encode(random_bytes::<6>())))
+        });
+        std::fs::create_dir_all(&updates_dir).unwrap();
         let state = AppState {
             db: db.clone(),
             service_id: Identifier::new(SERVICE_ID).unwrap(),
@@ -244,6 +261,7 @@ impl World {
             notifier: mail.clone(),
             limiter: Arc::new(RateLimiter::default()),
             records: Arc::new(RecordCache::default()),
+            updates: Some(Arc::new(updates_dir.clone())),
             dev: true,
         };
         let service_url = serve_on(service_listener, svx_server::app(state).await.unwrap());
@@ -281,6 +299,8 @@ impl World {
             dns,
             personal_idp,
             mail,
+            updates_dir,
+            owns_updates_dir: opts.updates_dir.is_none(),
             db,
             acme_sign: SigningKey::generate_max(&mut rng),
             acme_sign_classical: SigningKey::generate(&mut rng),
@@ -350,6 +370,9 @@ impl World {
     /// Close connections and drop this world's databases. The in-process
     /// services stop working afterwards.
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
+        if self.owns_updates_dir {
+            let _ = std::fs::remove_dir_all(&self.updates_dir);
+        }
         self.db.close().await;
         self.agent_db.close().await;
         let admin = sqlx::PgPool::connect(&self.admin_url).await?;
@@ -741,6 +764,16 @@ impl World {
         std::fs::write(dir.join("state.json"), json)?;
         Ok(state)
     }
+}
+
+/// Options for [`World::connect_with`].
+#[derive(Clone, Debug, Default)]
+pub struct WorldOptions {
+    /// The service's port on 127.0.0.1 (0 = any free port).
+    pub service_port: u16,
+    /// Publish app updates from here (default: a new temporary directory,
+    /// removed by [`World::cleanup`]).
+    pub updates_dir: Option<PathBuf>,
 }
 
 /// What [`World::write_state`] writes to `state.json`.

@@ -22,6 +22,8 @@ export interface Prefs {
   /** Ask for Touch ID / password before using the keys (null = on). */
   ask_presence: boolean | null;
   relock_minutes: number | null;
+  /** Check for app updates (null = on). */
+  check_updates: boolean | null;
 }
 
 export interface OnboardRequest {
@@ -127,6 +129,17 @@ export interface AppState {
   presence_available: boolean;
   /** ... and does now (never on development services). */
   presence_active: boolean;
+  /** This build checks for updates. */
+  updates_available: boolean;
+}
+
+/** A newer release, verified against the release key built into the app. */
+export interface AvailableUpdate {
+  version: string;
+  notes: string;
+  released_at: number;
+  platform: string;
+  package: { url: string; size: number; sha512: string; signature: string };
 }
 
 export interface SetupForm {
@@ -455,6 +468,9 @@ export const api = {
     call<AccountInfo>("sign_up", { issuer, reset, devUser, replace }),
   restore: (issuer: string | null, password: string, devUser: string | null, replace: boolean) =>
     call<AccountInfo | null>("restore", { issuer, password, devUser, replace }),
+  checkUpdate: () => call<AvailableUpdate | null>("check_update"),
+  setCheckUpdates: (on: boolean) => call<AppState>("set_check_updates", { on }),
+  installUpdate: () => call<void>("install_update"),
   setPresence: (on: boolean, relockMinutes: number) =>
     call<AppState>("set_presence", { on, relockMinutes }),
   lockNow: () => call<void>("lock_now"),

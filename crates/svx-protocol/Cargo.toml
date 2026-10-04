@@ -14,7 +14,7 @@ hex = "0.4"
 reqwest = { version = "0.13", default-features = false, features = ["json", "form", "query", "rustls"] }
 # Only to turn on post-quantum TLS (X25519MLKEM768 offered and preferred
 # first) for every rustls user in the build: reqwest, axum-server, sqlx.
-rustls = { version = "0.23", default-features = false, features = ["prefer-post-quantum"] }
+rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs", "prefer-post-quantum"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11"

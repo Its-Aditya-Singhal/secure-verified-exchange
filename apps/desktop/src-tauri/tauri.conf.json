@@ -81,5 +81,11 @@
         }
       }
     }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFCRjkyN0U5MkI0QkJDMjYKUldRbXZFc3I2U2Y1cTJXWEt4NGtVTG9Ic1pMZDV0VDl5eWxWQjc5OVo5Wm5ZNVU4aVZQV0VqMHcK",
+      "requireSignedVersion": true
+    }
   }
 }

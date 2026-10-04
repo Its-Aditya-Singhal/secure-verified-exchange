@@ -149,7 +149,7 @@ Last updated: 2026-10-03.
 
 - [x] ~~Format 1.2: several recipients (critical `recipients` field, one envelope per recipient, new vectors)~~
 - [x] ~~Service:~~
-  - [x] ~~sign-up with Google or Apple, keys bound by the token nonce, verified email required~~
+  - [x] ~~sign-up with Google, keys bound by the token nonce, verified email required~~
   - [x] ~~requests signed with the device key (time window, single-use nonce)~~
   - [x] ~~email directory (signed record with the verified email, rate-limited)~~
   - [x] ~~file rules: approval, one-time, expiry, revoke per file or person~~
@@ -157,13 +157,12 @@ Last updated: 2026-10-03.
   - [x] ~~requests, approve/decline, history~~
   - [x] ~~approval emails (SMTP over TLS; no file names or links)~~
 - [x] ~~`svx_client::personal`: sign-up, backup (Argon2id + ChaCha20-Poly1305), restore, reset, lookup, send, open with approval wait, history~~
-- [x] ~~Desktop app: welcome (Google/Apple first), sidebar, Send by email, History, File page, Requests, waiting timeline, Settings (backup, reset, sign out)~~
+- [x] ~~Desktop app: welcome (Google or email first), sidebar, Send by email, History, File page, Requests, waiting timeline, Settings (backup, reset, sign out)~~
 - [x] ~~CLI: `account`, `send`, `requests`, `approve`, `decline`, `history`, `file`~~
 - [x] ~~Demo checks 11–16; `svx-demo serve` prints personal accounts and emails~~
 - [x] ~~Docs: `personal.md`, API, architecture, keys, desktop, threat model~~
 - [ ] Google OAuth client ("Desktop app") for real sign-in
-- [x] ~~Service-side sign-in relay for Apple (`/v1/auth/relay/*`, ES256 client secret)~~
-- [ ] Apple Developer setup: Services ID, return URL, key
+- [x] ~~Service-side sign-in relay for Apple~~ (removed in Phase 6: Apple sign-in needs a paid developer account)
 - [ ] SMTP account for approval emails
 - [ ] Manual test with two app windows against `svx-demo serve`
 
@@ -176,21 +175,21 @@ The website never receives, encrypts or decrypts files.
 - [ ] App downloads
 - [ ] Documentation sections
 
-## Phase 6: Hardening and review (planned)
+## Phase 6: Hardening and review (in progress, $0 budget)
 
 - [x] ~~`cargo-deny` (advisories, licenses, sources) in CI~~
 - [x] ~~Fuzz smoke run in CI~~
-- [ ] Continuous fuzzing (long-running, corpus kept between runs)
-- [ ] `cargo-audit` in CI (or confirm the `cargo-deny` advisories check is enough)
+- [x] ~~Email + password accounts (emailed codes, zxcvbn rules, Argon2id, lock-out, reset and change); Apple sign-in removed~~
+- [x] ~~Touch ID / password / Windows Hello before the keys are used (client-enforced, session and always actions)~~
+- [x] ~~Auto-update: SVX-2-signed release manifest + Tauri signature, newer versions only, size and SHA-512 checked; `svx release`, `scripts/release.sh`, `svx-server --updates-dir`~~
+- [x] ~~12 fuzz targets; long local runs (`scripts/fuzz-local.sh`, corpus kept between runs)~~
+- [x] ~~`cargo-audit` in the local preflight (`scripts/preflight.sh`); CI keeps `cargo-deny`, which checks the same RustSec database against the real dependency graph~~
+- [ ] Manual tests by the user: email account in the app; Touch ID prompts; self-update 0.1.0 → 0.1.1
+- [ ] Production: Google OAuth client, Gmail SMTP account
 - [ ] Compatibility test suite across versions and platforms
-- [ ] Signed and notarized macOS installers, universal binary
-- [ ] Signed Windows installers
-- [ ] Auto-update
-- [ ] Signed releases of the Python wheels and npm packages
-- [ ] Sign the key agent image and publish it to a registry
-- [ ] Hardware-backed signing keys (Secure Enclave, TPM, KMS) instead of software keychain keys
 - [ ] Independent external security review
 - [ ] Public beta
+- Not planned (paid): signed and notarized macOS installers, signed Windows installers, hardware-bound keys (Secure Enclave, TPM, KMS), signed wheels/npm packages and a published key agent image (they need registries' signing or paid accounts; revisit later)
 
 ## Later (not in v1)
 
