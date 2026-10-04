@@ -199,25 +199,7 @@ pub(crate) fn write_output(
             })
         }
         Output::Dir { dir, overwrite } => {
-            if !dir.exists() {
-                let mut b = std::fs::DirBuilder::new();
-                b.recursive(true);
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::DirBuilderExt;
-                    b.mode(0o700);
-                }
-                b.create(&dir)?;
-            }
-            let tmp = tempfile::Builder::new()
-                .prefix(".svx-partial-")
-                .tempfile_in(&dir)?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                tmp.as_file()
-                    .set_permissions(std::fs::Permissions::from_mode(0o600))?;
-            }
+            let tmp = private_temp(&dir)?;
             // On any error `tmp` is dropped, which deletes the partial file.
             let manifest = {
                 let mut w = BufWriter::new(tmp.as_file());
@@ -251,17 +233,7 @@ pub(crate) fn write_output(
                 });
             }
             let dest = output_path(&dir, &entry.name)?;
-            if overwrite {
-                tmp.persist(&dest).map_err(|e| ClientError::Io(e.error))?;
-            } else {
-                tmp.persist_noclobber(&dest).map_err(|e| {
-                    if e.error.kind() == std::io::ErrorKind::AlreadyExists {
-                        ClientError::OutputExists(dest.clone())
-                    } else {
-                        ClientError::Io(e.error)
-                    }
-                })?;
-            }
+            place(tmp, &dest, overwrite)?;
             Ok(OpenOutcome {
                 manifest,
                 path: Some(dest),
@@ -270,6 +242,48 @@ pub(crate) fn write_output(
             })
         }
     }
+}
+
+/// A private (0600) temporary file in `dir`, created 0700 if missing. It is
+/// deleted when dropped unless [`place`]d.
+pub(crate) fn private_temp(dir: &Path) -> Result<tempfile::NamedTempFile> {
+    if !dir.exists() {
+        let mut b = std::fs::DirBuilder::new();
+        b.recursive(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            b.mode(0o700);
+        }
+        b.create(dir)?;
+    }
+    let tmp = tempfile::Builder::new()
+        .prefix(".svx-partial-")
+        .tempfile_in(dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        tmp.as_file()
+            .set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(tmp)
+}
+
+/// Rename a finished temporary file into place, never over an existing
+/// file unless `overwrite`.
+pub(crate) fn place(tmp: tempfile::NamedTempFile, dest: &Path, overwrite: bool) -> Result<()> {
+    if overwrite {
+        tmp.persist(dest).map_err(|e| ClientError::Io(e.error))?;
+    } else {
+        tmp.persist_noclobber(dest).map_err(|e| {
+            if e.error.kind() == std::io::ErrorKind::AlreadyExists {
+                ClientError::OutputExists(dest.to_path_buf())
+            } else {
+                ClientError::Io(e.error)
+            }
+        })?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

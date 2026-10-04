@@ -96,6 +96,7 @@ impl World {
             expires_at: Some(1_790_604_800),
             chunk_size: Some(chunk),
             manifest,
+            view_only: false,
         };
         let mut out = Vec::new();
         let summary = pack(&req, data, &mut out, &mut self.rng).unwrap();
@@ -323,6 +324,7 @@ fn length_mismatch_rejected_on_pack() {
             expires_at: None,
             chunk_size: None,
             manifest: Manifest::single_file("x.bin", 5),
+            view_only: false,
         };
         assert!(matches!(
             pack(&req, &b"123"[..], Vec::new(), &mut w.rng),
@@ -352,6 +354,7 @@ fn large_streaming_round_trip() {
         expires_at: None,
         chunk_size: Some(1 << 20),
         manifest: Manifest::single_file("disk.img", LEN),
+        view_only: false,
     };
     let mut file = tempfile::tempfile().unwrap();
     pack(&req, std::io::repeat(0x5A).take(LEN), &mut file, &mut w.rng).unwrap();
@@ -434,6 +437,7 @@ fn hybrid_cannot_be_downgraded_or_mixed() {
         expires_at: None,
         chunk_size: None,
         manifest: Manifest::single_file("x.bin", 1),
+        view_only: false,
     };
     assert!(matches!(
         pack(&req, &b"1"[..], Vec::new(), &mut w.rng),
@@ -538,6 +542,7 @@ fn several_recipients_each_open_with_their_own_key() {
         expires_at: None,
         chunk_size: Some(64),
         manifest: Manifest::single_file("secret.txt", SECRET.len() as u64),
+        view_only: false,
     };
     let mut file = Vec::new();
     pack(&req, SECRET, &mut file, &mut w.rng).unwrap();
@@ -607,6 +612,7 @@ fn max_suite_properties() {
         expires_at: None,
         chunk_size: None,
         manifest: Manifest::single_file("x.bin", 1),
+        view_only: false,
     };
     assert!(matches!(
         pack(&req, &b"1"[..], Vec::new(), &mut w.rng),
@@ -643,6 +649,7 @@ fn max_several_recipients() {
         expires_at: None,
         chunk_size: Some(64),
         manifest: Manifest::single_file("secret.txt", SECRET.len() as u64),
+        view_only: false,
     };
     let mut file = Vec::new();
     pack(&req, SECRET, &mut file, &mut w.rng).unwrap();

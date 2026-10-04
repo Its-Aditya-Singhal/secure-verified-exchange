@@ -34,6 +34,9 @@ pub struct PackRequest<'a> {
     /// Plaintext bytes per chunk; `None` uses the default (64 KiB).
     pub chunk_size: Option<u32>,
     pub manifest: Manifest,
+    /// Mark the artifact view-only (SVX 1.4; suite SVX-2 only). Signed into
+    /// the header.
+    pub view_only: bool,
 }
 
 /// Public facts about a newly created artifact (safe to log).
@@ -139,6 +142,7 @@ pub fn pack<R: Read, W: Write>(
         },
         envelopes,
         encrypted_manifest: seal_manifest(&keys, &artifact_id, &manifest_bytes)?,
+        view_only: req.view_only,
         unknown: Vec::new(),
     };
 

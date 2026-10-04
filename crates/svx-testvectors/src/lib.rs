@@ -225,6 +225,18 @@ fn build(
     plaintext: &[u8],
     chunk_size: u32,
 ) -> Vec<u8> {
+    build_with(suite, keys, signer, name, plaintext, chunk_size, false)
+}
+
+fn build_with(
+    suite: Suite,
+    keys: &TestKeys,
+    signer: &SigningKey,
+    name: &str,
+    plaintext: &[u8],
+    chunk_size: u32,
+    view_only: bool,
+) -> Vec<u8> {
     let mut manifest = Manifest::single_file("secret.txt", plaintext.len() as u64);
     manifest.classification = Some("TLP:AMBER".into());
     manifest.description = Some("Fictional SVX test vector".into());
@@ -243,6 +255,7 @@ fn build(
         expires_at: Some(EXPIRES_AT),
         chunk_size: Some(chunk_size),
         manifest,
+        view_only,
     };
     let mut rng = ChaCha20Rng::from_seed(sha(name.as_bytes()));
     let mut out = Vec::new();
@@ -423,6 +436,7 @@ This is not a real secret and exists only to exercise SVX implementations.\n";
     hybrid(&keys, text, &specs, &mut files);
     multi(&keys, text, &mut files);
     max(&keys, text, &specs, &mut files);
+    view_only(&keys, text, &mut files);
     files
 }
 
@@ -436,69 +450,86 @@ fn emit_valid(
     specs: &[ValidSpec],
     files: &mut Vec<File>,
 ) -> Vec<u8> {
-    let trust = keys.trust();
-    let (service_kem, example_kem) = keys.kems(suite);
     let mut first = Vec::new();
     for s in specs {
         let name = format!("{prefix}{}", s.name);
         let svx = build(suite, keys, signer, &name, &s.plaintext, s.chunk_size);
-        let v = svx_core::verify(Cursor::new(&svx), &trust).expect("vector verifies");
-        assert_eq!(v.suite, suite);
-        let svc = v
-            .unwrap_share(EnvelopeRole::Service, service_kem)
-            .expect("service share");
-        let org = v
-            .unwrap_share(EnvelopeRole::RecipientOrg, example_kem)
-            .expect("org share");
-        let mut pt = Vec::new();
-        let manifest = v
-            .decrypt(Cursor::new(&svx), &svc, &org, &mut pt)
-            .expect("vector decrypts");
-        assert_eq!(pt, s.plaintext);
-        let c = svx_core::format::parse(&svx).expect("parse");
-
-        let meta = json!({
-            "name": name,
-            "description": s.description,
-            "expected_result": "accept",
-            "file": format!("{name}.svx"),
-            "file_sha256": hex::encode(sha(&svx)),
-            "rng_seed": format!("SHA-256(\"{name}\")"),
-            "trusted_senders": ["acme-security"],
-            "header": {
-                "format_version": format!("1.{}", c.prelude.minor),
-                "suite_id": c.prelude.suite_id,
-                "artifact_id": hex::encode(c.header.artifact_id),
-                "created_at": c.header.created_at,
-                "expires_at": c.header.expires_at,
-                "sender_org": c.header.sender_org.as_str(),
-                "sender_key_id": hex::encode(c.header.sender_key_id),
-                "recipient_org": c.header.recipient_org.as_str(),
-                "service_id": c.header.service_id.as_str(),
-                "policy_ref": c.header.policy_ref.as_str(),
-                "chunk_size": c.header.chunk_size,
-                "nonce_prefix": hex::encode(c.header.nonce_prefix),
-                "key_commitment": hex::encode(c.header.key_commitment),
-            },
-            "header_region_len": c.header_region.len(),
-            "header_hash": hex::encode(v.header_hash().as_bytes()),
-            "chunk_count": v.chunk_count,
-            "payload_commitment": hex::encode(v.payload_commitment()),
-            "signature": hex::encode(&c.trailer.signature),
-            "shares_test_only": {
-                "service": hex::encode(svc.as_bytes()),
-                "recipient_org": hex::encode(org.as_bytes()),
-            },
-            "manifest": serde_json::to_value(&manifest).expect("manifest json"),
-            "plaintext_hex": hex::encode(&pt),
-        });
-        files.push((format!("{name}.json"), pretty(&meta)));
+        emit_accepted(suite, keys, &name, s.description, &svx, &s.plaintext, files);
         if first.is_empty() {
             first = svx.clone();
         }
         files.push((format!("{name}.svx"), svx));
     }
     first
+}
+
+/// Check a valid vector (verify, unwrap both shares, decrypt) and write its
+/// JSON description.
+fn emit_accepted(
+    suite: Suite,
+    keys: &TestKeys,
+    name: &str,
+    description: &str,
+    svx: &[u8],
+    plaintext: &[u8],
+    files: &mut Vec<File>,
+) {
+    let trust = keys.trust();
+    let (service_kem, example_kem) = keys.kems(suite);
+    let v = svx_core::verify(Cursor::new(svx), &trust).expect("vector verifies");
+    assert_eq!(v.suite, suite);
+    let svc = v
+        .unwrap_share(EnvelopeRole::Service, service_kem)
+        .expect("service share");
+    let org = v
+        .unwrap_share(EnvelopeRole::RecipientOrg, example_kem)
+        .expect("org share");
+    let mut pt = Vec::new();
+    let manifest = v
+        .decrypt(Cursor::new(svx), &svc, &org, &mut pt)
+        .expect("vector decrypts");
+    assert_eq!(pt, plaintext);
+    let c = svx_core::format::parse(svx).expect("parse");
+
+    let mut meta = json!({
+        "name": name,
+        "description": description,
+        "expected_result": "accept",
+        "file": format!("{name}.svx"),
+        "file_sha256": hex::encode(sha(svx)),
+        "rng_seed": format!("SHA-256(\"{name}\")"),
+        "trusted_senders": ["acme-security"],
+        "header": {
+            "format_version": format!("1.{}", c.prelude.minor),
+            "suite_id": c.prelude.suite_id,
+            "artifact_id": hex::encode(c.header.artifact_id),
+            "created_at": c.header.created_at,
+            "expires_at": c.header.expires_at,
+            "sender_org": c.header.sender_org.as_str(),
+            "sender_key_id": hex::encode(c.header.sender_key_id),
+            "recipient_org": c.header.recipient_org.as_str(),
+            "service_id": c.header.service_id.as_str(),
+            "policy_ref": c.header.policy_ref.as_str(),
+            "chunk_size": c.header.chunk_size,
+            "nonce_prefix": hex::encode(c.header.nonce_prefix),
+            "key_commitment": hex::encode(c.header.key_commitment),
+        },
+        "header_region_len": c.header_region.len(),
+        "header_hash": hex::encode(v.header_hash().as_bytes()),
+        "chunk_count": v.chunk_count,
+        "payload_commitment": hex::encode(v.payload_commitment()),
+        "signature": hex::encode(&c.trailer.signature),
+        "shares_test_only": {
+            "service": hex::encode(svc.as_bytes()),
+            "recipient_org": hex::encode(org.as_bytes()),
+        },
+        "manifest": serde_json::to_value(&manifest).expect("manifest json"),
+        "plaintext_hex": hex::encode(&pt),
+    });
+    if c.header.view_only {
+        meta["header"]["view_only"] = json!(true);
+    }
+    files.push((format!("{name}.json"), pretty(&meta)));
 }
 
 /// SVX 1.1 / suite 0x0003 vectors (`hybrid-*`).
@@ -611,6 +642,7 @@ fn multi(keys: &TestKeys, text: &[u8], files: &mut Vec<File>) {
         expires_at: Some(EXPIRES_AT),
         chunk_size: Some(64),
         manifest,
+        view_only: false,
     };
     let mut rng = ChaCha20Rng::from_seed(sha(name.as_bytes()));
     let mut svx = Vec::new();
@@ -771,4 +803,46 @@ fn max(keys: &TestKeys, text: &[u8], specs: &[ValidSpec], files: &mut Vec<File>)
         files.push((format!("{name}.json"), pretty(&meta)));
         files.push((format!("{name}.svx"), bytes));
     }
+}
+
+/// SVX 1.4 view-only vectors: a valid one, and the same file with the
+/// signed `view_only` field removed to pass it off as an ordinary file.
+fn view_only(keys: &TestKeys, text: &[u8], files: &mut Vec<File>) {
+    let name = "max-valid-view-only";
+    let svx = build_with(Suite::Svx2, keys, &keys.acme_sign_m, name, text, 64, true);
+    let c = svx_core::format::parse(&svx).expect("parse view-only");
+    assert!(c.header.view_only);
+    emit_accepted(
+        Suite::Svx2,
+        keys,
+        name,
+        "A view-only SVX-2 file (format 1.4, critical view_only field 0x8010).",
+        &svx,
+        text,
+        files,
+    );
+    files.push((format!("{name}.svx"), svx.clone()));
+
+    // The field is the last one in the header (highest tag), 6 bytes long.
+    let header_end = c.header_region.len();
+    let field = [0x10, 0x80, 0, 0, 0, 0];
+    assert_eq!(&svx[header_end - 6..header_end], &field);
+    let mut stripped = svx[..header_end - 6].to_vec();
+    stripped.extend_from_slice(&svx[header_end..]);
+    let len = u32::from_le_bytes(stripped[12..16].try_into().expect("4 bytes")) - 6;
+    stripped[12..16].copy_from_slice(&len.to_le_bytes());
+    stripped[9] = svx_core::format::FORMAT_MINOR_MAX;
+    let bad = "max-invalid-view-only-stripped";
+    let meta = json!({
+        "name": bad,
+        "description": "The signed view_only field removed and the prelude patched to look like an ordinary 1.3 file: the signature no longer verifies.",
+        "expected_result": "reject",
+        "reject_stage": "verify",
+        "derived_from": name,
+        "file": format!("{bad}.svx"),
+        "file_sha256": hex::encode(sha(&stripped)),
+        "trusted_senders": ["acme-security"],
+    });
+    files.push((format!("{bad}.json"), pretty(&meta)));
+    files.push((format!("{bad}.svx"), stripped));
 }

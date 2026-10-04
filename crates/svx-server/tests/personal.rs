@@ -670,6 +670,14 @@ async fn view_only_rules_are_the_senders_to_change() {
         ..Default::default()
     };
     assert!(update(&w, &bob, &status, &u).await.is_err());
+    // The sender can make a file sent as view-only view-only again.
+    assert!(
+        update(&w, &alice, &status, &u)
+            .await
+            .unwrap()
+            .rules
+            .view_only
+    );
     // A file that was never view-only: "let them ask" is dropped at registration.
     let loose = FileRules {
         view_only: false,
@@ -678,6 +686,8 @@ async fn view_only_rules_are_the_senders_to_change() {
     };
     let (_, st) = w.send(&alice, &[&bob], loose).await.unwrap();
     assert!(!st.rules.allow_share_requests);
+    // ...and it can't become view-only: it holds nothing the viewer shows.
+    assert!(invalid(update(&w, &alice, &st, &u).await).contains("view-only"));
     w.cleanup().await.unwrap();
 }
 
@@ -725,5 +735,21 @@ async fn share_requests_and_open_requests_stay_apart() {
         .await
         .unwrap();
     assert!(matches!(released, PersonalReleaseResponse::Released { .. }));
+    w.cleanup().await.unwrap();
+}
+
+#[tokio::test]
+async fn the_registered_rule_must_match_the_signed_flag() {
+    let w = world!();
+    let alice = w.sign_up("alice").await;
+    let bob = w.sign_up("bob").await;
+    // An ordinary file can't be registered as view-only...
+    let plain = w.pack_personal(&alice, &[&bob], Some(now() + 3600));
+    assert!(invalid(w.register(&alice, &plain, VIEW_ONLY).await).contains("view-only"));
+    // ...and a view-only file can't be registered as an ordinary one.
+    let flagged = w.pack_personal_with(&alice, &[&bob], Some(now() + 3600), true);
+    assert!(invalid(w.register(&alice, &flagged, NO_APPROVAL).await).contains("view-only"));
+    let st = w.register(&alice, &flagged, VIEW_ONLY).await.unwrap();
+    assert!(st.rules.view_only);
     w.cleanup().await.unwrap();
 }

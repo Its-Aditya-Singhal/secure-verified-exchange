@@ -125,6 +125,7 @@ pub fn pack(input: &Path, output: Option<PathBuf>, o: PackOpts) -> Result<ExitCo
         expires_at,
         chunk_size: o.chunk_size,
         manifest,
+        view_only: false,
     };
     let summary = svx_core::pack(
         &req,

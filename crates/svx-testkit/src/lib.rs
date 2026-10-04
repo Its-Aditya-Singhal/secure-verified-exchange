@@ -523,6 +523,7 @@ impl World {
             expires_at,
             chunk_size: Some(64),
             manifest: Manifest::single_file("evidence.txt", SECRET.len() as u64),
+            view_only: false,
         };
         let mut out = Vec::new();
         svx_core::pack(&req, SECRET, &mut out, &mut os_rng()).unwrap();

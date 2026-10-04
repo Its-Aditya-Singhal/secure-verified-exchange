@@ -41,6 +41,7 @@ export type ErrorKind =
   | "account_exists"
   | "cancelled"
   | "not_confirmed"
+  | "view_unsupported"
   | "other";
 
 /** Coarse reason reported by the service for {@link AccessDeniedError}. */
@@ -51,7 +52,8 @@ export type DenyReason =
   | "invalid_request"
   | "unavailable"
   | "already_opened"
-  | "declined";
+  | "declined"
+  | "view_only";
 
 /** Base class of all SVX errors. */
 export class SvxError extends Error {

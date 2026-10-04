@@ -1,6 +1,6 @@
 # SVX 1.x Container Format Specification
 
-Status: Draft 4. Covers SVX 1.0, SVX 1.1, which adds the post-quantum hybrid suite `0x0003` (envelope layout V2, §3.2), SVX 1.2, which adds artifacts with several recipients (§3.3), and SVX 1.3, which adds the maximum-strength suite `0x0004` (SVX-2). Cryptographic operations are defined in [`crypto-profile.md`](crypto-profile.md). The key words MUST, MUST NOT, SHOULD and MAY are used as defined in RFC 2119.
+Status: Draft 4. Covers SVX 1.0, SVX 1.1, which adds the post-quantum hybrid suite `0x0003` (envelope layout V2, §3.2), SVX 1.2, which adds artifacts with several recipients (§3.3), SVX 1.3, which adds the maximum-strength suite `0x0004` (SVX-2), and SVX 1.4, which adds view-only artifacts (§3.4). Cryptographic operations are defined in [`crypto-profile.md`](crypto-profile.md). The key words MUST, MUST NOT, SHOULD and MAY are used as defined in RFC 2119.
 
 ## 1. Overview
 
@@ -29,7 +29,7 @@ All integers are little-endian unless stated otherwise. The only exception is th
 |-------:|-----:|-------|-------|
 | 0 | 8 | magic | `89 53 56 58 0D 0A 1A 0A` (`\x89SVX\r\n\x1a\n`) |
 | 8 | 1 | major | `1` |
-| 9 | 1 | minor | `0` for suite `0x0001`; `1` for suite `0x0003` (`2` with several recipients); `3` for suite `0x0004` |
+| 9 | 1 | minor | `0` for suite `0x0001`; `1` for suite `0x0003` (`2` with several recipients); `3` for suite `0x0004` (`4` when view-only) |
 | 10 | 2 | suite_id | `0x0001` (SVX-1), `0x0003` (SVX-1H, post-quantum hybrid) or `0x0004` (SVX-2, maximum strength) |
 | 12 | 4 | header_len | ≤ 1 048 576 |
 
@@ -72,6 +72,7 @@ field = tag (u16) ‖ len (u32) ‖ value (len bytes)
 | `0x800D` | encrypted_manifest | yes | 16 ≤ len ≤ 65 552 bytes (AEAD ciphertext and tag) |
 | `0x800E` | key_envelopes_v2 | (suites `0x0003`, `0x0004`) | see §3.2. Since 1.1. |
 | `0x800F` | recipients | no | see §3.3. Since 1.2; suites `0x0003` and `0x0004` only. |
+| `0x8010` | view_only | no | empty; see §3.4. Since 1.4; suite `0x0004` only. |
 
 Exactly one of `0x800C` and `0x800E` MUST be present: `0x800C` for suite `0x0001`, `0x800E` for suites `0x0003` and `0x0004`. Any other combination MUST be rejected (this also stops a suite downgrade, since the prelude is covered by the header hash and the signature).
 
@@ -113,6 +114,17 @@ An artifact for more than one recipient carries this critical field. Writers MUS
 - there is exactly one Service envelope and exactly `count` RecipientOrg envelopes, with pairwise distinct `key_id`s.
 
 Each RecipientOrg envelope seals the **same** recipient share to a different recipient key; its HPKE `info` (crypto profile) already binds the envelope's `key_id`. A recipient finds its envelope by its own key ID. Because the field is critical and part of the signed header, a 1.1 reader rejects such artifacts, and no recipient can be added or removed without breaking the signature. The managed service releases its share only to an authenticated account named in this list.
+
+### 3.4 View-only artifacts (SVX 1.4)
+
+A sender can limit an artifact to viewing inside the recipient's application. Such an artifact carries the critical field `view_only` (`0x8010`) with an **empty** value; writers MUST set the prelude minor version to 4 and MUST NOT write the field in any suite other than `0x0004`. Readers MUST reject the field with a non-empty value or in another suite.
+
+Because the field is critical and covered by the signature:
+
+- a reader that predates 1.4 rejects the artifact instead of treating it as an ordinary one;
+- the flag can't be removed (to pass the artifact off as ordinary) or added without breaking the signature.
+
+What "view-only" means for the payload, and when a recipient may still save it, is decided by the application and the managed service (the sender can later allow saving). The field only records, signed, that the sender created the artifact view-only. It does not and cannot stop a modified application from keeping content it has decrypted.
 
 ## 4. Identifiers
 
@@ -200,6 +212,6 @@ The reference implementation (`svx-format`, `svx-core`) reports these classes. C
 - `keys.json` (suite `0x0001`), `keys-hybrid.json` (suite `0x0003`) and `keys-max.json` (suite `0x0004`), which hold **test-only** keys derived from public labels;
 - `hybrid-*` vectors for SVX 1.1 / suite `0x0003`, including a downgrade attempt and tampering with each half of the hybrid signature;
 - `multi-*` vectors for SVX 1.2: two recipients that each open the file, and a renamed recipient that fails verification;
-- `max-*` vectors for SVX 1.3 / suite `0x0004`: a downgrade attempt to `0x0003`, tampering with each of the three signatures, a tampered envelope, a tampered chunk and an untrusted signer.
+- `max-*` vectors for SVX 1.3 / suite `0x0004`: a downgrade attempt to `0x0003`, tampering with each of the three signatures, a tampered envelope, a tampered chunk and an untrusted signer; `max-valid-view-only` (1.4) and `max-invalid-view-only-stripped`, the same file with the field removed and the prelude patched to look like 1.3.
 
 The vectors are reproducible byte for byte with `cargo run -p svx-testvectors`.

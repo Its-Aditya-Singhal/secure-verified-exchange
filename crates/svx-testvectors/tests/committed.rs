@@ -90,6 +90,6 @@ fn every_committed_vector_behaves_as_recorded() {
         }
     }
     // The set can grow, never shrink: a removed vector is a removed promise.
-    assert!(accepted >= 10, "only {accepted} valid vectors found");
-    assert!(rejected >= 27, "only {rejected} invalid vectors found");
+    assert!(accepted >= 11, "only {accepted} valid vectors found");
+    assert!(rejected >= 28, "only {rejected} invalid vectors found");
 }

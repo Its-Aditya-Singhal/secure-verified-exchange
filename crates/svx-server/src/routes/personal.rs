@@ -464,6 +464,8 @@ struct FileRow {
     revoked_at: Option<i64>,
     view_only: bool,
     allow_share_requests: bool,
+    /// The flag signed into the file (format 1.4).
+    signed_view_only: bool,
 }
 
 impl FileRow {
@@ -491,7 +493,7 @@ impl FileRow {
 }
 
 const FILE_COLUMNS: &str = "artifact_id, sender, header_hash, created_at, signed_expires_at, \
-    require_approval, one_time, expires_at, revoked_at, view_only, allow_share_requests";
+    require_approval, one_time, expires_at, revoked_at, view_only, allow_share_requests, signed_view_only";
 
 async fn file(st: &AppState, artifact_id: &[u8]) -> ApiResult<Option<FileRow>> {
     Ok(sqlx::query_as(&format!(
@@ -720,6 +722,15 @@ pub async fn register_file(
         return Err(bad("this file was made by another account"));
     }
     check_rules(&req.rules, h.expires_at)?;
+    // The sender's choice is signed into the file; the rule starts out the
+    // same (the sender can relax it later).
+    if req.rules.view_only != h.view_only {
+        return Err(bad(if h.view_only {
+            "this file is view-only: register it with the view-only rule"
+        } else {
+            "the view-only rule needs a file made view-only"
+        }));
+    }
     let recipients = h.all_recipients();
     for r in recipients {
         if account_by_org(&st, r.as_str()).await?.is_none() {
@@ -730,8 +741,8 @@ pub async fn register_file(
     let mut tx = st.db.begin().await?;
     let inserted = sqlx::query(
         "INSERT INTO personal_files (artifact_id, sender, header_hash, created_at, signed_expires_at, \
-         require_approval, one_time, expires_at, revoked_at, registered_at, view_only, allow_share_requests) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, $9, $10, $11)",
+         require_approval, one_time, expires_at, revoked_at, registered_at, view_only, allow_share_requests, \
+         signed_view_only) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, $9, $10, $11, $10)",
     )
     .bind(&h.artifact_id[..])
     .bind(&me.org_id)
@@ -827,6 +838,12 @@ pub async fn update_file(
         rules.expires_at = req.expires_at;
     }
     if let Some(v) = req.view_only {
+        // Only a file made view-only holds what the viewer shows.
+        if v && !f.signed_view_only {
+            return Err(bad(
+                "only a file sent as view-only can be view-only: send it again with view-only on",
+            ));
+        }
         rules.view_only = v;
     }
     if let Some(v) = req.allow_share_requests {

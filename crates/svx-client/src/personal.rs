@@ -6,7 +6,7 @@
 //! SVX-2 key, so opening a file never needs a browser.
 
 use std::fs::File;
-use std::io::{BufReader, BufWriter};
+use std::io::{BufReader, BufWriter, Cursor, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -50,6 +50,25 @@ pub const POLL_INTERVAL: Duration = Duration::from_secs(3);
 pub const MIN_PASSWORD_LEN: usize = 10;
 /// At most this many recipients per file.
 pub const MAX_RECIPIENTS: usize = svx_core::format::limits::MAX_RECIPIENTS;
+
+/// A released personal file: verified, with both halves of its key.
+pub(crate) struct Released {
+    pub verified: svx_core::VerifiedArtifact,
+    pub svc_share: svx_core::crypto::Share,
+    pub recipient_share: svx_core::crypto::Share,
+    pub session: ReleaseSession,
+    /// The sender, as shown in the app.
+    pub sender: String,
+}
+
+/// A reader that keeps `T` (a temporary file) alive while it is read.
+struct Keep<R, T>(R, T);
+
+impl<R: Read, T> Read for Keep<R, T> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.0.read(buf)
+    }
+}
 
 /// The two private keys of a device.
 pub struct DeviceKeys {
@@ -763,11 +782,41 @@ impl Client {
         let service_id = Identifier::new(&service.service_id)
             .map_err(|_| ClientError::Other("invalid service id".into()))?;
 
-        let input = crate::pack::prepare_input(&o.input, o.name)?;
-        let output = o.output.unwrap_or_else(|| input.default_output.clone());
-        let file = File::open(&input.path)?;
-        let mut manifest = Manifest::single_file(&input.name, file.metadata()?.len());
-        manifest.files[0].content_type = input.content_type.clone();
+        // A view-only file holds a small container (see `viewfile`); an
+        // Office file is converted here, from the sender's own file.
+        let (manifest, source, output): (Manifest, Box<dyn Read + Send>, PathBuf) =
+            if o.rules.view_only {
+                let input = o.input.clone();
+                let parts = tokio::task::spawn_blocking(move || crate::viewfile::prepare(&input))
+                    .await
+                    .map_err(|e| ClientError::Other(e.to_string()))??;
+                let payload = crate::viewfile::build(&parts)?;
+                let name = match o.name {
+                    Some(n) => n,
+                    None => o
+                        .input
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .ok_or_else(|| ClientError::Config("input has no usable file name".into()))?
+                        .to_owned(),
+                };
+                let mut manifest = Manifest::single_file(&name, payload.len() as u64);
+                manifest.files[0].content_type = Some(crate::viewfile::VIEW_CONTENT_TYPE.into());
+                let output = o.output.unwrap_or_else(|| o.input.with_extension("svx"));
+                (manifest, Box::new(Cursor::new(payload)), output)
+            } else {
+                let input = crate::pack::prepare_input(&o.input, o.name)?;
+                let output = o.output.unwrap_or_else(|| input.default_output.clone());
+                let file = File::open(&input.path)?;
+                let mut manifest = Manifest::single_file(&input.name, file.metadata()?.len());
+                manifest.files[0].content_type = input.content_type.clone();
+                // `input` may own a temporary zip of a folder: keep it open with the file.
+                (
+                    manifest,
+                    Box::new(Keep(BufReader::new(file), input)),
+                    output,
+                )
+            };
         let dir = output
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
@@ -793,8 +842,9 @@ impl Client {
                 expires_at: o.expires_at,
                 chunk_size: None,
                 manifest,
+                view_only: o.rules.view_only,
             },
-            BufReader::new(file),
+            source,
             BufWriter::new(tmp.as_file()),
             &mut os_rng(),
         )
@@ -838,6 +888,9 @@ impl Client {
     /// Open a file sent to this account. Every open checks with the service;
     /// if the sender must approve, this waits (polling) until they do,
     /// decline, or `cancel` is set.
+    ///
+    /// A view-only file is saved only once the sender has allowed it (the
+    /// service refuses otherwise); then the sender's original is written.
     pub async fn open_personal(
         &self,
         path: &Path,
@@ -846,7 +899,6 @@ impl Client {
         cancel: &AtomicBool,
     ) -> Result<OpenOutcome> {
         self.present(Need::Session, "open a file").await?;
-        let d = self.device()?;
         let output = match output {
             Some(o) => o,
             None => Output::Dir {
@@ -857,6 +909,63 @@ impl Client {
                 overwrite: false,
             },
         };
+        let r = self
+            .release_personal(path, ReleaseMode::Save, progress, cancel)
+            .await?;
+
+        // Decrypt locally, then confirm (makes a one-time open final).
+        progress(Step::Decrypting);
+        let h = &r.verified.header;
+        let outcome = if h.view_only {
+            crate::view::save(
+                path,
+                &r,
+                output,
+                h.sender_org.to_string(),
+                hex::encode(h.artifact_id),
+            )?
+        } else {
+            write_output(path, &r.verified, &r.svc_share, &r.recipient_share, output)?
+        };
+        self.opened(&r).await;
+        Ok(outcome)
+    }
+
+    /// Show a view-only file: decrypted only into memory, never written to
+    /// disk. Every view asks the service again. Refused on Linux, where the
+    /// viewer can't be kept out of screenshots.
+    pub async fn view_personal(
+        &self,
+        path: &Path,
+        progress: &mut (dyn FnMut(Step) + Send),
+        cancel: &AtomicBool,
+    ) -> Result<crate::view::ViewSession> {
+        if cfg!(target_os = "linux") {
+            return Err(ClientError::ViewUnsupported);
+        }
+        self.present(Need::Session, "view a file").await?;
+        let viewer = self.account_config()?.email.clone();
+        let r = self
+            .release_personal(path, ReleaseMode::View, progress, cancel)
+            .await?;
+        progress(Step::Decrypting);
+        let (manifest, parts) = crate::view::decrypt(path, &r)?;
+        let session = crate::view::ViewSession::new(&r, &manifest, parts, viewer, crate::now());
+        self.opened(&r).await;
+        Ok(session)
+    }
+
+    /// Steps shared by saving and viewing: verify against the sender's
+    /// registered keys, check it's for me and from our service, unwrap my
+    /// half, then ask the service (waiting while the sender decides).
+    async fn release_personal(
+        &self,
+        path: &Path,
+        mode: ReleaseMode,
+        progress: &mut (dyn FnMut(Step) + Send),
+        cancel: &AtomicBool,
+    ) -> Result<Released> {
+        let d = self.device()?;
         let registry = Registry::new(&self.cfg, &self.http)?;
 
         // 1. Verify locally against the sender's registered keys.
@@ -884,6 +993,12 @@ impl Client {
         progress(Step::SignatureValid {
             sender: sender_name.clone(),
         });
+        // Viewing is for view-only files; asking would count as an open.
+        if mode == ReleaseMode::View && !h.view_only {
+            return Err(ClientError::Invalid(
+                "this file isn't view-only: open it normally".into(),
+            ));
+        }
 
         // 2. For me, from our service, not expired.
         if !h.all_recipients().iter().any(|r| r.as_str() == d.account) {
@@ -913,11 +1028,10 @@ impl Client {
                 )
             })?;
 
-        // 3. Ask the service; repeat while the sender decides.
+        // 3. Ask the service; repeat while the sender decides. Saving a
+        // view-only file is refused unless the sender allowed sharing.
         progress(Step::CheckingAuthorization);
         let session = ReleaseSession::new();
-        // This path writes a normal file, so it asks to save: the service
-        // refuses a view-only file unless the sender allowed sharing.
         let request = session.personal_request(
             &verified.header_region,
             &{
@@ -926,7 +1040,7 @@ impl Client {
                     .encode()
                     .map_err(|e| ClientError::Rejected(e.to_string()))?
             },
-            ReleaseMode::Save,
+            mode,
         );
         let mut announced = false;
         let share = loop {
@@ -960,19 +1074,25 @@ impl Client {
         };
         let svc_share = session.open_service_share(&h.artifact_id, &share)?;
         progress(Step::AccessApproved);
+        Ok(Released {
+            verified,
+            svc_share,
+            recipient_share,
+            session,
+            sender: sender_name,
+        })
+    }
 
-        // 4. Decrypt locally, then confirm (makes a one-time open final).
-        progress(Step::Decrypting);
-        let outcome = write_output(path, &verified, &svc_share, &recipient_share, output)?;
+    /// Tell the service the file was decrypted (makes a one-time open final).
+    /// Best effort: without it the open becomes final after a few minutes.
+    async fn opened(&self, r: &Released) {
         let receipt = OpenedReceipt {
-            artifact_id: h.artifact_id,
-            txn: *session.txn(),
+            artifact_id: r.verified.header.artifact_id,
+            txn: *r.session.txn(),
         };
-        // Best effort: without it the open becomes final after a few minutes.
         let _ = self
             .call::<_, serde_json::Value>(Method::POST, "/v1/personal/opened", Some(&receipt))
             .await;
-        Ok(outcome)
     }
 
     /// Requests waiting for this account's approval.

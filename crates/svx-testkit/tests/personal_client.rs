@@ -702,11 +702,20 @@ async fn a_view_only_file_isnt_saved_until_the_sender_allows_it() {
     assert_eq!(st.state, ShareState::Approved);
 
     // Now it opens as a normal file, once: the refused attempt used nothing up.
+    // The file itself is saved, never the container around it.
     let opened = bob
         .open_personal(&sent.path, out(d.path(), "bob-2"), &mut |_| {}, &never)
         .await
         .unwrap();
-    assert_eq!(std::fs::read(opened.path.unwrap()).unwrap(), SECRET);
+    let path = opened.path.unwrap();
+    assert_eq!(path.file_name().unwrap(), "contract.txt");
+    assert_eq!(std::fs::read(&path).unwrap(), SECRET);
+    assert_eq!(
+        std::fs::read_dir(d.path().join("bob-2")).unwrap().count(),
+        1
+    );
+    assert_eq!(opened.manifest.files[0].name, "contract.txt");
+    assert_eq!(opened.manifest.files[0].content_type, None);
     let again = bob
         .open_personal(&sent.path, out(d.path(), "bob-3"), &mut |_| {}, &never)
         .await;
@@ -714,5 +723,216 @@ async fn a_view_only_file_isnt_saved_until_the_sender_allows_it() {
         again,
         Err(ClientError::Denied(DenyReason::AlreadyOpened))
     ));
+    w.cleanup().await.unwrap();
+}
+
+/// View-only rules with no approval step.
+const VIEW: FileRules = FileRules {
+    require_approval: false,
+    one_time: false,
+    expires_at: None,
+    view_only: true,
+    allow_share_requests: false,
+};
+
+async fn send_file(c: &Client, dir: &Path, name: &str, rules: FileRules) -> personal::SendResult {
+    let input = dir.join(name);
+    std::fs::write(&input, SECRET).unwrap();
+    c.send(SendOptions {
+        input,
+        output: None,
+        overwrite: false,
+        to: vec!["bob@example.test".into()],
+        rules,
+        expires_at: None,
+        name: None,
+    })
+    .await
+    .unwrap()
+}
+
+/// Every file under `dir`.
+#[cfg(not(target_os = "linux"))]
+fn files_under(dir: &Path) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    for e in std::fs::read_dir(dir).unwrap() {
+        let p = e.unwrap().path();
+        if p.is_dir() {
+            out.extend(files_under(&p));
+        } else {
+            out.push(p);
+        }
+    }
+    out.sort();
+    out
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn only_viewable_files_can_be_sent_view_only() {
+    let w = world!();
+    let d = tempfile::tempdir().unwrap();
+    let alice = sign_up_as(&w, d.path(), "alice", "alice", KeyChoice::New)
+        .await
+        .unwrap();
+    sign_up_as(&w, d.path(), "bob", "bob", KeyChoice::New)
+        .await
+        .unwrap();
+    let folder = d.path().join("photos");
+    std::fs::create_dir(&folder).unwrap();
+    std::fs::write(folder.join("a.txt"), SECRET).unwrap();
+    let tool = d.path().join("tool.exe");
+    std::fs::write(&tool, SECRET).unwrap();
+    for input in [folder, tool] {
+        let r = alice
+            .send(SendOptions {
+                input,
+                output: None,
+                overwrite: false,
+                to: vec!["bob@example.test".into()],
+                rules: VIEW,
+                expires_at: None,
+                name: None,
+            })
+            .await;
+        assert!(matches!(r, Err(ClientError::Invalid(_))), "{r:?}");
+    }
+    // Nothing was registered or written.
+    assert!(alice.history().await.unwrap().sent.is_empty());
+    assert!(!d.path().join("photos.svx").exists() && !d.path().join("tool.svx").exists());
+    w.cleanup().await.unwrap();
+}
+
+#[cfg(not(target_os = "linux"))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn viewing_stays_in_memory_and_asks_every_time() {
+    let w = world!();
+    let d = tempfile::tempdir().unwrap();
+    let alice = sign_up_as(&w, d.path(), "alice", "alice", KeyChoice::New)
+        .await
+        .unwrap();
+    let bob = sign_up_as(&w, d.path(), "bob", "bob", KeyChoice::New)
+        .await
+        .unwrap();
+    let sent = send_file(&alice, d.path(), "minutes.txt", VIEW).await;
+
+    let before = files_under(d.path());
+    let never = AtomicBool::new(false);
+    let mut steps = Vec::new();
+    let v = bob
+        .view_personal(&sent.path, &mut |s| steps.push(s), &never)
+        .await
+        .unwrap();
+    assert_eq!(v.display(), SECRET);
+    assert_eq!(v.display_name(), "display.txt");
+    assert_eq!(v.file_name, "minutes.txt");
+    assert!(v.sender.contains("alice@example.test"), "{}", v.sender);
+    assert_eq!(v.artifact_id, sent.artifact_id);
+    let lines = v.watermark_lines();
+    assert_eq!(lines[0], "bob@example.test");
+    assert!(lines[1].ends_with(" UTC"));
+    assert_eq!(lines[2], format!("file {}", &sent.artifact_id[..8]));
+    // The content never shows up in logs.
+    let dbg = format!("{v:?}");
+    assert!(!dbg.contains(std::str::from_utf8(SECRET).unwrap()));
+    assert_eq!(steps.last(), Some(&Step::Decrypting));
+    drop(v);
+    // Viewing wrote nothing: not to the output folder, not anywhere.
+    assert_eq!(files_under(d.path()), before);
+
+    // Not one-time: it can be viewed again, each time asking the service.
+    bob.view_personal(&sent.path, &mut |_| {}, &never)
+        .await
+        .unwrap();
+    // After a revoke, viewing again is refused.
+    alice
+        .update_file(
+            &sent.artifact_id,
+            &UpdateFileRequest {
+                revoke: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    let r = bob.view_personal(&sent.path, &mut |_| {}, &never).await;
+    assert!(
+        matches!(r, Err(ClientError::Denied(DenyReason::ExpiredOrRevoked))),
+        "{r:?}"
+    );
+    w.cleanup().await.unwrap();
+}
+
+#[cfg(not(target_os = "linux"))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn one_time_means_viewed_once_and_normal_files_arent_viewed() {
+    let w = world!();
+    let d = tempfile::tempdir().unwrap();
+    let alice = sign_up_as(&w, d.path(), "alice", "alice", KeyChoice::New)
+        .await
+        .unwrap();
+    let bob = sign_up_as(&w, d.path(), "bob", "bob", KeyChoice::New)
+        .await
+        .unwrap();
+    let never = AtomicBool::new(false);
+    let once = FileRules {
+        one_time: true,
+        ..VIEW
+    };
+    let sent = send_file(&alice, d.path(), "salary.pdf", once).await;
+    // (Not a real PDF: the client doesn't parse it, the viewer does.)
+    let v = bob
+        .view_personal(&sent.path, &mut |_| {}, &never)
+        .await
+        .unwrap();
+    assert_eq!(v.display_name(), "display.pdf");
+    let r = bob.view_personal(&sent.path, &mut |_| {}, &never).await;
+    assert!(
+        matches!(r, Err(ClientError::Denied(DenyReason::AlreadyOpened))),
+        "{r:?}"
+    );
+
+    // A normal one-time file isn't viewed, and asking to doesn't use it up.
+    let normal = FileRules {
+        view_only: false,
+        ..once
+    };
+    let plain = send_file(&alice, d.path(), "notes.txt", normal).await;
+    let r = bob.view_personal(&plain.path, &mut |_| {}, &never).await;
+    assert!(
+        matches!(&r, Err(ClientError::Invalid(m)) if m.contains("open it normally")),
+        "{r:?}"
+    );
+    let opened = bob
+        .open_personal(&plain.path, out(d.path(), "bob"), &mut |_| {}, &never)
+        .await
+        .unwrap();
+    assert_eq!(std::fs::read(opened.path.unwrap()).unwrap(), SECRET);
+    w.cleanup().await.unwrap();
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn linux_refuses_to_show_view_only_files() {
+    let w = world!();
+    let d = tempfile::tempdir().unwrap();
+    let alice = sign_up_as(&w, d.path(), "alice", "alice", KeyChoice::New)
+        .await
+        .unwrap();
+    let bob = sign_up_as(&w, d.path(), "bob", "bob", KeyChoice::New)
+        .await
+        .unwrap();
+    let once = FileRules {
+        one_time: true,
+        ..VIEW
+    };
+    let sent = send_file(&alice, d.path(), "minutes.txt", once).await;
+    let never = AtomicBool::new(false);
+    let r = bob.view_personal(&sent.path, &mut |_| {}, &never).await;
+    let e = r.unwrap_err();
+    assert!(matches!(e, ClientError::ViewUnsupported));
+    assert_eq!(e.kind().as_str(), "view_unsupported");
+    // Refused before asking the service: nothing was used up.
+    let st = alice.file_status(&sent.artifact_id).await.unwrap();
+    assert_eq!(st.recipients[0].state, RecipientState::NotOpened);
     w.cleanup().await.unwrap();
 }

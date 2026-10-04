@@ -157,7 +157,9 @@ fn rejected(why: &str) -> ClientError {
 }
 
 fn read_entry(entry: &mut zip::read::ZipFile<'_, Cursor<&[u8]>>, limit: u64) -> Result<Vec<u8>> {
-    let mut out = Vec::new();
+    // Reserved from the declared size, so an honest entry is read without
+    // reallocating (each reallocation would leave an unwiped copy behind).
+    let mut out = Vec::with_capacity(entry.size().min(limit) as usize);
     // The bytes actually produced count, not the size the archive declares.
     (&mut *entry).take(limit + 1).read_to_end(&mut out)?;
     if out.len() as u64 > limit {

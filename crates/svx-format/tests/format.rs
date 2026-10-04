@@ -31,6 +31,7 @@ fn sample_header() -> Header {
             },
         ],
         encrypted_manifest: vec![11; 40],
+        view_only: false,
         unknown: vec![],
     }
 }
@@ -150,6 +151,38 @@ fn max_layout_round_trip() {
     let mut bytes = build_suite(SUITE_ID_SVX2, &h, 10);
     bytes[10..12].copy_from_slice(&SUITE_ID_SVX1H.to_le_bytes());
     assert!(parse(&bytes).is_err());
+}
+
+#[test]
+fn view_only_is_a_critical_svx2_field() {
+    // Critical: a reader that doesn't know it refuses the file.
+    assert_ne!(tags::VIEW_ONLY & tags::CRITICAL, 0);
+    let mut h = max_header();
+    h.view_only = true;
+    let c = parse(&build_suite(SUITE_ID_SVX2, &h, 50)).unwrap();
+    assert_eq!(c.prelude.minor, FORMAT_MINOR_VIEW_ONLY);
+    assert!(c.header.view_only);
+    assert_eq!(c.header, h);
+    // Only suite SVX-2 can carry it.
+    let mut old = hybrid_header();
+    old.view_only = true;
+    assert!(Writer::new(Vec::new(), SUITE_ID_SVX1H, &old).is_err());
+    let mut v1 = sample_header();
+    v1.view_only = true;
+    assert!(Writer::new(Vec::new(), SUITE_ID_SVX1, &v1).is_err());
+    // The value must be empty.
+    // (It has the highest tag, so it is the last field.)
+    let enc = h.encode().unwrap();
+    let field = [0x10, 0x80, 0, 0, 0, 0];
+    assert!(enc.ends_with(&field));
+    Header::decode(&enc).unwrap();
+    let mut bad = enc[..enc.len() - 6].to_vec();
+    bad.extend([0x10, 0x80, 1, 0, 0, 0, 0xAA]);
+    assert!(Header::decode(&bad).is_err());
+    // Without the flag, nothing changes.
+    let plain = parse(&build_suite(SUITE_ID_SVX2, &max_header(), 50)).unwrap();
+    assert!(!plain.header.view_only);
+    assert_eq!(plain.prelude.minor, FORMAT_MINOR_MAX);
 }
 
 #[test]

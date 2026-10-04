@@ -213,6 +213,18 @@ impl World {
 
     /// `from` packs SECRET for `to` (signed expiry `expires_at`).
     pub fn pack_personal(&self, from: &Person, to: &[&Person], expires_at: Option<i64>) -> Vec<u8> {
+        self.pack_personal_with(from, to, expires_at, false)
+    }
+
+    /// Like [`pack_personal`](Self::pack_personal), optionally view-only
+    /// (signed into the file).
+    pub fn pack_personal_with(
+        &self,
+        from: &Person,
+        to: &[&Person],
+        expires_at: Option<i64>,
+        view_only: bool,
+    ) -> Vec<u8> {
         let ids: Vec<Identifier> = to
             .iter()
             .map(|p| Identifier::new(&p.account).unwrap())
@@ -236,20 +248,21 @@ impl World {
             expires_at,
             chunk_size: Some(64),
             manifest: Manifest::single_file("note.txt", SECRET.len() as u64),
+            view_only,
         };
         let mut out = Vec::new();
         svx_core::pack(&req, SECRET, &mut out, &mut os_rng()).unwrap();
         out
     }
 
-    /// Pack and register a file.
+    /// Pack and register a file (view-only in the file when the rules say so).
     pub async fn send(
         &self,
         from: &Person,
         to: &[&Person],
         rules: FileRules,
     ) -> Result<(Vec<u8>, FileStatus), ProtocolError> {
-        let file = self.pack_personal(from, to, Some(now() + 3600));
+        let file = self.pack_personal_with(from, to, Some(now() + 3600), rules.view_only);
         let status = self.register(from, &file, rules).await?;
         Ok((file, status))
     }

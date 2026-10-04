@@ -1,0 +1,12 @@
+{
+  "derived_from": "max-valid-view-only",
+  "description": "The signed view_only field removed and the prelude patched to look like an ordinary 1.3 file: the signature no longer verifies.",
+  "expected_result": "reject",
+  "file": "max-invalid-view-only-stripped.svx",
+  "file_sha256": "8c1a218d027142f97c333f45b9f1e1234c5f752b09f26324b8747db19b34eaa3",
+  "name": "max-invalid-view-only-stripped",
+  "reject_stage": "verify",
+  "trusted_senders": [
+    "acme-security"
+  ]
+}

@@ -153,6 +153,7 @@ pub async fn pack(
             expires_at: req.expires_at,
             chunk_size: req.chunk_size,
             manifest,
+            view_only: false,
         },
         BufReader::new(input),
         BufWriter::new(tmp.as_file()),

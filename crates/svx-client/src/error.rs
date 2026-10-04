@@ -41,6 +41,13 @@ pub enum ClientError {
     /// Touch ID / the computer's password / Windows Hello wasn't confirmed.
     #[error("not confirmed: confirm it's you to continue")]
     NotConfirmed,
+    /// View-only files can't be shown here: this system can't keep the
+    /// viewer out of screenshots and recordings.
+    #[error(
+        "view-only files can't be shown on this computer: it can't block screenshots. \
+         Open the file on a Mac or a Windows computer"
+    )]
+    ViewUnsupported,
     #[error("{0}")]
     Other(String),
 }
@@ -64,6 +71,7 @@ pub enum ErrorKind {
     AccountExists,
     Cancelled,
     NotConfirmed,
+    ViewUnsupported,
     Other,
 }
 
@@ -84,6 +92,7 @@ impl ErrorKind {
             ErrorKind::AccountExists => "account_exists",
             ErrorKind::Cancelled => "cancelled",
             ErrorKind::NotConfirmed => "not_confirmed",
+            ErrorKind::ViewUnsupported => "view_unsupported",
             ErrorKind::Other => "other",
         }
     }
@@ -106,6 +115,7 @@ impl ClientError {
             ClientError::AccountExists => ErrorKind::AccountExists,
             ClientError::Cancelled => ErrorKind::Cancelled,
             ClientError::NotConfirmed => ErrorKind::NotConfirmed,
+            ClientError::ViewUnsupported => ErrorKind::ViewUnsupported,
             ClientError::Other(_) => ErrorKind::Other,
         }
     }

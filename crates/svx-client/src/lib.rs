@@ -47,6 +47,7 @@ pub mod registry;
 pub mod session;
 pub mod setup;
 pub mod update;
+pub mod view;
 pub mod viewfile;
 
 pub use client::{Client, PackOptions, PackResult};
@@ -55,6 +56,7 @@ pub use error::{ClientError, ErrorKind, Result};
 pub use info::{ArtifactInfo, Status, artifact_id_of, status};
 pub use login::{Authenticator, BrowserLogin, DevLogin};
 pub use open::{OpenOutcome, Output, Step, open, output_path};
+pub use view::ViewSession;
 
 /// Seconds since the Unix epoch, UTC.
 pub fn now() -> i64 {

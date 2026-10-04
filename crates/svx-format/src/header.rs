@@ -32,6 +32,10 @@ pub mod tags {
     /// Every recipient of a multi-recipient artifact (SVX 1.2, suite
     /// `0x0003` only): `count (u8) ‖ { len (u8) ‖ identifier }*`.
     pub const RECIPIENTS: u16 = 0x800F;
+    /// The sender made this a view-only file (SVX 1.4, suite `0x0004` only):
+    /// an empty value. Critical, so a reader that doesn't know it refuses
+    /// the file instead of treating it as an ordinary one.
+    pub const VIEW_ONLY: u16 = 0x8010;
 }
 
 /// How the key envelopes are laid out on the wire.
@@ -161,6 +165,9 @@ pub struct Header {
     pub envelope_layout: EnvelopeLayout,
     pub envelopes: Vec<KeyEnvelope>,
     pub encrypted_manifest: Vec<u8>,
+    /// The sender limited the file to viewing in the app (SVX 1.4). Signed
+    /// with the rest of the header, so it can't be removed or added later.
+    pub view_only: bool,
     /// Non-critical fields from a newer minor version, preserved verbatim.
     pub unknown: Vec<UnknownField>,
 }
@@ -230,6 +237,9 @@ impl Header {
         if !self.recipients.is_empty() {
             fields.push((tags::RECIPIENTS, encode_recipients(&self.recipients)));
         }
+        if self.view_only {
+            fields.push((tags::VIEW_ONLY, Vec::new()));
+        }
         for u in &self.unknown {
             if u.tag & tags::CRITICAL != 0 {
                 return Err(FormatError::UnknownCriticalField(u.tag));
@@ -288,6 +298,7 @@ impl Header {
         let mut key_commitment = None;
         let mut envelopes = None;
         let mut encrypted_manifest = None;
+        let mut view_only = false;
         let mut unknown = Vec::new();
 
         while !cur.is_empty() {
@@ -360,6 +371,12 @@ impl Header {
                     encrypted_manifest = Some(value.to_vec());
                 }
                 tags::RECIPIENTS => recipients = decode_recipients(value)?,
+                tags::VIEW_ONLY => {
+                    if !value.is_empty() {
+                        return Err(FormatError::Malformed("view_only (must be empty)"));
+                    }
+                    view_only = true;
+                }
                 t if t & tags::CRITICAL != 0 => return Err(FormatError::UnknownCriticalField(t)),
                 t => unknown.push(UnknownField {
                     tag: t,
@@ -390,6 +407,7 @@ impl Header {
                 .1,
             encrypted_manifest: encrypted_manifest
                 .ok_or(FormatError::MissingField("encrypted_manifest"))?,
+            view_only,
             unknown,
         };
         h.check_semantics()?;
