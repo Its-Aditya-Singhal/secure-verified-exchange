@@ -3,7 +3,7 @@ use rand_core::SeedableRng;
 use svx_crypto::*;
 use svx_format::{EnvelopeRole, Identifier};
 
-const SUITES: [Suite; 2] = [Suite::Svx1, Suite::Svx1H];
+const SUITES: [Suite; 3] = [Suite::Svx1, Suite::Svx1H, Suite::Svx2];
 
 fn rng() -> ChaCha20Rng {
     ChaCha20Rng::from_seed([7; 32])
@@ -13,6 +13,7 @@ fn kem(suite: Suite, r: &mut ChaCha20Rng) -> KemSecretKey {
     match suite {
         Suite::Svx1 => KemSecretKey::generate(r),
         Suite::Svx1H => KemSecretKey::generate_hybrid(r),
+        Suite::Svx2 => KemSecretKey::generate_max(r),
     }
 }
 
@@ -20,6 +21,7 @@ fn signer(suite: Suite, r: &mut ChaCha20Rng) -> SigningKey {
     match suite {
         Suite::Svx1 => SigningKey::generate(r),
         Suite::Svx1H => SigningKey::generate_hybrid(r),
+        Suite::Svx2 => SigningKey::generate_max(r),
     }
 }
 
@@ -174,7 +176,7 @@ fn stream_detects_reorder_truncation_and_flag_flip() {
         &Share::generate(&mut r),
         &Share::generate(&mut r),
     );
-    let hh = header_hash(b"header");
+    let hh = header_hash(Suite::Svx1, b"header");
     let prefix = [4u8; 7];
 
     let mut enc = StreamEncryptor::new(&keys, prefix, &hh);
@@ -201,7 +203,7 @@ fn stream_detects_reorder_truncation_and_flag_flip() {
     dec.decrypt_chunk(&c0, false).unwrap();
     assert!(dec.finish().is_err());
     // Different header
-    let mut dec = StreamDecryptor::new(&keys, prefix, &header_hash(b"headeR"));
+    let mut dec = StreamDecryptor::new(&keys, prefix, &header_hash(Suite::Svx1, b"headeR"));
     assert!(dec.decrypt_chunk(&c0, false).is_err());
 }
 
@@ -211,22 +213,22 @@ fn signature_round_trip_and_tamper() {
         let mut r = rng();
         let sk = signer(suite, &mut r);
         let vk = sk.verifying_key();
-        let hh = header_hash(b"h");
-        let (alg, sig) = sign_transcript(suite, &sk, &hh, 3, &[1; 32], &mut r).unwrap();
+        let hh = header_hash(suite, b"h");
+        let c1 = vec![1u8; commitment_len(suite)];
+        let c2 = vec![2u8; commitment_len(suite)];
+        let (alg, sig) = sign_transcript(suite, &sk, &hh, 3, &c1, &mut r).unwrap();
         assert_eq!(alg, suite.sig_alg());
-        verify_transcript(suite, &vk, &hh, 3, &[1; 32], alg, &sig).unwrap();
-        assert!(verify_transcript(suite, &vk, &hh, 4, &[1; 32], alg, &sig).is_err());
-        assert!(verify_transcript(suite, &vk, &hh, 3, &[2; 32], alg, &sig).is_err());
-        assert!(verify_transcript(suite, &vk, &hh, 3, &[1; 32], 0x0009, &sig).is_err());
+        verify_transcript(suite, &vk, &hh, 3, &c1, alg, &sig).unwrap();
+        assert!(verify_transcript(suite, &vk, &hh, 4, &c1, alg, &sig).is_err());
+        assert!(verify_transcript(suite, &vk, &hh, 3, &c2, alg, &sig).is_err());
+        assert!(verify_transcript(suite, &vk, &hh, 3, &c1, 0x0009, &sig).is_err());
         let other = signer(suite, &mut r).verifying_key();
-        assert!(verify_transcript(suite, &other, &hh, 3, &[1; 32], alg, &sig).is_err());
+        assert!(verify_transcript(suite, &other, &hh, 3, &c1, alg, &sig).is_err());
         // Truncated / extended signatures.
-        assert!(
-            verify_transcript(suite, &vk, &hh, 3, &[1; 32], alg, &sig[..sig.len() - 1]).is_err()
-        );
+        assert!(verify_transcript(suite, &vk, &hh, 3, &c1, alg, &sig[..sig.len() - 1]).is_err());
         let mut longer = sig.clone();
         longer.push(0);
-        assert!(verify_transcript(suite, &vk, &hh, 3, &[1; 32], alg, &longer).is_err());
+        assert!(verify_transcript(suite, &vk, &hh, 3, &c1, alg, &longer).is_err());
     }
 }
 
@@ -235,7 +237,7 @@ fn hybrid_signature_needs_both_halves() {
     let mut r = rng();
     let sk = SigningKey::generate_hybrid(&mut r);
     let vk = sk.verifying_key();
-    let hh = header_hash(b"h");
+    let hh = header_hash(Suite::Svx1H, b"h");
     let s = Suite::Svx1H;
     let (alg, sig) = sign_transcript(s, &sk, &hh, 1, &[0; 32], &mut r).unwrap();
     assert_eq!(sig.len(), HYBRID_SIG_LEN);
@@ -262,7 +264,7 @@ fn signatures_do_not_cross_suites() {
     let mut r = rng();
     let classical = SigningKey::generate(&mut r);
     let hybrid = SigningKey::generate_hybrid(&mut r);
-    let hh = header_hash(b"h");
+    let hh = header_hash(Suite::Svx1, b"h");
     // A key can only sign under its own suite.
     assert!(sign_transcript(Suite::Svx1H, &classical, &hh, 1, &[0; 32], &mut r).is_err());
     assert!(sign_transcript(Suite::Svx1, &hybrid, &hh, 1, &[0; 32], &mut r).is_err());
@@ -315,10 +317,12 @@ fn manifest_round_trip() {
 }
 
 #[test]
-fn exactly_two_suites() {
+fn exactly_three_suites() {
     assert_eq!(check_suite(SUITE_SVX1).unwrap(), Suite::Svx1);
     assert_eq!(check_suite(SUITE_SVX1H).unwrap(), Suite::Svx1H);
-    for bad in [0x0000, 0x0002, 0x0004, 0xffff] {
+    assert_eq!(check_suite(SUITE_SVX2).unwrap(), Suite::Svx2);
+    assert_eq!(Suite::CURRENT, Suite::Svx2);
+    for bad in [0x0000, 0x0002, 0x0005, 0xffff] {
         assert!(check_suite(bad).is_err(), "{bad:#x}");
     }
 }
@@ -326,7 +330,7 @@ fn exactly_two_suites() {
 #[test]
 fn key_serialization_and_redaction() {
     let mut r = rng();
-    for kind in [KeyKind::X25519Kem, KeyKind::XWingKem] {
+    for kind in [KeyKind::X25519Kem, KeyKind::XWingKem, KeyKind::MaxKem] {
         let sk = KemSecretKey::derive_kind(kind, &[3; 32]).unwrap();
         let sk2 = KemSecretKey::from_kind_bytes(kind, &sk.to_bytes()).unwrap();
         assert_eq!(sk.public_key(), sk2.public_key());
@@ -350,6 +354,7 @@ fn key_serialization_and_redaction() {
     for sig in [
         SigningKey::generate(&mut r),
         SigningKey::generate_hybrid(&mut r),
+        SigningKey::generate_max(&mut r),
     ] {
         let sig2 = SigningKey::from_secret_bytes(sig.kind(), &sig.to_secret_bytes()).unwrap();
         assert_eq!(sig.verifying_key(), sig2.verifying_key());
@@ -481,4 +486,119 @@ fn key_fingerprint_vector() {
     let vk = SigningKey::generate_hybrid(&mut rng()).verifying_key();
     assert_eq!(vk.fingerprint(), key_fingerprint(vk.kind(), &vk.to_vec()));
     assert_ne!(vk.fingerprint()[..16], vk.key_id());
+}
+
+#[test]
+fn max_keys_encode_and_validate() {
+    let mut r = rng();
+    let kem = KemSecretKey::generate_max(&mut r);
+    assert_eq!(kem.kind(), KeyKind::MaxKem);
+    assert_eq!(kem.public_key().to_vec().len(), MAX_KEM_PUBLIC_LEN);
+    let sk = SigningKey::generate_max(&mut r);
+    assert_eq!(sk.to_secret_bytes().len(), MAX_SECRET_LEN);
+    let vk = sk.verifying_key().to_vec();
+    assert_eq!(vk.len(), MAX_PUBLIC_LEN);
+    // Deterministic from the secret bytes: the same seeds give the same key.
+    let again = SigningKey::from_secret_bytes(KeyKind::MaxSigning, &sk.to_secret_bytes()).unwrap();
+    assert_eq!(again.verifying_key().to_vec(), vk);
+    // Wrong lengths and a weak Ed25519 part are refused.
+    assert!(VerifyingKey::from_kind_bytes(KeyKind::MaxSigning, &vk[1..]).is_err());
+    assert!(SigningKey::from_secret_bytes(KeyKind::MaxSigning, &[0; 64]).is_err());
+    let mut weak = vk.clone();
+    weak[..32].copy_from_slice(&{
+        let mut i = [0u8; 32];
+        i[0] = 1;
+        i
+    });
+    assert!(VerifyingKey::from_kind_bytes(KeyKind::MaxSigning, &weak).is_err());
+    assert!(KemPublicKey::from_kind_bytes(KeyKind::MaxKem, &[0; XWING_PUBLIC_LEN]).is_err());
+    // Same seed bytes as a different kind: different key IDs.
+    let x = KemSecretKey::from_kind_bytes(KeyKind::XWingKem, &[5; 32]).unwrap();
+    let m = KemSecretKey::from_kind_bytes(KeyKind::MaxKem, &[5; 32]).unwrap();
+    assert_ne!(x.public_key().key_id(), m.public_key().key_id());
+    assert!(KeyKind::MaxKem.is_hybrid() && KeyKind::MaxSigning.is_max());
+}
+
+#[test]
+fn max_signature_needs_all_three_parts() {
+    let mut r = rng();
+    let sk = SigningKey::generate_max(&mut r);
+    let vk = sk.verifying_key();
+    let s = Suite::Svx2;
+    let hh = header_hash(s, b"h");
+    assert_eq!(hh.as_bytes().len(), 64);
+    let c = vec![0u8; 64];
+    let (alg, sig) = sign_transcript(s, &sk, &hh, 1, &c, &mut r).unwrap();
+    assert_eq!(alg, SIG_ALG_MAX);
+    assert_eq!(sig.len(), MAX_SIG_LEN);
+    verify_transcript(s, &vk, &hh, 1, &c, alg, &sig).unwrap();
+    // Breaking any one part (Ed25519, ML-DSA-87 or SLH-DSA) is enough to fail.
+    for i in [
+        10,
+        ED25519_SIG_LEN + 100,
+        ED25519_SIG_LEN + MLDSA87_SIG_LEN + 100,
+        MAX_SIG_LEN - 1,
+    ] {
+        let mut bad = sig.clone();
+        bad[i] ^= 1;
+        assert!(
+            verify_transcript(s, &vk, &hh, 1, &c, alg, &bad).is_err(),
+            "{i}"
+        );
+    }
+    // Without the SLH-DSA part it is not an artifact signature.
+    assert!(verify_transcript(s, &vk, &hh, 1, &c, alg, &sig[..MAX_FAST_SIG_LEN]).is_err());
+    // Splicing parts from a signature over another message fails.
+    let (_, other) = sign_transcript(s, &sk, &hh, 2, &c, &mut r).unwrap();
+    let mut spliced = sig[..MAX_FAST_SIG_LEN].to_vec();
+    spliced.extend_from_slice(&other[MAX_FAST_SIG_LEN..]);
+    assert!(verify_transcript(s, &vk, &hh, 1, &c, alg, &spliced).is_err());
+    // SHA-256-sized hashes are refused in SVX-2, and SVX-2 keys don't sign SVX-1H.
+    let short = header_hash(Suite::Svx1H, b"h");
+    assert!(sign_transcript(s, &sk, &short, 1, &[0; 32], &mut r).is_err());
+    assert!(verify_transcript(s, &vk, &short, 1, &[0; 32], alg, &sig).is_err());
+    assert!(sign_transcript(Suite::Svx1H, &sk, &short, 1, &[0; 32], &mut r).is_err());
+    // A hybrid (SVX-1H) key can't verify as SVX-2.
+    let hybrid = SigningKey::generate_hybrid(&mut r).verifying_key();
+    assert!(verify_transcript(s, &hybrid, &hh, 1, &c, alg, &sig).is_err());
+}
+
+#[test]
+fn max_context_signatures_full_and_fast() {
+    let mut r = rng();
+    let sk = SigningKey::generate_max(&mut r);
+    let vk = sk.verifying_key();
+    // Long-lived records carry all three signatures.
+    let rec = sign_context(&sk, SignContext::RegistryRecord, b"record").unwrap();
+    assert_eq!(rec.len(), MAX_SIG_LEN);
+    verify_context(&vk, SignContext::RegistryRecord, b"record", &rec).unwrap();
+    let svc = sign_context(&sk, SignContext::ServiceRecord, b"record").unwrap();
+    assert_eq!(svc.len(), MAX_SIG_LEN);
+    // Short-lived objects carry Ed25519 + ML-DSA-87.
+    let grant = sign_context(&sk, SignContext::ReleaseGrant, b"grant").unwrap();
+    assert_eq!(grant.len(), MAX_FAST_SIG_LEN);
+    verify_context(&vk, SignContext::ReleaseGrant, b"grant", &grant).unwrap();
+    let req = sign_context(&sk, SignContext::AccountRequest, b"req").unwrap();
+    verify_context(&vk, SignContext::AccountRequest, b"req", &req).unwrap();
+    // A record signature cut down to the fast parts is not a record signature.
+    assert!(
+        verify_context(
+            &vk,
+            SignContext::RegistryRecord,
+            b"record",
+            &rec[..MAX_FAST_SIG_LEN]
+        )
+        .is_err()
+    );
+    // Contexts stay separated, and every part must verify.
+    assert!(verify_context(&vk, SignContext::AccountRequest, b"grant", &grant).is_err());
+    assert!(verify_context(&vk, SignContext::ServiceRecord, b"record", &rec).is_err());
+    for i in [0, ED25519_SIG_LEN + 5, MAX_SIG_LEN - 1] {
+        let mut bad = rec.clone();
+        bad[i] ^= 1;
+        assert!(verify_context(&vk, SignContext::RegistryRecord, b"record", &bad).is_err());
+    }
+    // The Ed25519 + ML-DSA parts of a Max key are not a hybrid (v3) key.
+    let hybrid_view = &vk.to_vec()[..32];
+    assert!(VerifyingKey::from_kind_bytes(KeyKind::HybridSigning, hybrid_view).is_err());
 }

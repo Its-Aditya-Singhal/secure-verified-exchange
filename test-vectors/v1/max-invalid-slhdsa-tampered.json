@@ -1,0 +1,12 @@
+{
+  "derived_from": "max-valid-basic",
+  "description": "One bit flipped in the SLH-DSA part of the signature (Ed25519 and ML-DSA-87 intact).",
+  "expected_result": "reject",
+  "file": "max-invalid-slhdsa-tampered.svx",
+  "file_sha256": "fddaa991562cee2b911ef9c5b04fa9001a51d3424a06ca31304f908e26c04ba7",
+  "name": "max-invalid-slhdsa-tampered",
+  "reject_stage": "verify",
+  "trusted_senders": [
+    "acme-security"
+  ]
+}

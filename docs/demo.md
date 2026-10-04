@@ -50,8 +50,8 @@ group to open artifacts sent under that policy.
 `incident-report.txt` for `example-corp`. The client fetches Example Corp's
 encryption key and the service key from registry records signed by the
 pinned registry key. Carol never handles recipient key files. The artifact
-is registered with the service. The demo checks it is post-quantum hybrid
-(suite SVX-1H: X25519 + ML-KEM-768 and Ed25519 + ML-DSA-65).
+is registered with the service. The demo checks it is suite SVX-2
+(`0x0004`: ML-KEM-1024 + P-384 and Ed25519 + ML-DSA-87 + SLH-DSA).
 
 **2a. Eve intercepts the file.** Eve can read the public header: sender,
 recipient, policy name, expiry. The report, its file name and its

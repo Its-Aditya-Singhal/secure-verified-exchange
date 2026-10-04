@@ -40,7 +40,7 @@ pub struct VerifiedHead {
 pub struct VerifiedArtifact {
     head: VerifiedHead,
     pub chunk_count: u64,
-    payload_commitment: [u8; 32],
+    payload_commitment: Vec<u8>,
 }
 
 impl std::ops::Deref for VerifiedArtifact {
@@ -71,10 +71,18 @@ fn check_head(
 
 /// The suite implied by a header's envelope layout. For an authentic header
 /// the format layer guarantees this equals the prelude's suite (layout V1 ⇔
-/// SVX-1, layout V2 ⇔ SVX-1H).
+/// SVX-1; layout V2 with X-Wing encapsulations ⇔ SVX-1H, with
+/// MLKEM1024-P384 encapsulations ⇔ SVX-2).
 pub fn suite_for_header(h: &Header) -> Suite {
     match h.envelope_layout {
         EnvelopeLayout::V1 => Suite::Svx1,
+        EnvelopeLayout::V2
+            if h.envelopes
+                .first()
+                .is_some_and(|e| e.encapped_key.len() == svx_format::MAX_ENCAPPED_KEY_LEN_SVX2) =>
+        {
+            Suite::Svx2
+        }
         EnvelopeLayout::V2 => Suite::Svx1H,
     }
 }
@@ -86,8 +94,8 @@ pub fn suite_for_header(h: &Header) -> Suite {
 /// 3. required key envelopes present,
 /// 4. sender `(org, key_id)` present in the trust store,
 /// 5. payload commitment recomputed over every chunk and matched to the trailer,
-/// 6. signature over the transcript: Ed25519 (SVX-1), or Ed25519 **and**
-///    ML-DSA-65 (SVX-1H).
+/// 6. signature over the transcript: Ed25519 (SVX-1); Ed25519 **and**
+///    ML-DSA-65 (SVX-1H); Ed25519 **and** ML-DSA-87 **and** SLH-DSA (SVX-2).
 pub fn verify<R: Read>(input: R, trust: &TrustStore) -> Result<VerifiedArtifact> {
     let mut reader = Reader::new(input)?;
     let prelude = *reader.prelude();
@@ -96,15 +104,15 @@ pub fn verify<R: Read>(input: R, trust: &TrustStore) -> Result<VerifiedArtifact>
     let (suite, sender_key) = check_head(&prelude, &header, trust)?;
 
     let header_region = reader.header_region().to_vec();
-    let hh = header_hash(&header_region);
-    let mut hasher = PayloadHasher::new(&hh);
+    let hh = header_hash(suite, &header_region);
+    let mut hasher = PayloadHasher::new(suite, &hh);
     let mut buf = Vec::new();
     while let Some(info) = reader.next_chunk(&mut buf)? {
         hasher.update(&info, &buf);
     }
     let (trailer, _) = reader.finish()?;
     let (chunk_count, commitment) = hasher.finalize();
-    if chunk_count != trailer.chunk_count || !ct_eq32(&commitment, &trailer.payload_commitment) {
+    if chunk_count != trailer.chunk_count || !ct_eq(&commitment, &trailer.payload_commitment) {
         return Err(CoreError::CommitmentMismatch);
     }
     verify_transcript(
@@ -143,8 +151,8 @@ pub fn verify_head(
 ) -> Result<VerifiedHead> {
     let (prelude, header) = svx_format::parse_header_region(header_region)?;
     let (suite, sender_key) = check_head(&prelude, &header, trust)?;
-    let trailer = Trailer::decode(trailer)?;
-    let hh = header_hash(header_region);
+    let trailer = Trailer::decode(prelude.suite_id, trailer)?;
+    let hh = header_hash(suite, header_region);
     verify_transcript(
         suite,
         &sender_key,
@@ -268,7 +276,8 @@ impl VerifiedArtifact {
         &self.head
     }
 
-    pub fn payload_commitment(&self) -> &[u8; 32] {
+    /// 32 bytes (SHA-256), or 64 (SHA-512) in suite SVX-2.
+    pub fn payload_commitment(&self) -> &[u8] {
         &self.payload_commitment
     }
 
@@ -288,7 +297,7 @@ impl VerifiedArtifact {
         mut out: W,
     ) -> Result<Manifest> {
         let mut reader = Reader::new(input)?;
-        let hh = header_hash(reader.header_region());
+        let hh = header_hash(self.head.suite, reader.header_region());
         if hh != self.head.header_hash {
             return Err(CoreError::ArtifactChanged);
         }
@@ -305,7 +314,7 @@ impl VerifiedArtifact {
         let manifest = Manifest::from_bytes(&manifest_bytes)?;
 
         let mut dec = StreamDecryptor::new(&keys, h.nonce_prefix, &hh);
-        let mut hasher = PayloadHasher::new(&hh);
+        let mut hasher = PayloadHasher::new(self.head.suite, &hh);
         let mut buf = Vec::new();
         let mut total = 0u64;
         while let Some(info) = reader.next_chunk(&mut buf)? {
@@ -322,7 +331,7 @@ impl VerifiedArtifact {
         let (count, commitment) = hasher.finalize();
         if count != self.chunk_count
             || trailer.chunk_count != count
-            || !ct_eq32(&commitment, &self.payload_commitment)
+            || !ct_eq(&commitment, &self.payload_commitment)
         {
             return Err(CoreError::ArtifactChanged);
         }
@@ -334,8 +343,8 @@ impl VerifiedArtifact {
     }
 }
 
-/// Equality for 32-byte hashes without data-dependent early exit. The values
+/// Equality for hashes without data-dependent early exit. The values
 /// compared here are public, but there is no reason to leak timing either.
-fn ct_eq32(a: &[u8; 32], b: &[u8; 32]) -> bool {
-    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }

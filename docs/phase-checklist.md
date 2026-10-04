@@ -101,6 +101,17 @@ Last updated: 2026-10-03.
   - [x] ~~clients pin the registry key's 256-bit fingerprint~~
   - [x] ~~key agent `check` verifies the fingerprint and the grant key~~
 
+## Maximum-strength suite SVX-2 (format 1.3, protocol v4) ✅
+
+- [x] ~~MLKEM1024-P384 envelopes and one-time release keys (X25519 and X-Wing refused)~~
+- [x] ~~Ed25519 + ML-DSA-87 + SLH-DSA-SHA2-256s file signatures (all three must verify)~~
+- [x] ~~SHA-512 header hash and payload commitment, HKDF-SHA512 key schedule~~
+- [x] ~~Service, registry and device keys are SVX-2 keys; full signatures on records, fast (Ed25519 + ML-DSA-87) on grants and account requests~~
+- [x] ~~Backup password: Argon2id 256 MiB, t=4 (older backups still open)~~
+- [x] ~~Migration 0005; ACVP KATs for ML-DSA-87 and SLH-DSA, HPKE vector for MLKEM1024-P384; `max-*` test vectors~~
+- [x] ~~SVX-1H and SVX-1 files still open~~
+- [ ] Move `slh-dsa` from `=0.2.0-rc.5` to the stable release when it ships
+
 ## Phase 5b: In-app administration and key agent packaging ✅
 
 - [x] ~~Service admin API:~~

@@ -14,7 +14,7 @@ use svx_protocol::{KeyKindWire, KeyStatus, ManagedClient};
 use crate::config::ClientConfig;
 use crate::error::{ClientError, Result};
 use crate::folder;
-use crate::registry::{Registry, active_hybrid_kem_key};
+use crate::registry::{Registry, active_kem_key};
 
 pub struct ManagedPack<'a> {
     pub input: &'a Path,
@@ -87,11 +87,12 @@ pub async fn pack(
 ) -> Result<Packed> {
     let registry = Registry::new(cfg, client)?;
 
-    // New files are always post-quantum hybrid (suite SVX-1H).
-    if req.signing_key.kind() != KeyKind::HybridSigning {
+    // New files are always suite SVX-2.
+    if req.signing_key.kind() != KeyKind::MaxSigning {
         return Err(ClientError::Config(
-            "the signing key is a classical Ed25519 key; new files need a post-quantum hybrid \
-             key (Ed25519 + ML-DSA-65): generate one with `svx keygen --kind sign` and register it"
+            "the signing key is an older key; new files need an SVX-2 key \
+             (Ed25519 + ML-DSA-87 + SLH-DSA): create one with `svx keygen --kind sign` (or on \
+             the Admin page) and register it"
                 .into(),
         ));
     }
@@ -99,9 +100,7 @@ pub async fn pack(
     let sender = registry.org(req.sender_org.as_str()).await?;
     let my_key_id = req.signing_key.verifying_key().key_id();
     let registered = sender.keys.iter().any(|k| {
-        k.kind == KeyKindWire::Ed25519Mldsa65
-            && k.status == KeyStatus::Active
-            && k.key_id == my_key_id
+        k.kind == KeyKindWire::Max && k.status == KeyStatus::Active && k.key_id == my_key_id
     });
     if !registered {
         return Err(ClientError::Config(format!(
@@ -111,7 +110,7 @@ pub async fn pack(
         )));
     }
     let recipient = registry.org(req.recipient_org.as_str()).await?;
-    let recipient_key = active_hybrid_kem_key(&recipient)?;
+    let recipient_key = active_kem_key(&recipient)?;
     if recipient.key_agent_url.is_none() {
         return Err(ClientError::Config(format!(
             "{} cannot receive artifacts (no key agent)",
@@ -141,7 +140,7 @@ pub async fn pack(
     let tmp = tempfile::NamedTempFile::new_in(&dir)?;
     let summary = svx_core::pack(
         &PackRequest {
-            suite: Suite::Svx1H,
+            suite: Suite::CURRENT,
             sender_org: req.sender_org,
             signing_key: req.signing_key,
             recipient_org: req.recipient_org,

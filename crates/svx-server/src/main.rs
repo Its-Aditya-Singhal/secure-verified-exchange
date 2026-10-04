@@ -21,7 +21,7 @@ use svx_server::dns::SystemDns;
 use svx_server::keys::{KeyProvider, LocalKeys};
 use svx_server::notify::{LogNotifier, SmtpNotifier};
 use svx_server::relay::{AppleKey, RelayConfig};
-use svx_server::{AppState, RateLimiter, app};
+use svx_server::{AppState, RateLimiter, RecordCache, app};
 
 #[derive(Parser)]
 #[command(name = "svx-server", version, about = "SVX managed service")]
@@ -31,14 +31,14 @@ struct Args {
     #[arg(long, env = "SVX_SERVICE_ID")]
     service_id: String,
     /// KEM secret key files receiving the service share (repeatable). One
-    /// must be X-Wing (post-quantum hybrid); it is published for new
-    /// artifacts. X25519 keys only open older files.
+    /// must be MLKEM1024-P384 (suite SVX-2); it is published for new
+    /// artifacts. X-Wing and X25519 keys only open older files.
     #[arg(long = "kem-key", required = true)]
     kem_keys: Vec<PathBuf>,
-    /// Ed25519 secret key file signing release grants.
+    /// SVX-2 signing key file (svx keygen --kind sign) for release grants.
     #[arg(long)]
     grant_key: PathBuf,
-    /// Ed25519 secret key file signing registry records.
+    /// SVX-2 signing key file (svx keygen --kind sign) for registry records.
     #[arg(long)]
     registry_key: PathBuf,
     #[arg(long, default_value = "127.0.0.1:8443")]
@@ -189,6 +189,7 @@ async fn main() -> Result<()> {
             }
         },
         limiter: Arc::new(RateLimiter::default()),
+        records: Arc::new(RecordCache::default()),
         relay,
         dev: a.dev,
     };

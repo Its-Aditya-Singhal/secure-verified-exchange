@@ -1,0 +1,12 @@
+{
+  "derived_from": "max-valid-basic",
+  "description": "Signed by mallory's SVX-2 key while claiming sender acme-security.",
+  "expected_result": "reject",
+  "file": "max-invalid-untrusted-signer.svx",
+  "file_sha256": "880ba642d37f097461b44ce70d09fd4eca78486943ea0a88ac7189e89e89299c",
+  "name": "max-invalid-untrusted-signer",
+  "reject_stage": "verify",
+  "trusted_senders": [
+    "acme-security"
+  ]
+}

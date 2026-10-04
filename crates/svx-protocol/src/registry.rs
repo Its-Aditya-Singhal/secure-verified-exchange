@@ -2,8 +2,9 @@
 //!
 //! The registry is the managed service's statement of which keys and which
 //! IdP belong to an organization. Clients pin the fingerprint of the
-//! registry's hybrid (Ed25519 + ML-DSA-65) public key and accept sender
-//! signing keys only from a correctly signed, fresh record.
+//! registry's Max (Ed25519 + ML-DSA-87 + SLH-DSA, suite SVX-2) public key
+//! and accept sender signing keys only from a correctly signed, fresh
+//! record.
 
 use serde::{Deserialize, Serialize};
 use svx_core::TrustStore;
@@ -24,12 +25,18 @@ pub enum KeyKindWire {
     /// X25519 HPKE key-agreement key (suite SVX-1; opens older files).
     #[serde(rename = "x25519")]
     X25519,
-    /// X-Wing (X25519 + ML-KEM-768) HPKE key: where new files are sealed.
+    /// X-Wing (X25519 + ML-KEM-768) HPKE key (suite SVX-1H; opens older files).
     #[serde(rename = "xwing")]
     XWing,
-    /// Ed25519 + ML-DSA-65 composite signing key: signs new files.
+    /// Ed25519 + ML-DSA-65 composite signing key (suite SVX-1H; verifies older files).
     #[serde(rename = "ed25519-mldsa65")]
     Ed25519Mldsa65,
+    /// MLKEM1024-P384 HPKE key (suite SVX-2): where new files are sealed.
+    #[serde(rename = "mlkem1024-p384")]
+    MlKem1024P384,
+    /// Ed25519 + ML-DSA-87 + SLH-DSA-SHA2-256s signing key (suite SVX-2): signs new files.
+    #[serde(rename = "ed25519-mldsa87-slhdsa")]
+    Max,
 }
 
 impl KeyKindWire {
@@ -39,6 +46,8 @@ impl KeyKindWire {
             KeyKindWire::X25519 => "x25519",
             KeyKindWire::XWing => "xwing",
             KeyKindWire::Ed25519Mldsa65 => "ed25519-mldsa65",
+            KeyKindWire::MlKem1024P384 => "mlkem1024-p384",
+            KeyKindWire::Max => "ed25519-mldsa87-slhdsa",
         }
     }
 
@@ -48,6 +57,8 @@ impl KeyKindWire {
             "x25519" => Some(KeyKindWire::X25519),
             "xwing" => Some(KeyKindWire::XWing),
             "ed25519-mldsa65" => Some(KeyKindWire::Ed25519Mldsa65),
+            "mlkem1024-p384" => Some(KeyKindWire::MlKem1024P384),
+            "ed25519-mldsa87-slhdsa" => Some(KeyKindWire::Max),
             _ => None,
         }
     }
@@ -59,6 +70,8 @@ impl KeyKindWire {
             KeyKindWire::X25519 => KeyKind::X25519Kem,
             KeyKindWire::XWing => KeyKind::XWingKem,
             KeyKindWire::Ed25519Mldsa65 => KeyKind::HybridSigning,
+            KeyKindWire::MlKem1024P384 => KeyKind::MaxKem,
+            KeyKindWire::Max => KeyKind::MaxSigning,
         }
     }
 
@@ -68,11 +81,18 @@ impl KeyKindWire {
             KeyKind::X25519Kem => KeyKindWire::X25519,
             KeyKind::XWingKem => KeyKindWire::XWing,
             KeyKind::HybridSigning => KeyKindWire::Ed25519Mldsa65,
+            KeyKind::MaxKem => KeyKindWire::MlKem1024P384,
+            KeyKind::MaxSigning => KeyKindWire::Max,
         }
     }
 
     pub fn is_signing(self) -> bool {
-        matches!(self, KeyKindWire::Ed25519 | KeyKindWire::Ed25519Mldsa65)
+        self.key_kind().is_signing()
+    }
+
+    /// Whether new files use this kind (suite SVX-2).
+    pub fn is_current(self) -> bool {
+        self.key_kind().is_max()
     }
 
     /// Whether this is a post-quantum hybrid key kind.
@@ -143,7 +163,8 @@ pub struct KeyEntry {
     pub key_id: [u8; 16],
     pub kind: KeyKindWire,
     /// 32 bytes for classical keys; 1216 (X-Wing) or 1984 (Ed25519 +
-    /// ML-DSA-65) for hybrid keys.
+    /// ML-DSA-65) for SVX-1H keys; 1665 (MLKEM1024-P384) or 2688 (Ed25519 +
+    /// ML-DSA-87 + SLH-DSA) for SVX-2 keys.
     #[serde(with = "hex_vec")]
     pub public_key: Vec<u8>,
     pub status: KeyStatus,
@@ -210,12 +231,12 @@ impl OrgRecord {
         Ok(())
     }
 
-    /// The org's active post-quantum hybrid (X-Wing) KEM key, where new
-    /// artifacts are sealed. Classical X25519 keys only open older files.
-    pub fn active_hybrid_kem_key(&self) -> Option<&KeyEntry> {
+    /// The org's active SVX-2 (MLKEM1024-P384) KEM key, where new artifacts
+    /// are sealed. Older X-Wing and X25519 keys only open older files.
+    pub fn active_kem_key(&self) -> Option<&KeyEntry> {
         self.keys
             .iter()
-            .find(|k| k.kind == KeyKindWire::XWing && k.status == KeyStatus::Active)
+            .find(|k| k.kind == KeyKindWire::MlKem1024P384 && k.status == KeyStatus::Active)
     }
 }
 
@@ -247,7 +268,7 @@ pub enum RecordError {
 pub const MAX_RECORD_AGE_SECS: i64 = 15 * 60;
 
 impl SignedOrgRecord {
-    /// Sign with the registry key (a hybrid key; others are refused).
+    /// Sign with the registry key (a post-quantum key; others are refused).
     pub fn sign(record: &OrgRecord, registry_key: &SigningKey) -> Result<Self, CryptoError> {
         let bytes = serde_json::to_vec(record).expect("record serializes");
         let signature = sign_context(registry_key, SignContext::RegistryRecord, &bytes)?;
@@ -316,13 +337,13 @@ impl SignedOrgRecord {
 #[serde(deny_unknown_fields)]
 pub struct ServiceInfo {
     pub service_id: String,
-    /// The service's X-Wing (X25519 + ML-KEM-768) KEM key.
+    /// The service's MLKEM1024-P384 KEM key.
     #[serde(with = "hex_vec")]
     pub kem_public: Vec<u8>,
-    /// Hybrid (Ed25519 + ML-DSA-65) grant key.
+    /// Max (Ed25519 + ML-DSA-87 + SLH-DSA) grant key.
     #[serde(with = "hex_vec")]
     pub grant_public: Vec<u8>,
-    /// Hybrid (Ed25519 + ML-DSA-65) registry key.
+    /// Max (Ed25519 + ML-DSA-87 + SLH-DSA) registry key.
     #[serde(with = "hex_vec")]
     pub registry_public: Vec<u8>,
     /// Fingerprint of `registry_public`, the value users pin.
@@ -331,9 +352,9 @@ pub struct ServiceInfo {
 }
 
 impl ServiceInfo {
-    /// The registry key, if it is a hybrid key whose fingerprint is `pinned`.
+    /// The registry key, if it is a Max key whose fingerprint is `pinned`.
     pub fn pinned_registry_key(&self, pinned: &[u8; 32]) -> Result<VerifyingKey, RecordError> {
-        let key = VerifyingKey::from_kind_bytes(KeyKind::HybridSigning, &self.registry_public)
+        let key = VerifyingKey::from_kind_bytes(KeyKind::MaxSigning, &self.registry_public)
             .map_err(|_| RecordError::Malformed)?;
         if &key.fingerprint() != pinned {
             return Err(RecordError::WrongRegistryKey);
@@ -350,12 +371,12 @@ impl ServiceInfo {
 pub struct ServiceRecord {
     pub v: u32,
     pub service_id: String,
-    /// The service's active X-Wing (X25519 + ML-KEM-768) KEM key, where new
-    /// artifacts seal the service share. Older X25519 keys stay with the
-    /// service to open older files and are not published.
+    /// The service's active MLKEM1024-P384 KEM key, where new artifacts seal
+    /// the service share. Older X-Wing and X25519 keys stay with the service
+    /// to open older files and are not published.
     #[serde(with = "hex_vec")]
     pub kem_public: Vec<u8>,
-    /// The service's hybrid (Ed25519 + ML-DSA-65) grant key.
+    /// The service's Max (Ed25519 + ML-DSA-87 + SLH-DSA) grant key.
     #[serde(with = "hex_vec")]
     pub grant_public: Vec<u8>,
     pub issued_at: i64,
@@ -365,15 +386,15 @@ pub struct ServiceRecord {
 }
 
 impl ServiceRecord {
-    /// The service KEM key (always X-Wing).
+    /// The service KEM key (always MLKEM1024-P384).
     pub fn kem_public_key(&self) -> Result<KemPublicKey, RecordError> {
-        KemPublicKey::from_kind_bytes(KeyKind::XWingKem, &self.kem_public)
+        KemPublicKey::from_kind_bytes(KeyKind::MaxKem, &self.kem_public)
             .map_err(|_| RecordError::Malformed)
     }
 
-    /// The service grant key (always hybrid).
+    /// The service grant key (always a Max key).
     pub fn grant_key(&self) -> Result<VerifyingKey, RecordError> {
-        VerifyingKey::from_kind_bytes(KeyKind::HybridSigning, &self.grant_public)
+        VerifyingKey::from_kind_bytes(KeyKind::MaxSigning, &self.grant_public)
             .map_err(|_| RecordError::Malformed)
     }
 }
@@ -430,7 +451,7 @@ mod tests {
     use svx_core::crypto::{KemSecretKey, os_rng};
 
     fn grant() -> Vec<u8> {
-        SigningKey::generate_hybrid(&mut os_rng())
+        SigningKey::generate_max(&mut os_rng())
             .verifying_key()
             .to_vec()
     }
@@ -446,9 +467,10 @@ mod tests {
 
     #[test]
     fn record_sign_verify() {
-        let reg = SigningKey::generate_hybrid(&mut os_rng());
+        let reg = SigningKey::generate_max(&mut os_rng());
         let classical = SigningKey::generate(&mut os_rng()).verifying_key();
         let hybrid = SigningKey::generate_hybrid(&mut os_rng()).verifying_key();
+        let max = SigningKey::generate_max(&mut os_rng()).verifying_key();
         let rec = OrgRecord {
             v: crate::PROTOCOL_VERSION,
             org_id: "acme-security".into(),
@@ -461,8 +483,9 @@ mod tests {
                 entry(
                     KeyKindWire::Ed25519Mldsa65,
                     hybrid.to_vec(),
-                    KeyStatus::Active,
+                    KeyStatus::Retired,
                 ),
+                entry(KeyKindWire::Max, max.to_vec(), KeyStatus::Active),
             ],
             issued_at: 1000,
             kind: Default::default(),
@@ -477,6 +500,7 @@ mod tests {
         let org = Identifier::new("acme-security").unwrap();
         assert_eq!(t.resolve(&org, &classical.key_id()).unwrap(), &classical);
         assert_eq!(t.resolve(&org, &hybrid.key_id()).unwrap(), &hybrid);
+        assert_eq!(t.resolve(&org, &max.key_id()).unwrap(), &max);
         assert_eq!(
             s.verify(&reg.verifying_key(), "example-corp", 1001),
             Err(RecordError::WrongOrg)
@@ -485,7 +509,7 @@ mod tests {
             s.verify(&reg.verifying_key(), "acme-security", 1000 + 3600),
             Err(RecordError::Stale)
         );
-        let other = SigningKey::generate_hybrid(&mut os_rng());
+        let other = SigningKey::generate_max(&mut os_rng());
         assert_eq!(
             s.verify(&other.verifying_key(), "acme-security", 1001),
             Err(RecordError::BadSignature)
@@ -494,8 +518,8 @@ mod tests {
 
     #[test]
     fn service_record_sign_verify() {
-        let reg = SigningKey::generate_hybrid(&mut os_rng());
-        let kem = KemSecretKey::generate_hybrid(&mut os_rng());
+        let reg = SigningKey::generate_max(&mut os_rng());
+        let kem = KemSecretKey::generate_max(&mut os_rng());
         let rec = ServiceRecord {
             v: crate::PROTOCOL_VERSION,
             service_id: "svx.example".into(),
@@ -510,7 +534,7 @@ mod tests {
             s.verify(&reg.verifying_key(), 5000),
             Err(RecordError::Stale)
         );
-        let other = SigningKey::generate_hybrid(&mut os_rng());
+        let other = SigningKey::generate_max(&mut os_rng());
         assert_eq!(
             s.verify(&other.verifying_key(), 1001),
             Err(RecordError::BadSignature)
@@ -528,22 +552,26 @@ mod tests {
     }
 
     #[test]
-    fn service_record_requires_xwing_key() {
-        let reg = SigningKey::generate_hybrid(&mut os_rng());
-        let classical = KemSecretKey::generate(&mut os_rng());
-        let rec = ServiceRecord {
-            v: crate::PROTOCOL_VERSION,
-            service_id: "svx.example".into(),
-            kem_public: classical.public_key().to_vec(),
-            grant_public: grant(),
-            issued_at: 1000,
-            personal_idps: vec![],
-        };
-        let s = SignedServiceRecord::sign(&rec, &reg).unwrap();
-        assert_eq!(
-            s.verify(&reg.verifying_key(), 1001),
-            Err(RecordError::Malformed)
-        );
+    fn service_record_requires_an_svx2_kem_key() {
+        let reg = SigningKey::generate_max(&mut os_rng());
+        for old in [
+            KemSecretKey::generate(&mut os_rng()),
+            KemSecretKey::generate_hybrid(&mut os_rng()),
+        ] {
+            let rec = ServiceRecord {
+                v: crate::PROTOCOL_VERSION,
+                service_id: "svx.example".into(),
+                kem_public: old.public_key().to_vec(),
+                grant_public: grant(),
+                issued_at: 1000,
+                personal_idps: vec![],
+            };
+            let s = SignedServiceRecord::sign(&rec, &reg).unwrap();
+            assert_eq!(
+                s.verify(&reg.verifying_key(), 1001),
+                Err(RecordError::Malformed)
+            );
+        }
     }
 
     #[test]
@@ -566,11 +594,25 @@ mod tests {
         assert_eq!(KeyKindWire::XWing.key_id_of(&pk[..1215]), None);
         assert_eq!(KeyKindWire::Ed25519Mldsa65.key_id_of(&pk), None);
         // The wire names round-trip.
+        let max_kem = KemSecretKey::generate_max(&mut os_rng())
+            .public_key()
+            .to_vec();
+        let e = entry(
+            KeyKindWire::MlKem1024P384,
+            max_kem.clone(),
+            KeyStatus::Active,
+        );
+        e.kem_public_key().unwrap();
+        assert_eq!(KeyKindWire::XWing.key_id_of(&max_kem), None);
+        assert!(KeyKindWire::MlKem1024P384.is_current() && !KeyKindWire::XWing.is_current());
+        assert!(KeyKindWire::Max.is_signing() && !KeyKindWire::MlKem1024P384.is_signing());
         for k in [
             KeyKindWire::Ed25519,
             KeyKindWire::X25519,
             KeyKindWire::XWing,
             KeyKindWire::Ed25519Mldsa65,
+            KeyKindWire::MlKem1024P384,
+            KeyKindWire::Max,
         ] {
             assert_eq!(KeyKindWire::parse(k.as_str()), Some(k));
             let json = serde_json::to_string(&k).unwrap();
@@ -581,7 +623,7 @@ mod tests {
 
     #[test]
     fn records_of_another_protocol_version_are_refused() {
-        let reg = SigningKey::generate_hybrid(&mut os_rng());
+        let reg = SigningKey::generate_max(&mut os_rng());
         let rec = OrgRecord {
             v: 2,
             org_id: "acme-security".into(),
@@ -607,7 +649,7 @@ mod tests {
         let rec = ServiceRecord {
             v: crate::PROTOCOL_VERSION,
             service_id: "svx.example".into(),
-            kem_public: KemSecretKey::generate_hybrid(&mut os_rng())
+            kem_public: KemSecretKey::generate_max(&mut os_rng())
                 .public_key()
                 .to_vec(),
             grant_public: grant(),
@@ -615,8 +657,8 @@ mod tests {
             personal_idps: vec![],
         };
         assert!(SignedServiceRecord::sign(&rec, &ed).is_err());
-        // An Ed25519-only signature under a hybrid key: refused.
-        let reg = SigningKey::generate_hybrid(&mut os_rng());
+        // An Ed25519-only signature under a Max key: refused.
+        let reg = SigningKey::generate_max(&mut os_rng());
         let mut s = SignedServiceRecord::sign(&rec, &reg).unwrap();
         s.signature.truncate(64);
         assert_eq!(
@@ -635,7 +677,7 @@ mod tests {
 
     #[test]
     fn registry_key_must_match_the_pinned_fingerprint() {
-        let reg = SigningKey::generate_hybrid(&mut os_rng()).verifying_key();
+        let reg = SigningKey::generate_max(&mut os_rng()).verifying_key();
         let info = ServiceInfo {
             service_id: "svx.example".into(),
             kem_public: vec![],
@@ -651,7 +693,7 @@ mod tests {
             Err(RecordError::WrongRegistryKey)
         );
         // The advertised fingerprint is not trusted: only the pin counts.
-        let other = SigningKey::generate_hybrid(&mut os_rng()).verifying_key();
+        let other = SigningKey::generate_max(&mut os_rng()).verifying_key();
         let swapped = ServiceInfo {
             registry_public: other.to_vec(),
             ..info.clone()
@@ -659,6 +701,16 @@ mod tests {
         assert_eq!(
             swapped.pinned_registry_key(&reg.fingerprint()),
             Err(RecordError::WrongRegistryKey)
+        );
+        // A v3 hybrid registry key no longer matches.
+        let hybrid = SigningKey::generate_hybrid(&mut os_rng()).verifying_key();
+        let v3 = ServiceInfo {
+            registry_public: hybrid.to_vec(),
+            ..info.clone()
+        };
+        assert_eq!(
+            v3.pinned_registry_key(&hybrid.fingerprint()),
+            Err(RecordError::Malformed)
         );
         // A classical registry key never matches.
         let ed = SigningKey::generate(&mut os_rng()).verifying_key();

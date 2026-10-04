@@ -88,7 +88,7 @@ async fn email_of(st: &AppState, org_id: &str) -> ApiResult<Option<String>> {
 }
 
 /// Authenticate a request signed with an account's device key: a known
-/// personal account, one of its active hybrid signing keys, a signature
+/// personal account, one of its active SVX-2 signing keys, a signature
 /// over the method, path, body, time and a fresh nonce.
 pub(crate) async fn authenticate(
     st: &AppState,
@@ -107,9 +107,7 @@ pub(crate) async fn authenticate(
         .iter()
         .filter_map(db::KeyRow::to_entry)
         .find(|k| {
-            k.key_id == auth.key_id
-                && k.kind == KeyKindWire::Ed25519Mldsa65
-                && k.status == KeyStatus::Active
+            k.key_id == auth.key_id && k.kind == KeyKindWire::Max && k.status == KeyStatus::Active
         })
         .and_then(|k| k.verifying_key().ok())
         .ok_or(ApiError::Unauthorized)?;
@@ -157,10 +155,10 @@ pub async fn sign_up(
         .iter()
         .find(|p| p.issuer == req.issuer)
         .ok_or_else(|| bad("unknown sign-in provider"))?;
-    let signing = VerifyingKey::from_kind_bytes(KeyKind::HybridSigning, &req.signing_public)
-        .map_err(|_| bad("signing_public must be an Ed25519 + ML-DSA-65 key"))?;
-    let kem = KemPublicKey::from_kind_bytes(KeyKind::XWingKem, &req.kem_public)
-        .map_err(|_| bad("kem_public must be an X-Wing key"))?;
+    let signing = VerifyingKey::from_kind_bytes(KeyKind::MaxSigning, &req.signing_public)
+        .map_err(|_| bad("signing_public must be an Ed25519 + ML-DSA-87 + SLH-DSA key"))?;
+    let kem = KemPublicKey::from_kind_bytes(KeyKind::MaxKem, &req.kem_public)
+        .map_err(|_| bad("kem_public must be an MLKEM1024-P384 key"))?;
     let cfg = IssuerConfig {
         issuer: idp.issuer.clone(),
         client_id: idp.client_id.clone(),
@@ -312,12 +310,8 @@ async fn insert_keys(
     now: i64,
 ) -> ApiResult<()> {
     for (id, kind, public) in [
-        (
-            signing.key_id(),
-            KeyKindWire::Ed25519Mldsa65,
-            signing.to_vec(),
-        ),
-        (kem.key_id(), KeyKindWire::XWing, kem.to_vec()),
+        (signing.key_id(), KeyKindWire::Max, signing.to_vec()),
+        (kem.key_id(), KeyKindWire::MlKem1024P384, kem.to_vec()),
     ] {
         sqlx::query(
             "INSERT INTO org_keys (org_id, key_id, kind, public_key, status, created_at) \
@@ -607,7 +601,7 @@ pub async fn register_file(
     )
     .bind(&h.artifact_id[..])
     .bind(&me.org_id)
-    .bind(&head.header_hash().as_bytes()[..])
+    .bind(head.header_hash().as_bytes())
     .bind(h.created_at)
     .bind(h.expires_at)
     .bind(req.rules.require_approval)
@@ -789,7 +783,7 @@ async fn refuse(
 /// Checks, in order: the signed file and its registration, that the caller
 /// is a recipient, revocation, expiry, one-time use, the sender's approval,
 /// a single-use transaction. Only then is the service's half of the key
-/// released, sealed to the caller's one-time X-Wing key.
+/// released, sealed to the caller's one-time MLKEM1024-P384 key.
 pub async fn release(
     State(st): State<AppState>,
     method: Method,

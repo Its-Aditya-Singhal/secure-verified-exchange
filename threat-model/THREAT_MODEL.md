@@ -1,6 +1,6 @@
 # SVX Threat Model
 
-Status: draft for SVX 1.1 (post-quantum hybrid suite SVX-1H). It has not had an independent security review yet. No strong security claims should be made until that review is done.
+Status: draft for SVX 1.3 (maximum-strength suite SVX-2; SVX-1H and SVX-1 files still open). It has not had an independent security review yet. No strong security claims should be made until that review is done.
 
 ## 1. What SVX protects
 
@@ -8,9 +8,9 @@ SVX protects one **artifact**: a file that Company A sends to Company B over inf
 
 | ID | Property | Mechanism |
 |----|----------|-----------|
-| G1 | **Confidentiality in transit and at rest.** Holding a `.svx` file is not enough to read its payload or private metadata. | ChaCha20-Poly1305 payload encryption. The key is derived from two shares, each HPKE-sealed with X-Wing (X25519 + ML-KEM-768). |
-| G2 | **Integrity.** Any change to any byte is detected before plaintext is released. | STREAM AEAD with the header hash as AAD, a payload commitment, and a composite Ed25519 + ML-DSA-65 signature (both must verify). |
-| G3 | **Sender authenticity.** The recipient can check which organization signed the artifact. | Ed25519 + ML-DSA-65 signature checked against a trust store (Phase 1) or the organization registry (Phase 2). |
+| G1 | **Confidentiality in transit and at rest.** Holding a `.svx` file is not enough to read its payload or private metadata. | ChaCha20-Poly1305 payload encryption. The key is derived from two shares, each HPKE-sealed with MLKEM1024-P384 (ML-KEM-1024 + P-384). |
+| G2 | **Integrity.** Any change to any byte is detected before plaintext is released. | STREAM AEAD with the header hash as AAD, a payload commitment, and a triple Ed25519 + ML-DSA-87 + SLH-DSA-SHA2-256s signature (all three must verify). |
+| G3 | **Sender authenticity.** The recipient can check which organization signed the artifact. | Ed25519 + ML-DSA-87 + SLH-DSA signature checked against a trust store (Phase 1) or the organization registry (Phase 2). |
 | G4 | **Recipient binding.** Only the named recipient organization can take part in decryption. | One share is sealed to the recipient org's key. HPKE `info` binds the artifact and both organization IDs. |
 | G5 | **Managed access.** A user must be authenticated by their own org's IdP and authorized for this specific artifact before they get decryption capability. | The managed service releases the service share only after authN and authZ (Phase 2). |
 | G6 | **Expiration and revocation.** Access can end at a set time or on demand. | Enforced server-side when keys are released. The signed `expires_at` is advisory on the client. |
@@ -43,7 +43,7 @@ SVX must never be marketed as "unhackable", "impossible to leak" or "100% secure
 | Eve (passive or active network attacker, file thief) | Nothing | Everything |
 | Mallory (malicious organization or insider) | Her own org's keys | Impersonating others |
 
-Cryptographic assumptions: ChaCha20-Poly1305 is a secure AEAD; HPKE (RFC 9180) with X-Wing is IND-CCA2 as long as **either** X25519 or ML-KEM-768 (FIPS 203) is secure; the composite signature is unforgeable as long as **either** Ed25519 (SUF-CMA under strict verification) or ML-DSA-65 (FIPS 204) is; for older SVX-1 files, X25519 and Ed25519 must hold; SHA-256 and HKDF-SHA256 behave as PRFs or random oracles where the profile relies on it; the OS CSPRNG is sound.
+Cryptographic assumptions: ChaCha20-Poly1305 is a secure AEAD; HPKE (RFC 9180) with MLKEM1024-P384 is IND-CCA2 as long as **either** P-384 or ML-KEM-1024 (FIPS 203) is secure; the triple signature is unforgeable as long as **any one** of Ed25519 (SUF-CMA under strict verification), ML-DSA-87 (FIPS 204) or SLH-DSA-SHA2-256s (FIPS 205; security rests only on SHA-2) is; SHA-512 and HKDF-SHA512 behave as PRFs or random oracles where the profile relies on it; the OS CSPRNG is sound. For older files: X-Wing and Ed25519 + ML-DSA-65 with SHA-256 (SVX-1H), X25519 and Ed25519 (SVX-1).
 
 ## 4. Threats and expected outcomes
 
@@ -109,10 +109,10 @@ Status key: ✅ enforced and tested (test names in parentheses). 🔜 designed h
 - **Outcome:** an attacker can create artifacts that look like they came from Acme. Response: revoke the key in the registry (key status `revoked`, with a `not_after` timestamp) so verifiers reject it, then rotate. Retired keys still verify artifacts created before retirement. Revoked keys never do. ✅ (`revoked_sender_key_is_rejected`) See `docs/key-hierarchy.md`.
 
 ### T14. Recipient KEM-key or service-key compromise
-- **Outcome:** one share is exposed for every artifact sealed to that key. The other share still protects them. Response: rotate (new `key_id`). Org KEM key rotation is supported: the key agent and the service both hold several KEM keys and pick one by the envelope's key ID. The service publishes its first X-Wing key. ✅
+- **Outcome:** one share is exposed for every artifact sealed to that key. The other share still protects them. Response: rotate (new `key_id`). Org KEM key rotation is supported: the key agent and the service both hold several KEM keys and pick one by the envelope's key ID. The service publishes its first MLKEM1024-P384 key. ✅
 
 ### T15. Downgrade
-- **Outcome:** prevented. Readers accept two suites: SVX-1H (`0x0003`, post-quantum hybrid) and, to open older files, SVX-1 (`0x0001`). There is no negotiation: the suite is fixed in each file's prelude, which the header hash covers and the signature signs. Every writer (client, CLI, SDKs, desktop app) produces only SVX-1H. Suite `0x0003` requires the v2 envelope field and a 1120-byte X-Wing `enc`, and suite `0x0001` forbids it, so a rewritten suite ID fails parsing even before the signature check. Every key-derivation, envelope, release and signature label names its suite, so values from one suite are useless in the other. Unknown suite IDs and unknown *critical* header fields are rejected; unknown non-critical fields are still covered by the signature. ✅ (`hybrid_cannot_be_downgraded_or_mixed`, `suite_and_envelope_layout_must_agree`, `signatures_do_not_cross_suites`, test vector `hybrid-invalid-downgraded-suite`)
+- **Outcome:** prevented. Readers accept three suites: SVX-2 (`0x0004`, maximum strength) and, to open older files, SVX-1H (`0x0003`) and SVX-1 (`0x0001`). There is no negotiation: the suite is fixed in each file's prelude, which the header hash covers and the signature signs. Every writer (client, CLI, SDKs, desktop app) produces only SVX-2. Suite `0x0004` requires the v2 envelope field with 1665-byte MLKEM1024-P384 `enc`s, suite `0x0003` requires 1120-byte X-Wing `enc`s, and suite `0x0001` forbids the v2 field, so a rewritten suite ID fails parsing even before the signature check. The signature length and `sig_alg` are fixed per suite too. Every key-derivation, envelope, release and signature label names its suite, so values from one suite are useless in the other. Unknown suite IDs and unknown *critical* header fields are rejected; unknown non-critical fields are still covered by the signature. ✅ (`hybrid_cannot_be_downgraded_or_mixed`, `suite_and_envelope_layout_must_agree`, `signatures_do_not_cross_suites`, test vectors `hybrid-invalid-downgraded-suite` and `max-invalid-downgraded-suite`)
 
 ### T16. Malicious input aimed at the parser (DoS, memory exhaustion, parser bugs)
 - **Mitigations:** Rust with `#![forbid(unsafe_code)]`; every length is bounded before allocation (header ≤ 1 MiB, field ≤ 256 KiB, chunk ≤ 16 MiB, ≤ 16 envelopes, manifest ≤ 64 KiB); strict TLV ordering; no recursion; streaming with O(chunk) memory; no compression, so decompression bombs cannot occur. ✅
@@ -134,24 +134,25 @@ Status key: ✅ enforced and tested (test names in parentheses). 🔜 designed h
 - The client keeps plaintext in a private 0600 temp file and renames it into place only after full authentication. Partial output is deleted on failure. The admin session file is 0600 and short-lived, and it can never release shares because release requires a key-bound nonce. ✅ (`docs/client.md`)
 
 ### T21. Network interception between client and service
-- **Outcome:** TLS 1.3 with no plaintext fallback, using the post-quantum hybrid key exchange X25519MLKEM768 (offered first by the client and preferred by the service and key agent). In addition, released shares are HPKE-sealed with X-Wing to a per-request one-time client key, so TLS-terminating middleboxes never see share plaintext; classical one-time keys are refused. The OIDC nonce binds the ID token to that key. ✅ (`token_bound_to_another_key_is_rejected`, `compromised_service_cannot_get_org_share`, `classical_client_keys_are_refused`, `tls_pq`)
+- **Outcome:** TLS 1.3 with no plaintext fallback, using the post-quantum hybrid key exchange X25519MLKEM768 (offered first by the client and preferred by the service and key agent). In addition, released shares are HPKE-sealed with MLKEM1024-P384 to a per-request one-time client key, so TLS-terminating middleboxes never see share plaintext; X25519 and X-Wing one-time keys are refused. The OIDC nonce binds the ID token to that key. ✅ (`token_bound_to_another_key_is_rejected`, `compromised_service_cannot_get_org_share`, `older_client_keys_are_refused`, `tls_pq`)
 
 ### T22. IdP or authorization-service outage
 - **Outcome:** fail closed. No cached decryption capability survives outside the current session. A successful release that cannot be audited is refused. When the service is unreachable the client exits with code 3 and writes nothing. ✅ (CLI `service_unavailable_fails_closed`)
 
 ### T23. Harvest now, decrypt later (a future quantum computer)
 - **Threat:** Eve records `.svx` files, or the TLS traffic of a key release, today and keeps them until a large quantum computer can break X25519 and Ed25519 (Shor's algorithm), possibly 10–15 years from now.
-- **Outcome:** mitigated for every file made with SVX 1.1 or later. ✅
-  - Both key shares are sealed with X-Wing, the hybrid of X25519 and ML-KEM-768. Recovering a share needs breaking **both**.
-  - Released shares are re-sealed to an X-Wing one-time key, and the TLS connection itself uses X25519MLKEM768, so a recording of the release reveals nothing later.
-  - Files are signed with Ed25519 **and** ML-DSA-65; a forgery needs breaking both.
-  - The service signs registry records, the service record and release grants with Ed25519 **and** ML-DSA-65 too, so a quantum attacker cannot forge an organization's keys and make senders seal files to the attacker. Clients pin a 256-bit fingerprint of the hybrid registry key.
+- **Outcome:** mitigated for every file made with SVX 1.1 or later, at NIST's highest category (5) since SVX 1.3. ✅
+  - Both key shares are sealed with MLKEM1024-P384, the hybrid of ML-KEM-1024 and P-384. Recovering a share needs breaking **both**.
+  - Released shares are re-sealed to an MLKEM1024-P384 one-time key, and the TLS connection itself uses X25519MLKEM768, so a recording of the release reveals nothing later. (TLS is only a second layer here: the shares inside are already sealed end-to-end at category 5.)
+  - Files are signed with Ed25519 **and** ML-DSA-87 **and** SLH-DSA-SHA2-256s; a forgery needs breaking all three (see T25).
+  - The service signs registry records and the service record with all three, and release grants with Ed25519 **and** ML-DSA-87, so a quantum attacker cannot forge an organization's keys and make senders seal files to the attacker. Clients pin a 256-bit fingerprint of the SVX-2 registry key.
+  - Header hash, payload commitment and key schedule use SHA-512 and HKDF-SHA512.
   - Payload and manifest encryption use 256-bit ChaCha20-Poly1305 keys, which keep a large margin against quantum search (Grover).
-- **Limitations:** files made before the upgrade (suite SVX-1) remain classical; re-issue the ones that must stay confidential for decades. TLS server certificates are still classical (the WebPKI has no ML-DSA certificates yet); certificate authentication happens live during the handshake, so a recording gives nothing later, and the key exchange is already post-quantum. OIDC tokens and IdP TLS depend on each organization's IdP.
-- **Tests:** KATs for X-Wing (HPKE PQ vectors) and ML-DSA-65 (NIST ACVP); `hybrid_signature_needs_both_halves`; `legacy_classical_files_still_open`; hybrid test vectors; `context_signatures_are_hybrid_and_domain_separated`, `context_signatures_refuse_classical_keys`, `registry_key_must_match_the_pinned_fingerprint`, `setup_verifies_against_the_pin`, the Ed25519-only grant refused by the key agent (`managed_flow`).
+- **Limitations:** files made before SVX 1.3 stay at their own suite's strength (SVX-1H: category 3; SVX-1: classical); re-issue the ones that must stay confidential for decades; re-issue the ones that must stay confidential for decades. TLS server certificates are still classical (the WebPKI has no ML-DSA certificates yet); certificate authentication happens live during the handshake, so a recording gives nothing later, and the key exchange is already post-quantum. OIDC tokens and IdP TLS depend on each organization's IdP.
+- **Tests:** KATs for X-Wing and MLKEM1024-P384 (HPKE PQ vectors), ML-DSA-65, ML-DSA-87 and SLH-DSA-SHA2-256s (NIST ACVP); `hybrid_signature_needs_both_halves`, `max_signature_needs_all_three_parts`, `max_context_signatures_full_and_fast`, `max_suite_properties`; `max-*` test vectors; `legacy_classical_files_still_open`; hybrid test vectors; `context_signatures_are_hybrid_and_domain_separated`, `context_signatures_refuse_classical_keys`, `registry_key_must_match_the_pinned_fingerprint`, `setup_verifies_against_the_pin`, the Ed25519-only grant refused by the key agent (`managed_flow`).
 
 ### T24. Personal accounts (Phase 5d)
-Personal accounts sign in with Google or Apple once per device, then sign each request with the device key; the recipient's half of every file key is sealed to their own X-Wing key in the keychain. See [docs/personal.md](../docs/personal.md).
+Personal accounts sign in with Google or Apple once per device, then sign each request with the device key; the recipient's half of every file key is sealed to their own MLKEM1024-P384 key in the keychain. See [docs/personal.md](../docs/personal.md).
 - **Stolen device keys.** A thief with the keychain can make signed requests as the account and unseal its halves, but the service still enforces each sender's rules (approval, one-time, expiry, revocation). The owner stops it by resetting the keys from another device (old keys retire; signed requests with them fail). ⚠️ Keys are software keychain keys, not hardware-bound (Secure Enclave/TPM later).
 - **Captured sign-in token.** The ID token's nonce binds the device's two public keys, so it can't register an attacker's keys. Sign-up requires `email_verified`. A backup's keys can't be registered to another account.
 - **Replayed or altered requests.** Every signed request covers method, path, body hash, time and a nonce: ±60 s and single-use (`signed_requests_are_single_use_and_bound`, demo check 16).
@@ -161,6 +162,14 @@ Personal accounts sign in with Google or Apple once per device, then sign each r
 - **Service sees metadata.** Who sent to whom and when, not file names or contents (names stay in the app's local `history.json`). Emails go through the configured SMTP provider over TLS.
 - **Apple private-relay emails** are per-app addresses; the directory finds such an account only by that address.
 - **Relayed sign-in (Apple).** The service receives the provider's callback and holds the ID token for at most 10 minutes. Only the holder of the app's random secret (the service stores its hash) can collect it, once; the nonce still binds the app's own keys, so a token taken from the service can't register other keys. The callback page reflects nothing from the request (CSP `default-src 'none'`), each `state` completes once, and Apple's client secret never leaves the service (tests `relayed_sign_in`, `refused_or_forged_callbacks`, `apple_style_sign_in_is_relayed_by_the_service`).
+
+### T25. A break of one signature family (lattices, elliptic curves or hashes)
+- **Threat:** a cryptanalytic advance against lattice problems breaks ML-DSA (and ML-KEM), or a quantum computer breaks Ed25519 and P-384, and Eve forges a file or a registry record.
+- **Outcome:** mitigated. SVX-2 signatures on files and on registry and service records need Ed25519 **and** ML-DSA-87 **and** SLH-DSA-SHA2-256s to verify. SLH-DSA's security rests only on the hash function, so it survives a break of both lattices and elliptic curves. Release grants and account requests carry Ed25519 + ML-DSA-87 only: they expire within about a minute and are bound to one transaction, so a forgery would have to happen live. Encryption has the matching hedge in the KEM: MLKEM1024-P384 stays secure if either half holds. ✅ (`max_signature_needs_all_three_parts`, `max_context_signatures_full_and_fast`, vectors `max-invalid-{ed25519,mldsa,slhdsa}-tampered`)
+- **Limitations:**
+  - The SLH-DSA library (RustCrypto `slh-dsa`) is a release candidate, pinned to `=0.2.0-rc.5` and checked against NIST ACVP key-generation and verification vectors. Because every part must verify, a bug in it can cause false refusals but never accept a forgery that the other two parts reject. Move to the stable release when it ships.
+  - SLH-DSA-SHA2-256s was chosen over the SHAKE variant and over `256f`: SHA2 is several times faster in software, and `s` signatures are about half the size of `f`. Signing a file takes about 0.2 s and adds about 34 KB.
+  - No cipher cascade: the payload stays a single ChaCha20-Poly1305 layer with a 256-bit key (discussed and declined). A code-based KEM (Classic McEliece) was also considered and declined: it has no audited Rust implementation and very large keys.
 
 ## 5. Security claims we will make (after review)
 

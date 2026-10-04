@@ -180,9 +180,9 @@ class ArtifactInfo:
 
     format_version: str
     suite_id: int
-    #: Human-readable protection level, e.g. "post-quantum hybrid (...)".
+    #: Human-readable protection level, e.g. "maximum (...)".
     protection: str
-    #: True for the post-quantum hybrid suite (SVX-1H, 0x0003).
+    #: True for the post-quantum suites (SVX-1H 0x0003, SVX-2 0x0004).
     post_quantum: bool
     artifact_id: str
     created_at: int

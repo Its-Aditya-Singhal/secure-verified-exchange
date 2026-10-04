@@ -155,8 +155,8 @@ pub async fn run_all(w: &World, dir: &Path, ui: &Ui) -> Result<()> {
     ui.check(
         "1",
         "Carol packs and registers the report",
-        "a signed, encrypted .svx (post-quantum hybrid)",
-        artifact.exists() && header.post_quantum,
+        "a signed, encrypted .svx (suite SVX-2, maximum strength)",
+        artifact.exists() && header.post_quantum && header.suite_id == 0x0004,
         format!(
             "{} bytes, suite {:#06x}",
             std::fs::metadata(&artifact)?.len(),

@@ -20,6 +20,24 @@ all = { level = "warn", priority = -1 }
 opt-level = 3
 [profile.dev.package.blake2]
 opt-level = 3
+# SVX-2 signatures and KEM: unoptimized SLH-DSA takes about a minute per signature.
+# Its generic code is instantiated in svx-crypto, so that is optimized too.
+[profile.dev.package.svx-crypto]
+opt-level = 3
+[profile.dev.package.slh-dsa]
+opt-level = 3
+[profile.dev.package.sha2]
+opt-level = 3
+[profile.dev.package.sha3]
+opt-level = 3
+[profile.dev.package.keccak]
+opt-level = 3
+[profile.dev.package.ml-dsa]
+opt-level = 3
+[profile.dev.package.ml-kem]
+opt-level = 3
+[profile.dev.package.p384]
+opt-level = 3
 
 [profile.release]
 overflow-checks = true

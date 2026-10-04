@@ -16,7 +16,7 @@ group_claim = "groups"
 service_id = "svx.example"
 service_grant_key = "/etc/svx/keys/service-grant.sign.pub"
 
-# Your encryption keys: the current X-Wing key (created on the Admin page of
+# Your encryption keys: the current MLKEM1024-P384 key (created on the Admin page of
 # the desktop app) plus any older keys still needed for files already sent.
 # (With the systemd unit, use the credential paths instead, e.g.
 #  "/run/credentials/svx-keyagent.service/current.kem.key".)

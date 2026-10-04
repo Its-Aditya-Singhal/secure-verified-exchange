@@ -32,7 +32,7 @@ A `.svx` file is a passive, signed and encrypted container. Its contents stay en
 | [`docs/key-agent.md`](docs/key-agent.md) | Running the key agent (Docker or systemd), key rotation, monitoring |
 | [`docs/sdk-python.md`](docs/sdk-python.md), [`docs/sdk-node.md`](docs/sdk-node.md) | Python and Node.js/TypeScript SDKs |
 | `crates/svx-format` | Strict, bounded, crypto-free parser and writer |
-| `crates/svx-crypto` | STREAM ChaCha20-Poly1305, HPKE key envelopes (X-Wing: X25519 + ML-KEM-768), HKDF key schedule, Ed25519 + ML-DSA-65 signatures |
+| `crates/svx-crypto` | STREAM ChaCha20-Poly1305, HPKE key envelopes (MLKEM1024-P384), HKDF key schedule, Ed25519 + ML-DSA-87 + SLH-DSA signatures; older suites read-only |
 | `crates/svx-core` | Pack, verify and open APIs; key files; trust store |
 | `crates/svx-client` | Client library: config with pinned registry key, browser OIDC login, fail-closed open, managed pack, admin |
 | `crates/svx-cli` | The `svx` command |
@@ -53,8 +53,8 @@ A `.svx` file is a passive, signed and encrypted container. Its contents stay en
 
 ## Design at a glance
 
-- **Post-quantum hybrid.** Every new file uses suite SVX-1H: key shares are sealed with X-Wing (X25519 **and** ML-KEM-768, FIPS 203) and the sender signs with Ed25519 **and** ML-DSA-65 (FIPS 204). An attacker must break both the classical and the post-quantum algorithm, so files recorded today stay safe against a future quantum computer. Key releases use the same hybrid, and TLS uses X25519MLKEM768.
-- **No custom cryptography.** ChaCha20-Poly1305 (STREAM, 256-bit keys), HPKE (RFC 9180), HKDF-SHA256 and SHA-256, from audited libraries with official known-answer tests. There is no negotiation: the suite is fixed and signed in each file, writers only produce SVX-1H, and older SVX-1 files still open.
+- **Maximum strength, post-quantum.** Every new file uses suite SVX-2, at NIST's highest security category: key shares are sealed with MLKEM1024-P384 (ML-KEM-1024 **and** P-384), and the sender signs with Ed25519 **and** ML-DSA-87 (FIPS 204) **and** SLH-DSA-SHA2-256s (FIPS 205). Reading a file means breaking both the post-quantum and the classical KEM; forging one means breaking elliptic curves, lattices *and* hash functions. Files recorded today stay safe against a future quantum computer. Key releases use the same KEM, and TLS uses X25519MLKEM768.
+- **No custom cryptography.** ChaCha20-Poly1305 (STREAM, 256-bit keys), HPKE (RFC 9180), HKDF-SHA512 and SHA-512, from established libraries with official known-answer tests. There is no negotiation: the suite is fixed and signed in each file, writers only produce SVX-2, and older SVX-1H and SVX-1 files still open.
 - **Split key.** The payload key is derived from two shares. One is sealed to the managed service and the other to the recipient organization's key agent. Neither party can decrypt alone, so compromising the server does not expose payloads.
 - **Integrity before plaintext.** The header hash is the AAD for every chunk. A signed payload commitment covers every chunk. Chunk nonces bind position and finality. A single flipped bit anywhere causes rejection, and a test checks this for every byte of a file.
 - **Private metadata.** File names, sizes, classification and description are stored in an encrypted manifest. Only opaque routing identifiers are public.

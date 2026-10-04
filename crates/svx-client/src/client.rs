@@ -60,7 +60,7 @@ pub struct PackResult {
     pub expires_at: Option<i64>,
     pub signing_key_id: String,
     pub registered: bool,
-    /// Human-readable protection level (always post-quantum hybrid for new files).
+    /// Human-readable protection level (always SVX-2 for new files).
     pub protection: String,
 }
 

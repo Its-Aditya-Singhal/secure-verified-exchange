@@ -48,12 +48,13 @@ impl<'a> Registry<'a> {
     }
 }
 
-/// The org's active post-quantum hybrid (X-Wing) key, where new artifacts
-/// must be sealed. There is no fallback to a classical key.
-pub fn active_hybrid_kem_key(rec: &OrgRecord) -> Result<KemPublicKey> {
-    let k = rec.active_hybrid_kem_key().ok_or_else(|| {
+/// The org's active SVX-2 (MLKEM1024-P384) key, where new artifacts must be
+/// sealed. There is no fallback to an older key.
+pub fn active_kem_key(rec: &OrgRecord) -> Result<KemPublicKey> {
+    let k = rec.active_kem_key().ok_or_else(|| {
         ClientError::Config(format!(
-            "{} has no active post-quantum encryption key (xwing); its administrator must register one",
+            "{} has no active SVX-2 encryption key (mlkem1024-p384); its administrator must \
+             create a new encryption key before it can receive files",
             rec.org_id
         ))
     })?;

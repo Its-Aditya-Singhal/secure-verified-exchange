@@ -46,7 +46,8 @@ pub struct VerifyOrgRequest {
 pub struct PutKeyRequest {
     pub kind: KeyKindWire,
     /// Exact length for `kind`: 32 bytes classical, 1216 X-Wing, 1984
-    /// Ed25519 + ML-DSA-65.
+    /// Ed25519 + ML-DSA-65, 1665 MLKEM1024-P384, 2688 Ed25519 + ML-DSA-87 +
+    /// SLH-DSA.
     #[serde(with = "hex_vec")]
     pub public_key: Vec<u8>,
     pub status: KeyStatus,

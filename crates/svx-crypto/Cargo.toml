@@ -15,15 +15,20 @@ chacha20poly1305 = "0.11"
 ed25519-dalek = { version = "3", features = ["rand_core", "zeroize"] }
 getrandom = { version = "0.4", features = ["sys_rng"] }
 hkdf = "0.13"
-hpke = { version = "0.14.1", default-features = false, features = ["x25519", "mlkem", "alloc", "chacha", "hkdfsha2"] }
+hpke = { version = "0.14.1", default-features = false, features = ["x25519", "mlkem", "nistp", "alloc", "chacha", "hkdfsha2"] }
 ml-dsa = { version = "0.1.1", default-features = false, features = ["alloc", "rand_core", "zeroize"] }
 rand_core = "0.10"
+# SLH-DSA (FIPS 205) for suite SVX-2. Pinned: a release candidate, used only
+# as a third signature that must also verify (see threat model T25).
+slh-dsa = { version = "=0.2.0-rc.5", features = ["zeroize"] }
 sha2 = "0.11"
 subtle = "2.6"
 thiserror = "2"
 zeroize = { version = "1.8", features = ["derive"] }
 
 [dev-dependencies]
+# The MLKEM1024-P384 HPKE vector uses AES-256-GCM; only the tests need it.
+hpke = { version = "0.14.1", default-features = false, features = ["aes", "nistp", "mlkem", "hkdfsha2", "alloc"] }
 chacha20 = { version = "0.10", features = ["rng"] }
 hex = "0.4"
 serde_json = "1"

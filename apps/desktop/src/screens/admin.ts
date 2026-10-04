@@ -49,8 +49,10 @@ function confirmPanel(title: string, body: string, action: string, run: () => Pr
 }
 
 const KIND_LABEL: Record<string, string> = {
-  "ed25519-mldsa65": "Signing (post-quantum)",
-  xwing: "Encryption (post-quantum)",
+  "ed25519-mldsa87-slhdsa": "Signing (maximum, SVX-2)",
+  "mlkem1024-p384": "Encryption (maximum, SVX-2)",
+  "ed25519-mldsa65": "Signing (post-quantum, older files)",
+  xwing: "Encryption (post-quantum, older files)",
   ed25519: "Signing (classical, older files)",
   x25519: "Encryption (classical, older files)",
 };

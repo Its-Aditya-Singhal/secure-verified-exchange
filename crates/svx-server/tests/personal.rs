@@ -93,15 +93,15 @@ async fn sign_up_restore_reset_and_directory() {
     assert_eq!(rec.kind, OrgKind::Personal);
     assert_eq!(rec.account_email.as_deref(), Some("bob@example.test"));
     assert_eq!(
-        rec.active_hybrid_kem_key().unwrap().public_key,
+        rec.active_kem_key().unwrap().public_key,
         bob.kem.public_key().to_vec()
     );
     assert!(w.lookup(&alice, "nobody@example.test").await.is_err());
 
     // Eve's provider didn't confirm an email: no account.
     let mut rng = svx_core::crypto::os_rng();
-    let sign = svx_core::crypto::SigningKey::generate_hybrid(&mut rng);
-    let kem = svx_core::crypto::KemSecretKey::generate_hybrid(&mut rng);
+    let sign = svx_core::crypto::SigningKey::generate_max(&mut rng);
+    let kem = svx_core::crypto::KemSecretKey::generate_max(&mut rng);
     assert!(invalid(w.sign_up_with("eve", &sign, &kem, false).await).contains("email"));
 
     // Signing in again with the restored keys is fine; new keys need a reset.
@@ -126,7 +126,7 @@ async fn sign_up_restore_reset_and_directory() {
     };
     let rec = w.lookup(&bob, "alice@example.test").await.unwrap();
     assert_eq!(
-        rec.active_hybrid_kem_key().unwrap().public_key,
+        rec.active_kem_key().unwrap().public_key,
         new_alice.kem.public_key().to_vec()
     );
     w.cleanup().await.unwrap();

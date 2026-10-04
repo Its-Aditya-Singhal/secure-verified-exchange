@@ -200,7 +200,7 @@ pub fn load_signing(store: &dyn SecretStore, r: &KeyRef) -> Result<(Identifier, 
     }
 }
 
-/// Create a post-quantum hybrid signing key for `org` in the keychain.
+/// Create an SVX-2 signing key for `org` in the keychain.
 /// Returns its reference and its public key (to register).
 pub fn generate_in_keychain(
     store: &dyn SecretStore,
@@ -208,7 +208,7 @@ pub fn generate_in_keychain(
 ) -> Result<(KeyRef, svx_core::crypto::VerifyingKey)> {
     Identifier::new(org)
         .map_err(|_| ClientError::Config(format!("invalid organization {org:?}")))?;
-    let sk = SigningKey::generate_hybrid(&mut os_rng());
+    let sk = SigningKey::generate_max(&mut os_rng());
     store_key(store, org, &sk)
 }
 
@@ -244,7 +244,7 @@ fn kem_entry_name(org: &str, key_id: &str) -> String {
     format!("{org}/kem-{key_id}")
 }
 
-/// Keep a personal account's X-Wing key in the keychain. Returns its key ID
+/// Keep a personal account's encryption key in the keychain. Returns its key ID
 /// (hex).
 pub fn store_kem(store: &dyn SecretStore, org: &str, sk: &KemSecretKey) -> Result<String> {
     Identifier::new(org)
@@ -258,7 +258,7 @@ pub fn store_kem(store: &dyn SecretStore, org: &str, sk: &KemSecretKey) -> Resul
     Ok(key_id)
 }
 
-/// Load the X-Wing key `key_id` (hex) of `org` from the keychain.
+/// Load the encryption key `key_id` (hex) of `org` from the keychain.
 pub fn load_kem(store: &dyn SecretStore, org: &str, key_id: &str) -> Result<KemSecretKey> {
     let bytes = store.get(&kem_entry_name(org, key_id))?.ok_or_else(|| {
         ClientError::Config(format!(
@@ -276,7 +276,7 @@ pub fn load_kem(store: &dyn SecretStore, org: &str, key_id: &str) -> Result<KemS
     Ok(sk)
 }
 
-/// Remove an X-Wing key from the keychain.
+/// Remove an encryption key from the keychain.
 pub fn delete_kem(store: &dyn SecretStore, org: &str, key_id: &str) -> Result<()> {
     store.delete(&kem_entry_name(org, key_id))
 }
@@ -328,7 +328,7 @@ mod tests {
     fn keychain_round_trip() {
         let store = MemoryStore::default();
         let (r, vk) = generate_in_keychain(&store, "acme-security").unwrap();
-        assert_eq!(vk.kind(), KeyKind::HybridSigning);
+        assert_eq!(vk.kind(), KeyKind::MaxSigning);
         let (owner, sk) = load_signing(&store, &r).unwrap();
         assert_eq!(owner.as_str(), "acme-security");
         assert_eq!(sk.verifying_key(), vk);
@@ -337,7 +337,7 @@ mod tests {
             unreachable!()
         };
         let name = KeyRef::entry_name(org, key_id);
-        let other = SigningKey::generate_hybrid(&mut os_rng());
+        let other = SigningKey::generate_max(&mut os_rng());
         store.set(&name, &encode(&other)).unwrap();
         assert!(load_signing(&store, &r).is_err());
         store.set(&name, b"\x04short").unwrap();
@@ -352,7 +352,7 @@ mod tests {
     #[test]
     fn kem_keys_round_trip() {
         let store = MemoryStore::default();
-        let sk = KemSecretKey::generate_hybrid(&mut os_rng());
+        let sk = KemSecretKey::generate_max(&mut os_rng());
         let id = store_kem(&store, "u.0011223344556677", &sk).unwrap();
         let back = load_kem(&store, "u.0011223344556677", &id).unwrap();
         assert_eq!(back.public_key(), sk.public_key());

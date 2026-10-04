@@ -68,7 +68,9 @@ impl ChunkInfo {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Trailer {
     pub chunk_count: u64,
-    pub payload_commitment: [u8; PAYLOAD_COMMITMENT_LEN],
+    /// [`payload_commitment_len`] bytes: 32 (SHA-256), or 64 (SHA-512) in
+    /// suite `0x0004`.
+    pub payload_commitment: Vec<u8>,
     pub sig_alg: u16,
     pub signature: Vec<u8>,
 }
@@ -81,7 +83,12 @@ impl Trailer {
                 limit: MAX_SIGNATURE_LEN as u64,
             });
         }
-        let mut out = Vec::with_capacity(48 + self.signature.len());
+        if self.payload_commitment.len() != PAYLOAD_COMMITMENT_LEN
+            && self.payload_commitment.len() != PAYLOAD_COMMITMENT_LEN_WIDE
+        {
+            return Err(FormatError::Malformed("payload commitment length"));
+        }
+        let mut out = Vec::with_capacity(80 + self.signature.len());
         out.extend_from_slice(&TRAILER_MAGIC);
         out.extend_from_slice(&self.chunk_count.to_le_bytes());
         out.extend_from_slice(&self.payload_commitment);
@@ -91,25 +98,29 @@ impl Trailer {
         Ok(out)
     }
 
-    /// Decode a trailer from exactly `bytes` (no trailing data permitted).
-    pub fn decode(mut bytes: &[u8]) -> Result<Self> {
-        let t = Self::read_from(&mut bytes)?;
+    /// Decode the trailer of a `suite_id` artifact from exactly `bytes` (no
+    /// trailing data permitted).
+    pub fn decode(suite_id: u16, mut bytes: &[u8]) -> Result<Self> {
+        let t = Self::read_from(&mut bytes, payload_commitment_len(suite_id))?;
         if !bytes.is_empty() {
             return Err(FormatError::TrailingData);
         }
         Ok(t)
     }
 
-    fn read_from<R: Read>(r: &mut R) -> Result<Self> {
-        let mut fixed = [0u8; 4 + 8 + 32 + 2 + 2];
-        r.read_exact(&mut fixed).map_err(map_eof)?;
-        if fixed[..4] != TRAILER_MAGIC {
+    fn read_from<R: Read>(r: &mut R, commitment_len: usize) -> Result<Self> {
+        let mut head = [0u8; 4 + 8];
+        r.read_exact(&mut head).map_err(map_eof)?;
+        if head[..4] != TRAILER_MAGIC {
             return Err(FormatError::Malformed("trailer magic"));
         }
-        let chunk_count = u64::from_le_bytes(fixed[4..12].try_into().expect("slice length"));
-        let payload_commitment: [u8; 32] = fixed[12..44].try_into().expect("slice length");
-        let sig_alg = u16::from_le_bytes([fixed[44], fixed[45]]);
-        let sig_len = u16::from_le_bytes([fixed[46], fixed[47]]) as usize;
+        let chunk_count = u64::from_le_bytes(head[4..12].try_into().expect("slice length"));
+        let mut payload_commitment = vec![0u8; commitment_len];
+        r.read_exact(&mut payload_commitment).map_err(map_eof)?;
+        let mut alg_len = [0u8; 4];
+        r.read_exact(&mut alg_len).map_err(map_eof)?;
+        let sig_alg = u16::from_le_bytes([alg_len[0], alg_len[1]]);
+        let sig_len = u16::from_le_bytes([alg_len[2], alg_len[3]]) as usize;
         if sig_len == 0 || sig_len > MAX_SIGNATURE_LEN {
             return Err(FormatError::Malformed("signature length"));
         }
@@ -202,7 +213,10 @@ impl<R: Read> Reader<R> {
                 "trailer requested before final chunk",
             ));
         }
-        let trailer = Trailer::read_from(&mut self.inner)?;
+        let trailer = Trailer::read_from(
+            &mut self.inner,
+            payload_commitment_len(self.prelude.suite_id),
+        )?;
         if trailer.chunk_count != self.next_index {
             return Err(FormatError::Malformed("trailer chunk count"));
         }
@@ -222,6 +236,7 @@ impl<R: Read> Reader<R> {
 /// Streaming writer enforcing the same structural rules as [`Reader`].
 pub struct Writer<W: Write> {
     inner: W,
+    suite_id: u16,
     chunk_size: u32,
     next_index: u64,
     saw_final: bool,
@@ -235,6 +250,7 @@ impl<W: Write> Writer<W> {
         inner.write_all(&header_region)?;
         Ok(Writer {
             inner,
+            suite_id,
             chunk_size: header.chunk_size,
             next_index: 0,
             saw_final: false,
@@ -291,6 +307,9 @@ impl<W: Write> Writer<W> {
         }
         if trailer.chunk_count != self.next_index {
             return Err(FormatError::WriterState("trailer chunk count mismatch"));
+        }
+        if trailer.payload_commitment.len() != payload_commitment_len(self.suite_id) {
+            return Err(FormatError::WriterState("payload commitment length"));
         }
         self.inner.write_all(&trailer.encode()?)?;
         self.inner.flush()?;

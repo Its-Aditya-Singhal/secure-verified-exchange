@@ -34,8 +34,13 @@ impl World {
         Self::with_suite(Suite::Svx1H)
     }
 
-    fn both() -> [World; 2] {
-        [Self::new(), Self::hybrid()]
+    /// Maximum-strength suite SVX-2 (what writers produce).
+    fn max() -> Self {
+        Self::with_suite(Suite::Svx2)
+    }
+
+    fn all() -> [World; 3] {
+        [Self::new(), Self::hybrid(), Self::max()]
     }
 
     fn with_suite(suite: Suite) -> Self {
@@ -43,6 +48,7 @@ impl World {
         let signer = |rng: &mut ChaCha20Rng| match suite {
             Suite::Svx1 => SigningKey::generate(rng),
             Suite::Svx1H => SigningKey::generate_hybrid(rng),
+            Suite::Svx2 => SigningKey::generate_max(rng),
         };
         let acme_sign = signer(&mut rng);
         let mallory_sign = signer(&mut rng);
@@ -65,6 +71,7 @@ impl World {
         match suite {
             Suite::Svx1 => KemSecretKey::generate(rng),
             Suite::Svx1H => KemSecretKey::generate_hybrid(rng),
+            Suite::Svx2 => KemSecretKey::generate_max(rng),
         }
     }
 
@@ -116,7 +123,7 @@ const SECRET: &[u8] =
 
 #[test]
 fn authorized_round_trip() {
-    for mut w in World::both() {
+    for mut w in World::all() {
         for len in [0usize, 1, 63, 64, 65, 128, 1000] {
             let data: Vec<u8> = SECRET.iter().copied().cycle().take(len).collect();
             let file = w.pack(&data);
@@ -130,7 +137,7 @@ fn authorized_round_trip() {
 
 #[test]
 fn intercepted_file_reveals_no_plaintext_or_private_metadata() {
-    for mut w in World::both() {
+    for mut w in World::all() {
         let file = w.pack(SECRET);
         let hay = String::from_utf8_lossy(&file);
         for needle in ["FICTIONAL", "203.0.113.7", "secret.txt", "TLP:RED"] {
@@ -144,7 +151,7 @@ fn intercepted_file_reveals_no_plaintext_or_private_metadata() {
 
 #[test]
 fn file_alone_is_insufficient_one_share_is_insufficient() {
-    for mut w in World::both() {
+    for mut w in World::all() {
         let file = w.pack(SECRET);
         let v = verify(Cursor::new(&file), &w.trust).unwrap();
         let svc = v
@@ -181,9 +188,19 @@ fn file_alone_is_insufficient_one_share_is_insufficient() {
 
 #[test]
 fn any_single_byte_modification_is_rejected() {
-    for mut w in World::both() {
+    for mut w in World::all() {
         let file = w.pack(&SECRET[..80]);
-        for i in 0..file.len() {
+        // Every byte, except inside SVX-2's 34 KB signature, where every
+        // 61st byte and the last few are enough (each part is hit).
+        let max = w.suite == Suite::Svx2;
+        let sig_start = if max {
+            file.len() - svx_core::crypto::MAX_SIG_LEN
+        } else {
+            file.len()
+        };
+        for i in
+            (0..file.len()).filter(|&i| !max || i < sig_start || i % 61 == 0 || i + 8 >= file.len())
+        {
             let mut t = file.clone();
             t[i] ^= 0x01;
             assert!(
@@ -196,7 +213,7 @@ fn any_single_byte_modification_is_rejected() {
 
 #[test]
 fn truncation_and_extension_rejected() {
-    for mut w in World::both() {
+    for mut w in World::all() {
         let file = w.pack(SECRET);
         for cut in [1, 10, 50, file.len() / 2, file.len() - 1] {
             assert!(verify(Cursor::new(&file[..cut]), &w.trust).is_err());
@@ -209,7 +226,7 @@ fn truncation_and_extension_rejected() {
 
 #[test]
 fn chunk_reorder_rejected() {
-    for mut w in World::both() {
+    for mut w in World::all() {
         let data = vec![0x41u8; 64 * 3 + 10];
         let file = w.pack(&data);
         let c = format::parse(&file).unwrap();
@@ -227,7 +244,7 @@ fn chunk_reorder_rejected() {
 
 #[test]
 fn untrusted_or_impersonating_sender_rejected() {
-    for mut w in World::both() {
+    for mut w in World::all() {
         let mallory = World::copy(&w.mallory_sign);
         // Mallory signs with her own key but claims to be Acme.
         let forged = w.pack_with(&mallory, "acme-security", SECRET, 64);
@@ -247,7 +264,7 @@ fn untrusted_or_impersonating_sender_rejected() {
 
 #[test]
 fn unsupported_suite_rejected_no_downgrade() {
-    for mut w in World::both() {
+    for mut w in World::all() {
         let mut file = w.pack(SECRET);
         file[10..12].copy_from_slice(&2u16.to_le_bytes());
         assert!(matches!(
@@ -261,7 +278,7 @@ fn unsupported_suite_rejected_no_downgrade() {
 
 #[test]
 fn artifact_swapped_between_verify_and_decrypt() {
-    for mut w in World::both() {
+    for mut w in World::all() {
         let a = w.pack(SECRET);
         let b = w.pack(SECRET);
         let v = verify(Cursor::new(&a), &w.trust).unwrap();
@@ -281,7 +298,7 @@ fn artifact_swapped_between_verify_and_decrypt() {
 
 #[test]
 fn expiry_is_reported() {
-    for mut w in World::both() {
+    for mut w in World::all() {
         let file = w.pack(SECRET);
         let v = verify(Cursor::new(&file), &w.trust).unwrap();
         assert!(!v.is_expired(1_790_000_001));
@@ -291,7 +308,7 @@ fn expiry_is_reported() {
 
 #[test]
 fn length_mismatch_rejected_on_pack() {
-    for mut w in World::both() {
+    for mut w in World::all() {
         let req = PackRequest {
             suite: w.suite,
             sender_org: id("acme-security"),
@@ -367,7 +384,7 @@ fn large_streaming_round_trip() {
 
 #[test]
 fn verify_head_without_payload() {
-    for mut w in World::both() {
+    for mut w in World::all() {
         let file = w.pack(SECRET);
         let v = verify(Cursor::new(&file), &w.trust).unwrap();
         let trailer = v.trailer.encode().unwrap();
@@ -464,6 +481,11 @@ fn hybrid_key_files_round_trip() {
             SigningKey::generate_hybrid(&mut rng),
             KemSecretKey::generate_hybrid(&mut rng),
         ),
+        (
+            "max",
+            SigningKey::generate_max(&mut rng),
+            KemSecretKey::generate_max(&mut rng),
+        ),
     ] {
         let prefix = dir.path().join(name);
         keyfile::write_signing_pair(&prefix, &owner, &sk).unwrap();
@@ -542,4 +564,98 @@ fn several_recipients_each_open_with_their_own_key() {
         v.unwrap_share_from(EnvelopeRole::RecipientOrg, &ring)
             .is_ok()
     );
+}
+
+#[test]
+fn max_suite_properties() {
+    let mut w = World::max();
+    let file = w.pack(SECRET);
+    let v = verify(Cursor::new(&file), &w.trust).unwrap();
+    assert_eq!(v.suite, Suite::Svx2);
+    assert_eq!(v.prelude.minor, format::FORMAT_MINOR_MAX);
+    assert_eq!(v.payload_commitment().len(), 64);
+    assert_eq!(v.trailer.signature.len(), svx_core::crypto::MAX_SIG_LEN);
+    assert_eq!(v.trailer.sig_alg, svx_core::crypto::SIG_ALG_MAX);
+    // Claiming an older suite in the prelude is refused.
+    for old in [1u16, 3] {
+        let mut down = file.clone();
+        down[10..12].copy_from_slice(&old.to_le_bytes());
+        assert!(verify(Cursor::new(&down), &w.trust).is_err(), "{old}");
+    }
+    // The head verifies on its own (what the service checks on release).
+    let c = format::parse(&file).unwrap();
+    let head = verify_head(&c.header_region, &c.trailer.encode().unwrap(), &w.trust).unwrap();
+    assert_eq!(head.header_hash(), v.header_hash());
+    // A hybrid (SVX-1H) envelope key can't open an SVX-2 envelope.
+    let hybrid = World::hybrid();
+    assert!(
+        v.unwrap_share(EnvelopeRole::Service, &hybrid.service_kem)
+            .is_err()
+    );
+    // Mixing an SVX-1H signing key into an SVX-2 artifact is refused.
+    let req = PackRequest {
+        suite: Suite::Svx2,
+        sender_org: id("acme-security"),
+        signing_key: &hybrid.acme_sign,
+        recipient_org: id("example-corp"),
+        recipient_key: w.example_kem.public_key(),
+        more_recipients: vec![],
+        service_id: id("svx.example"),
+        service_key: w.service_kem.public_key(),
+        policy_ref: id("incident-response"),
+        created_at: 1_790_000_000,
+        expires_at: None,
+        chunk_size: None,
+        manifest: Manifest::single_file("x.bin", 1),
+    };
+    assert!(matches!(
+        pack(&req, &b"1"[..], Vec::new(), &mut w.rng),
+        Err(CoreError::InvalidRequest(_))
+    ));
+}
+
+#[test]
+fn max_overhead() {
+    let mut h = World::hybrid();
+    let mut m = World::max();
+    let extra = m.pack(SECRET).len() - h.pack(SECRET).len();
+    // Bigger envelopes (2 x 545 B), the 64-byte commitment and the third
+    // signature: about 32 KB more than SVX-1H.
+    assert!((30_000..34_000).contains(&extra), "{extra}");
+}
+
+#[test]
+fn max_several_recipients() {
+    let mut w = World::max();
+    let bob = KemSecretKey::generate_max(&mut w.rng);
+    let signer = World::copy(&w.acme_sign);
+    let req = PackRequest {
+        suite: Suite::Svx2,
+        sender_org: id("acme-security"),
+        signing_key: &signer,
+        recipient_org: id("example-corp"),
+        recipient_key: w.example_kem.public_key(),
+        more_recipients: vec![(id("u.0000000000000b0b"), bob.public_key())],
+        service_id: id("svx.example"),
+        service_key: w.service_kem.public_key(),
+        policy_ref: id("personal"),
+        created_at: 1_790_000_000,
+        expires_at: None,
+        chunk_size: Some(64),
+        manifest: Manifest::single_file("secret.txt", SECRET.len() as u64),
+    };
+    let mut file = Vec::new();
+    pack(&req, SECRET, &mut file, &mut w.rng).unwrap();
+    let v = verify(Cursor::new(&file), &w.trust).unwrap();
+    // Format 1.3 covers several recipients too.
+    assert_eq!(v.prelude.minor, format::FORMAT_MINOR_MAX);
+    let s = v
+        .unwrap_share(EnvelopeRole::Service, &w.service_kem)
+        .unwrap();
+    for k in [&w.example_kem, &bob] {
+        let r = v.unwrap_share(EnvelopeRole::RecipientOrg, k).unwrap();
+        let mut out = Vec::new();
+        v.decrypt(Cursor::new(&file), &s, &r, &mut out).unwrap();
+        assert_eq!(out, SECRET);
+    }
 }

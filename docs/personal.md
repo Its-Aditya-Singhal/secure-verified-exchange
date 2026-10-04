@@ -45,14 +45,14 @@ share of every file key, audit and revocation.
 | Piece | Company | Personal |
 |-------|---------|----------|
 | Who signs in | company IdP, every open | Google or Apple, once per device |
-| Recipient's half of the key | the org's key agent | the person's own X-Wing key, in their keychain |
+| Recipient's half of the key | the org's key agent | the person's own MLKEM1024-P384 key, in their keychain |
 | Who decides | the recipient org's policy | the sender's per-file rules |
 | Requests to the service | ID token bound to the open | signed with the device key |
 
 ### Sign-up
 
-1. The app generates a hybrid signing key (Ed25519 + ML-DSA-65) and an
-   X-Wing encryption key.
+1. The app generates an SVX-2 signing key (Ed25519 + ML-DSA-87 + SLH-DSA)
+   and an MLKEM1024-P384 encryption key.
 2. It signs in with Google or Apple (browser, PKCE) asking for an ID token
    whose `nonce` is `signup_nonce(signing_public, kem_public)`, so a
    captured token can't register anyone else's keys.
@@ -95,7 +95,7 @@ and times only. The app keeps names in a local `history.json`.
 
 1. Verify the file locally against the sender's signed record.
 2. Check it is addressed to this account and sealed to this device's key.
-3. `POST /v1/personal/release` with a fresh X-Wing one-time key. The
+3. `POST /v1/personal/release` with a fresh MLKEM1024-P384 one-time key. The
    service checks, in order: a registered file with this exact header; the
    caller is a named and registered recipient; revocation (file or
    person); expiry (the earlier of the signed and the sender's); one-time
@@ -133,7 +133,7 @@ address.
 ### Backups
 
 `*.svxbackup`: both private keys, encrypted with ChaCha20-Poly1305 under a
-key derived from the recovery password with Argon2id (64 MiB, 3 passes).
+key derived from the recovery password with Argon2id (256 MiB, 4 passes; older 64 MiB backups still open).
 The file is owner-only and never overwritten. There is no password
 recovery.
 

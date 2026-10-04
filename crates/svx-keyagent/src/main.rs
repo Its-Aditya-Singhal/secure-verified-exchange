@@ -47,11 +47,11 @@ struct Args {
     group_claim: Option<String>,
     #[arg(long)]
     service_id: Option<String>,
-    /// The managed service's grant public key (ed25519-public key file), pinned.
+    /// The managed service's grant public key (SVX-2 public key file), pinned.
     #[arg(long)]
     service_grant_key: Option<PathBuf>,
-    /// KEM secret key files: the org's X-Wing key and any older keys (X25519
-    /// or rotated) still needed to open existing files. Repeatable.
+    /// KEM secret key files: the org's MLKEM1024-P384 key and any older keys
+    /// (X-Wing, X25519 or rotated) still needed to open existing files. Repeatable.
     #[arg(long = "kem-key")]
     kem_keys: Vec<PathBuf>,
     /// Default: 127.0.0.1:9443.
@@ -229,7 +229,7 @@ async fn check(a: &Args) -> Result<()> {
                 .await
                 .context("fetching the registry record")?;
             let active = rec
-                .active_hybrid_kem_key()
+                .active_kem_key()
                 .context("the registry has no active post-quantum encryption key for this org")?;
             if !st
                 .kem_keys

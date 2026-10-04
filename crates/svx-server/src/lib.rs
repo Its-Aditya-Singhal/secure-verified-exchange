@@ -51,10 +51,58 @@ pub struct AppState {
     /// Sends approval-request emails.
     pub notifier: Arc<dyn notify::Notifier>,
     pub limiter: Arc<RateLimiter>,
+    /// Recently signed registry records (SLH-DSA signing takes a fraction
+    /// of a second, so unchanged records are not signed on every request).
+    pub records: Arc<RecordCache>,
     /// Relayed sign-in (Apple): the callback URL and Apple's key.
     pub relay: Arc<relay::RelayConfig>,
     /// Allows plain-http loopback IdPs and key agents. Never in production.
     pub dev: bool,
+}
+
+/// Signed registry and service records, reused while their content is
+/// unchanged and they are younger than [`RecordCache::REUSE_SECS`] (well
+/// inside the clients' 15-minute freshness limit).
+#[derive(Default)]
+pub struct RecordCache {
+    entries: Mutex<HashMap<String, CachedRecord>>,
+}
+
+struct CachedRecord {
+    /// The record serialized with `issued_at` zeroed.
+    content: Vec<u8>,
+    issued_at: i64,
+    signed: Vec<u8>,
+}
+
+impl RecordCache {
+    pub const REUSE_SECS: i64 = 5 * 60;
+
+    /// The cached signed record for `key`, if `content` is unchanged and it
+    /// is still fresh at `now`.
+    pub fn get(&self, key: &str, content: &[u8], now: i64) -> Option<Vec<u8>> {
+        let e = self.entries.lock().expect("record cache lock");
+        e.get(key)
+            .filter(|c| {
+                c.content == content && (0..Self::REUSE_SECS).contains(&(now - c.issued_at))
+            })
+            .map(|c| c.signed.clone())
+    }
+
+    pub fn put(&self, key: &str, content: Vec<u8>, issued_at: i64, signed: Vec<u8>) {
+        let mut e = self.entries.lock().expect("record cache lock");
+        if e.len() > 10_000 {
+            e.clear();
+        }
+        e.insert(
+            key.to_owned(),
+            CachedRecord {
+                content,
+                issued_at,
+                signed,
+            },
+        );
+    }
 }
 
 /// A fixed-window per-key rate limit (in memory, per process).

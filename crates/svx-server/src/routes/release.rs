@@ -94,7 +94,7 @@ pub async fn register_artifact(
     .bind(&h.artifact_id[..])
     .bind(h.sender_org.as_str())
     .bind(h.recipient_org.as_str())
-    .bind(&head.header_hash().as_bytes()[..])
+    .bind(head.header_hash().as_bytes())
     .bind(unix_now())
     .execute(&st.db)
     .await?;
@@ -188,7 +188,7 @@ pub async fn release(
         return Err(deny(DenyReason::InvalidArtifact));
     }
     let org = recipient.org_id.as_str();
-    // Only post-quantum hybrid (X-Wing) one-time keys are accepted.
+    // Only SVX-2 (MLKEM1024-P384) one-time keys are accepted.
     let client_key = parse_client_key(&req.client_key).ok_or(deny(DenyReason::InvalidRequest))?;
 
     // 2. Authentication: the recipient org's own IdP, bound to this
@@ -342,7 +342,7 @@ pub async fn release(
             v: PROTOCOL_VERSION,
             service_id: st.service_id.to_string(),
             artifact_id: h.artifact_id,
-            header_hash: *head.header_hash().as_bytes(),
+            header_hash: head.header_hash().as_bytes().to_vec(),
             recipient_org: org.to_owned(),
             issuer: who.issuer.clone(),
             sub: who.sub.clone(),

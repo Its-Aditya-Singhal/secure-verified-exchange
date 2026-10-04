@@ -31,7 +31,7 @@ use svx_protocol::{
 use svx_server::dns::StaticDns;
 use svx_server::keys::LocalKeys;
 use svx_server::notify::MemoryNotifier;
-use svx_server::{AppState, RateLimiter};
+use svx_server::{AppState, RateLimiter, RecordCache};
 
 pub mod personal;
 
@@ -56,11 +56,11 @@ pub struct World {
     /// Approval emails the service sent.
     pub mail: Arc<MemoryNotifier>,
     pub db: sqlx::PgPool,
-    /// Acme's active post-quantum hybrid signing key (Ed25519 + ML-DSA-65).
+    /// Acme's active SVX-2 signing key (Ed25519 + ML-DSA-87 + SLH-DSA).
     pub acme_sign: SigningKey,
     /// Acme's retired classical Ed25519 key (verifies older files).
     pub acme_sign_classical: SigningKey,
-    /// Example Corp's active X-Wing key (held by its key agent).
+    /// Example Corp's active MLKEM1024-P384 key (held by its key agent).
     pub example_kem: KemSecretKey,
     /// Example Corp's retired X25519 key (still opens older files).
     pub example_kem_classical: KemSecretKey,
@@ -230,13 +230,13 @@ impl World {
 
         // Managed service.
         let mut rng = os_rng();
-        // Post-quantum hybrid keys for new files, classical ones for older
-        // files (suite SVX-1), as after a real migration.
-        let service_kem = KemSecretKey::generate_hybrid(&mut rng);
+        // SVX-2 keys for new files, classical ones for older files (suite
+        // SVX-1), as after a real migration.
+        let service_kem = KemSecretKey::generate_max(&mut rng);
         let service_kem_classical = KemSecretKey::generate(&mut rng);
         let service_kem_classical_pub = service_kem_classical.public_key().clone();
-        let service_grant = SigningKey::generate_hybrid(&mut rng);
-        let registry = SigningKey::generate_hybrid(&mut rng);
+        let service_grant = SigningKey::generate_max(&mut rng);
+        let registry = SigningKey::generate_max(&mut rng);
         let grant_copy =
             SigningKey::from_secret_bytes(service_grant.kind(), &service_grant.to_secret_bytes())
                 .unwrap();
@@ -273,6 +273,7 @@ impl World {
             ]),
             notifier: mail.clone(),
             limiter: Arc::new(RateLimiter::default()),
+            records: Arc::new(RecordCache::default()),
             relay: Arc::new(svx_server::relay::RelayConfig {
                 redirect_uri: Some(format!("{public_url}/v1/auth/relay/callback")),
                 apple: None,
@@ -282,7 +283,7 @@ impl World {
         let service_url = serve_on(service_listener, svx_server::app(state).await.unwrap());
 
         // Example Corp's key agent.
-        let example_kem = KemSecretKey::generate_hybrid(&mut rng);
+        let example_kem = KemSecretKey::generate_max(&mut rng);
         let example_kem_classical = KemSecretKey::generate(&mut rng);
         let agent_db = fresh_db(admin_url, &agent_db_name).await;
         let agent = AgentState {
@@ -316,7 +317,7 @@ impl World {
             relay_idp,
             mail,
             db,
-            acme_sign: SigningKey::generate_hybrid(&mut rng),
+            acme_sign: SigningKey::generate_max(&mut rng),
             acme_sign_classical: SigningKey::generate(&mut rng),
             example_kem,
             example_kem_classical,
@@ -338,7 +339,7 @@ impl World {
                 ACME,
                 &acme_admin,
                 w.acme_sign.verifying_key().to_vec(),
-                KeyKindWire::Ed25519Mldsa65,
+                KeyKindWire::Max,
                 KeyStatus::Active,
             ),
             (
@@ -352,7 +353,7 @@ impl World {
                 EXAMPLE,
                 &example_admin,
                 w.example_kem.public_key().to_vec(),
-                KeyKindWire::XWing,
+                KeyKindWire::MlKem1024P384,
                 KeyStatus::Active,
             ),
             (
@@ -488,17 +489,17 @@ impl World {
             .await
     }
 
-    /// The service's published (X-Wing) KEM key.
+    /// The service's published (MLKEM1024-P384) KEM key.
     pub fn service_kem(&self) -> KemPublicKey {
-        KemPublicKey::from_kind_bytes(KeyKind::XWingKem, &self.info.kem_public).unwrap()
+        KemPublicKey::from_kind_bytes(KeyKind::MaxKem, &self.info.kem_public).unwrap()
     }
 
-    /// The service's hybrid registry key.
+    /// The service's SVX-2 registry key.
     pub fn registry_key(&self) -> VerifyingKey {
-        VerifyingKey::from_kind_bytes(KeyKind::HybridSigning, &self.info.registry_public).unwrap()
+        VerifyingKey::from_kind_bytes(KeyKind::MaxSigning, &self.info.registry_public).unwrap()
     }
 
-    /// Acme packs SECRET for Example Corp: suite SVX-1H with a hybrid
+    /// Acme packs SECRET for Example Corp: suite SVX-2 with an SVX-2
     /// `signer`, or a legacy SVX-1 file with a classical one.
     pub fn pack_with(
         &self,
@@ -507,9 +508,9 @@ impl World {
         expires_at: Option<i64>,
         policy: &str,
     ) -> Vec<u8> {
-        let (suite, recipient, svc) = if signer.kind() == KeyKind::HybridSigning {
+        let (suite, recipient, svc) = if signer.kind() == KeyKind::MaxSigning {
             (
-                Suite::Svx1H,
+                Suite::Svx2,
                 self.example_kem.public_key(),
                 self.service_kem(),
             )

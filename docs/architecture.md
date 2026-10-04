@@ -22,9 +22,9 @@ Status: Phases 1–4 are implemented: the format, the cryptography, the managed 
                                                                        v
    +--------------------------------------------+     +--------------------------------------+
    | SVX Managed Service (svx.example)          |     | Company B Key Agent                  |
-   |  - org registry and trust (signed records) |     |  - Company B X-Wing KEM key in KMS   |
+   |  - org registry and trust (signed records) |     |  - Company B SVX-2 KEM key in KMS    |
    |  - policy engine, expiry, revocation       |     |  - unwraps RecipientOrg share        |
-   |  - service X-Wing KEM key in KMS/HSM       |     |  - requires service grant + user     |
+   |  - service SVX-2 KEM key in KMS/HSM        |     |  - requires service grant + user     |
    |  - unwraps Service share only              |     |    token bound to client key         |
    |  - audit log                               |     |  - local audit log                   |
    +--------------------------------------------+     +--------------------------------------+
@@ -61,13 +61,13 @@ Deployments where the managed service also operates the recipient's key agent lo
 
 1. Validate the request. Generate `artifact_id` (16 random bytes), a STREAM `nonce_prefix` (7 random bytes), and `share_svc` and `share_org` (32 random bytes each).
 2. Derive `payload_key`, `manifest_key` and `key_commitment` with HKDF.
-3. HPKE-seal each share to its holder's X-Wing (X25519 + ML-KEM-768) key. `info` binds role, artifact ID, sender org and key ID, recipient org, and service ID.
+3. HPKE-seal each share to its holder's MLKEM1024-P384 (ML-KEM-1024 + P-384) key. `info` binds role, artifact ID, sender org and key ID, recipient org, and service ID.
 4. Encrypt the manifest (file name, size, classification, description).
 5. Write the prelude and header. Compute `header_hash`.
 6. Stream the payload: STREAM-encrypt each chunk with `aad = header_hash`, and accumulate the payload commitment.
-7. Sign `header_hash ‖ chunk_count ‖ payload_commitment` with Ed25519 and with ML-DSA-65 (one composite signature; both must verify). Write the trailer.
+7. Sign `header_hash ‖ chunk_count ‖ payload_commitment` with Ed25519, ML-DSA-87 and SLH-DSA-SHA2-256s (one signature in three parts; all must verify). Write the trailer.
 
-New files always use suite SVX-1H (`0x0003`, format 1.1). Readers also accept the classical suite SVX-1 (`0x0001`) so files made before the upgrade still open; see `spec/crypto-profile.md`.
+New files always use suite SVX-2 (`0x0004`, format 1.3; SHA-512 throughout). Readers also accept SVX-1H (`0x0003`) and the classical SVX-1 (`0x0001`) so older files still open; see `spec/crypto-profile.md`.
 
 Memory use is O(chunk size). The CLI writes to a temporary file and renames it only on success.
 
@@ -115,7 +115,7 @@ policies[]             (see section 7)
 Trust model:
 
 1. **Registration.** An admin proves control of a domain (DNS TXT challenge) and sets up the org's IdP. The first admin login through that IdP binds the admin.
-2. **Registry signing.** The service signs each org record with a registry key. Registry signatures are hybrid (Ed25519 + ML-DSA-65). Clients pin the registry key's fingerprint, which ships with the client and is rotated through signed update manifests. A client accepts sender keys only from a signed record. A plain org name is never treated as identity.
+2. **Registry signing.** The service signs each org record with a registry key. Registry signatures use the SVX-2 key with all three parts (Ed25519 + ML-DSA-87 + SLH-DSA). Clients pin the registry key's fingerprint, which ships with the client and is rotated through signed update manifests. A client accepts sender keys only from a signed record. A plain org name is never treated as identity.
 3. **Key status.** Keys move from `active` to `retired` to `revoked`. Verification checks that the key was valid at `created_at` and is not revoked.
 4. **Later: federation.** Org-to-org trust that does not depend on the managed registry (signed cross-certification). Listed in Future features.
 
@@ -125,8 +125,8 @@ Goal: release the two shares only to an authenticated, authorized user's client,
 
 ```text
 Client                                 Managed Service                  Recipient Key Agent
-  | generate one-time X-Wing (e_pk, e_sk); txn = random 128-bit
-  | OIDC auth with nonce = H("SVX-1H oidc" || e_pk || txn)
+  | generate one-time MLKEM1024-P384 (e_pk, e_sk); txn = random 128-bit
+  | OIDC auth with nonce = H("SVX-2 oidc" || e_pk || txn)
   |---- POST /v1/release ----------------->|
   |   header_region, trailer, id_token,    |
   |   e_pk, txn                            |
@@ -209,7 +209,7 @@ Every table and query is scoped by `org_id`, which comes from the authenticated 
 
 ## 10a. Personal accounts
 
-A personal account is a one-person organization (`u.<16 hex>`) whose IdP is Google or Apple and whose registry record carries its verified email. The split-key model is unchanged: the service share is released by the service, and the recipient share is sealed to the recipient's own X-Wing key (one envelope per recipient, format 1.2) instead of an org key agent. Authorization is the sender's per-file rules (approval, one-time, expiry, revocation) instead of an org policy, and requests are signed with the device key instead of a fresh OIDC login. Details: [personal.md](personal.md).
+A personal account is a one-person organization (`u.<16 hex>`) whose IdP is Google or Apple and whose registry record carries its verified email. The split-key model is unchanged: the service share is released by the service, and the recipient share is sealed to the recipient's own MLKEM1024-P384 key (one envelope per recipient) instead of an org key agent. Authorization is the sender's per-file rules (approval, one-time, expiry, revocation) instead of an org policy, and requests are signed with the device key instead of a fresh OIDC login. Details: [personal.md](personal.md).
 
 ## 11. Client layering
 

@@ -111,9 +111,9 @@ pub struct LoadedKeys {
 }
 
 /// Load and check every key: secret key files must be owner-only and owned
-/// by this organization, at least one must be X-Wing (post-quantum) so new
-/// files can be opened, and the service grant key must be a hybrid
-/// (Ed25519 + ML-DSA-65) key.
+/// by this organization, at least one must be MLKEM1024-P384 (suite SVX-2)
+/// so new files can be opened, and the service grant key must be an SVX-2
+/// (Ed25519 + ML-DSA-87 + SLH-DSA) key.
 pub fn load_keys(cfg: &AgentConfig) -> Result<LoadedKeys> {
     let org_id =
         Identifier::new(AgentConfig::require(&cfg.org_id, "org_id")?).context("invalid org_id")?;
@@ -130,18 +130,18 @@ pub fn load_keys(cfg: &AgentConfig) -> Result<LoadedKeys> {
         }
         kem_keys.push(sk);
     }
-    if !kem_keys.iter().any(|k| k.kind() == KeyKind::XWingKem) {
+    if !kem_keys.iter().any(|k| k.kind() == KeyKind::MaxKem) {
         bail!(
-            "no X-Wing (post-quantum) encryption key configured; new files can't be opened \
+            "no MLKEM1024-P384 (SVX-2) encryption key configured; new files can't be opened \
              without one (svx keygen --kind kem)"
         );
     }
     let grant = AgentConfig::require(&cfg.service_grant_key, "service_grant_key")?;
     let (_, service_grant_key) = keyfile::load_verifying_key(grant)
         .with_context(|| format!("loading {}", grant.display()))?;
-    if service_grant_key.kind() != KeyKind::HybridSigning {
+    if service_grant_key.kind() != KeyKind::MaxSigning {
         bail!(
-            "the service grant key must be a post-quantum hybrid key (Ed25519 + ML-DSA-65); \
+            "the service grant key must be an SVX-2 key (Ed25519 + ML-DSA-87 + SLH-DSA); \
              get the current one from your SVX service"
         );
     }
@@ -180,16 +180,16 @@ mod tests {
     use super::*;
     use svx_core::crypto::{SigningKey, os_rng};
 
-    fn write_keys(dir: &Path, hybrid: bool) -> AgentConfig {
-        write_keys_with_grant(dir, hybrid, SigningKey::generate_hybrid(&mut os_rng()))
+    fn write_keys(dir: &Path, current: bool) -> AgentConfig {
+        write_keys_with_grant(dir, current, SigningKey::generate_max(&mut os_rng()))
     }
 
-    fn write_keys_with_grant(dir: &Path, hybrid: bool, grant: SigningKey) -> AgentConfig {
+    fn write_keys_with_grant(dir: &Path, current: bool, grant: SigningKey) -> AgentConfig {
         let org = Identifier::new("example-corp").unwrap();
-        let kem = if hybrid {
-            KemSecretKey::generate_hybrid(&mut os_rng())
+        let kem = if current {
+            KemSecretKey::generate_max(&mut os_rng())
         } else {
-            KemSecretKey::generate(&mut os_rng())
+            KemSecretKey::generate_hybrid(&mut os_rng())
         };
         keyfile::write_kem_pair(&dir.join("example"), &org, &kem).unwrap();
         let svc = Identifier::new("svx.example").unwrap();
@@ -237,17 +237,18 @@ mod tests {
         other.org_id = Some("acme-security".into());
         assert!(load_keys(&other).is_err());
 
-        // Only a classical key: refused.
+        // Only an older (X-Wing) key: refused.
         let d2 = tempfile::tempdir().unwrap();
-        let classical = write_keys(d2.path(), false);
-        let e = load_keys(&classical).err().unwrap().to_string();
-        assert!(e.contains("X-Wing"), "{e}");
+        let older = write_keys(d2.path(), false);
+        let e = load_keys(&older).err().unwrap().to_string();
+        assert!(e.contains("MLKEM1024-P384"), "{e}");
 
-        // A classical (Ed25519) service grant key: refused.
+        // An older (hybrid) service grant key: refused.
         let d3 = tempfile::tempdir().unwrap();
-        let ed_grant = write_keys_with_grant(d3.path(), true, SigningKey::generate(&mut os_rng()));
-        let e = load_keys(&ed_grant).err().unwrap().to_string();
-        assert!(e.contains("hybrid"), "{e}");
+        let old_grant =
+            write_keys_with_grant(d3.path(), true, SigningKey::generate_hybrid(&mut os_rng()));
+        let e = load_keys(&old_grant).err().unwrap().to_string();
+        assert!(e.contains("SVX-2"), "{e}");
     }
 
     #[cfg(unix)]

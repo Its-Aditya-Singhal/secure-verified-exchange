@@ -74,14 +74,14 @@ pub fn pack(input: &Path, output: Option<PathBuf>, o: PackOpts) -> Result<ExitCo
     let (service_id, service_key) =
         keyfile::load_kem_public(&o.service_key).context("loading service key")?;
     let policy_ref = Identifier::new(&o.policy).context("invalid policy reference")?;
-    // New files are always post-quantum hybrid (suite SVX-1H).
-    let all_hybrid = signing_key.kind() == KeyKind::HybridSigning
-        && recipient_key.kind() == KeyKind::XWingKem
-        && service_key.kind() == KeyKind::XWingKem;
-    if !all_hybrid {
+    // New files are always suite SVX-2.
+    let all_current = signing_key.kind() == KeyKind::MaxSigning
+        && recipient_key.kind() == KeyKind::MaxKem
+        && service_key.kind() == KeyKind::MaxKem;
+    if !all_current {
         bail!(
-            "new files need post-quantum hybrid keys (Ed25519 + ML-DSA-65 signing, X-Wing \
-             encryption); classical keys only open older files. Generate keys with `svx keygen`"
+            "new files need SVX-2 keys (Ed25519 + ML-DSA-87 + SLH-DSA signing, MLKEM1024-P384 \
+             encryption); older keys only open older files. Generate keys with `svx keygen`"
         );
     }
 
@@ -112,7 +112,7 @@ pub fn pack(input: &Path, output: Option<PathBuf>, o: PackOpts) -> Result<ExitCo
     let tmp = tempfile::NamedTempFile::new_in(&dir).context("creating temporary output")?;
 
     let req = PackRequest {
-        suite: Suite::Svx1H,
+        suite: Suite::CURRENT,
         sender_org: sender_org.clone(),
         signing_key: &signing_key,
         recipient_org: recipient_org.clone(),
@@ -152,9 +152,9 @@ pub fn pack(input: &Path, output: Option<PathBuf>, o: PackOpts) -> Result<ExitCo
         expires_at.map(fmt_time).unwrap_or_else(|| "none".into())
     );
     println!("Protection:  {}", summary.suite.description());
-    println!("Encryption:  ChaCha20-Poly1305 (STREAM), split-key HPKE (X-Wing) envelopes");
+    println!("Encryption:  ChaCha20-Poly1305 (STREAM), split-key HPKE (MLKEM1024-P384) envelopes");
     println!(
-        "Signature:   Ed25519 + ML-DSA-65, key {}",
+        "Signature:   Ed25519 + ML-DSA-87 + SLH-DSA-SHA2-256s, key {}",
         hex::encode(signing_key.verifying_key().key_id())
     );
     Ok(ExitCode::SUCCESS)

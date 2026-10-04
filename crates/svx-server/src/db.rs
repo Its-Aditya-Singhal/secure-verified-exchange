@@ -89,7 +89,7 @@ pub async fn sender_trust(
         return Ok(trust);
     }
     for k in keys(db, org.as_str()).await? {
-        // Classical (Ed25519) and hybrid (Ed25519 + ML-DSA-65) signing keys.
+        // Classical, hybrid and SVX-2 signing keys (older files still verify).
         let Some(entry) = k.to_entry().filter(|e| e.kind.is_signing()) else {
             continue;
         };

@@ -39,6 +39,10 @@ pub const FORMAT_MINOR_HYBRID: u8 = 1;
 /// Minor format version written for multi-recipient artifacts (SVX 1.2:
 /// the critical `recipients` field).
 pub const FORMAT_MINOR_RECIPIENTS: u8 = 2;
+/// Minor format version written for suite `0x0004` (SVX 1.3: SVX-2 with
+/// MLKEM1024-P384 envelopes, a 64-byte payload commitment and signatures up
+/// to 64 KiB), with or without the `recipients` field.
+pub const FORMAT_MINOR_MAX: u8 = 3;
 
 /// Suite `0x0001` (SVX-1): envelope layout V1.
 pub const SUITE_ID_SVX1: u16 = 0x0001;
@@ -47,6 +51,11 @@ pub const SUITE_ID_SVX1: u16 = 0x0001;
 pub const SUITE_ID_SVX1H: u16 = 0x0003;
 /// X-Wing encapsulated key length, required in every SVX-1H envelope.
 pub const HYBRID_ENCAPPED_KEY_LEN: usize = 1120;
+/// Suite `0x0004` (SVX-2, maximum strength): envelope layout V2 with
+/// MLKEM1024-P384 encapsulated keys.
+pub const SUITE_ID_SVX2: u16 = 0x0004;
+/// MLKEM1024-P384 encapsulated key length, required in every SVX-2 envelope.
+pub const MAX_ENCAPPED_KEY_LEN_SVX2: usize = 1665;
 
 /// Structural rules tying a suite to its envelope layout. Suites this crate
 /// does not know are left to the cryptographic layer, which rejects them.
@@ -72,13 +81,42 @@ pub fn check_suite_layout(suite_id: u16, header: &Header) -> Result<()> {
             }
             Ok(())
         }
+        SUITE_ID_SVX2 => {
+            if header.envelope_layout != EnvelopeLayout::V2 {
+                return Err(FormatError::Malformed(
+                    "suite 0x0004 requires key envelope layout V2",
+                ));
+            }
+            if header
+                .envelopes
+                .iter()
+                .any(|e| e.encapped_key.len() != MAX_ENCAPPED_KEY_LEN_SVX2)
+            {
+                return Err(FormatError::Malformed(
+                    "suite 0x0004 requires MLKEM1024-P384 encapsulated keys",
+                ));
+            }
+            Ok(())
+        }
         _ => Ok(()),
+    }
+}
+
+/// Length of the trailer's payload commitment: SHA-512 (64 bytes) in suite
+/// `0x0004`, SHA-256 (32 bytes) otherwise.
+pub fn payload_commitment_len(suite_id: u16) -> usize {
+    if suite_id == SUITE_ID_SVX2 {
+        PAYLOAD_COMMITMENT_LEN_WIDE
+    } else {
+        PAYLOAD_COMMITMENT_LEN
     }
 }
 
 /// The minor version a writer emits for `suite_id` and `header`.
 pub fn minor_for(suite_id: u16, header: &Header) -> u8 {
-    if !header.recipients.is_empty() {
+    if suite_id == SUITE_ID_SVX2 {
+        FORMAT_MINOR_MAX
+    } else if !header.recipients.is_empty() {
         FORMAT_MINOR_RECIPIENTS
     } else if suite_id == SUITE_ID_SVX1H {
         FORMAT_MINOR_HYBRID
@@ -100,8 +138,10 @@ pub const NONCE_PREFIX_LEN: usize = 7;
 pub const KEY_COMMITMENT_LEN: usize = 32;
 /// Length in bytes of an HPKE encapsulated key for DHKEM(X25519).
 pub const ENCAPPED_KEY_LEN: usize = 32;
-/// Length in bytes of the payload commitment hash.
+/// Length in bytes of the payload commitment hash (SHA-256).
 pub const PAYLOAD_COMMITMENT_LEN: usize = 32;
+/// Length in bytes of the payload commitment hash in suite `0x0004` (SHA-512).
+pub const PAYLOAD_COMMITMENT_LEN_WIDE: usize = 64;
 
 /// Chunk flag: more chunks follow.
 pub const CHUNK_FLAG_MORE: u8 = 0x00;

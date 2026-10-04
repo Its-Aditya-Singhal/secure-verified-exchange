@@ -1,8 +1,7 @@
 //! The recipient organization's key agent.
 //!
-//! It holds the organization's KEM secret keys (X-Wing, the post-quantum
-//! hybrid of X25519 and ML-KEM-768, for new files; X25519 for older ones)
-//! and releases the
+//! It holds the organization's KEM secret keys (MLKEM1024-P384, suite SVX-2,
+//! for new files; X-Wing and X25519 for older ones) and releases the
 //! **recipient-org share** of an artifact only when *both*:
 //!
 //! 1. the managed service has authorized the release — proven by a fresh
@@ -28,7 +27,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use svx_core::crypto::{
-    KemSecretKey, VerifyingKey, header_hash, nonce_binding, os_rng, seal_released_share,
+    KemSecretKey, VerifyingKey, check_suite, header_hash, nonce_binding, os_rng,
+    seal_released_share,
 };
 use svx_core::format::{EnvelopeRole, Identifier, parse_header_region};
 use svx_oidc::{IssuerConfig, Validator};
@@ -47,7 +47,7 @@ pub struct AgentState {
     pub service_id: Identifier,
     /// The managed service's grant-signing key, pinned out of band.
     pub service_grant_key: VerifyingKey,
-    /// Current and previous KEM keys (rotation, and X25519 keys for older
+    /// Current and previous KEM keys (rotation, and X-Wing/X25519 keys for older
     /// files); selected by envelope key ID.
     pub kem_keys: Arc<Vec<KemSecretKey>>,
     pub oidc: Arc<Validator>,
@@ -141,7 +141,7 @@ async fn release(
     Json(req): Json<AgentReleaseRequest>,
 ) -> Result<Json<AgentReleaseResponse>, Denied> {
     let now = unix_now();
-    let Ok((_, header)) = parse_header_region(&req.header_region) else {
+    let Ok((prelude, header)) = parse_header_region(&req.header_region) else {
         return Err(refuse(
             &st,
             None,
@@ -153,6 +153,16 @@ async fn release(
     };
     let aid = hex::encode(header.artifact_id);
     let a = Some(aid.as_str());
+    let Ok(suite) = check_suite(prelude.suite_id) else {
+        return Err(refuse(
+            &st,
+            a,
+            None,
+            "unsupported suite",
+            DenyReason::InvalidArtifact,
+        )
+        .await);
+    };
 
     // 1. The service's grant, pinned key, fresh.
     let grant = match req.grant.verify(&st.service_grant_key, now) {
@@ -161,7 +171,7 @@ async fn release(
             return Err(refuse(&st, a, None, &e.to_string(), DenyReason::NotAuthorized).await);
         }
     };
-    // Only post-quantum hybrid (X-Wing) one-time keys are accepted.
+    // Only SVX-2 (MLKEM1024-P384) one-time keys are accepted.
     let Some(client_key) = parse_client_key(&req.client_key) else {
         return Err(refuse(&st, a, None, "bad client key", DenyReason::InvalidRequest).await);
     };
@@ -171,7 +181,7 @@ async fn release(
         && grant.recipient_org == st.org_id.as_str()
         && header.recipient_org == st.org_id
         && grant.artifact_id == header.artifact_id
-        && grant.header_hash == *header_hash(&req.header_region).as_bytes()
+        && grant.header_hash == header_hash(suite, &req.header_region).as_bytes()
         && grant.txn == req.txn
         && grant.client_key_id == client_key.key_id();
     if !bound {

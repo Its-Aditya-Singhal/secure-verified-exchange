@@ -19,7 +19,7 @@ the public file header.
 - PostgreSQL 14+ (for one-time transaction IDs and the agent's own audit log).
 - A TLS certificate for the agent's host name.
 - From SVX: the service ID, the service's grant key file
-  (`service-grant.sign.pub`, a post-quantum hybrid key) and, optionally for
+  (`service-grant.sign.pub`, an SVX-2 key) and, optionally for
   `check`, the registry key fingerprint.
 - Your organization's encryption key. An administrator creates it in the
   desktop app: **Admin → Keys → Create a new encryption key…** writes an
@@ -73,8 +73,8 @@ if:
 - TLS isn't configured (except `dev` mode on loopback);
 - a secret key file is readable by other users;
 - a key file belongs to another organization;
-- no X-Wing (post-quantum) encryption key is configured;
-- the service grant key isn't a post-quantum hybrid (Ed25519 + ML-DSA-65) key.
+- no MLKEM1024-P384 (SVX-2) encryption key is configured;
+- the service grant key isn't an SVX-2 (Ed25519 + ML-DSA-87 + SLH-DSA) key.
 
 `svx-keyagent check` runs these checks, connects to the database and, if
 `service_url` and `registry_key` (the registry key fingerprint) are set,

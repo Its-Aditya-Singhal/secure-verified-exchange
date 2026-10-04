@@ -21,30 +21,67 @@ pub async fn service_info(State(st): State<AppState>) -> Json<ServiceInfo> {
     })
 }
 
+/// Sign `record` (whose `issued_at` is `now`), or reuse the signature made
+/// for the same content within the last few minutes. `blank` is the record
+/// with `issued_at` zeroed. Signing (SLH-DSA) runs off the async threads.
+async fn signed_cached<R, S>(
+    st: &AppState,
+    cache_key: String,
+    blank: &R,
+    record: R,
+    now: i64,
+    sign: fn(&dyn crate::keys::KeyProvider, &R) -> Result<S, svx_core::crypto::CryptoError>,
+) -> ApiResult<S>
+where
+    R: serde::Serialize + Send + 'static,
+    S: serde::Serialize + serde::de::DeserializeOwned + Send + 'static,
+{
+    let content = serde_json::to_vec(blank).expect("record serializes");
+    if let Some(bytes) = st.records.get(&cache_key, &content, now)
+        && let Ok(signed) = serde_json::from_slice(&bytes)
+    {
+        return Ok(signed);
+    }
+    let keys = st.keys.clone();
+    let signed = tokio::task::spawn_blocking(move || sign(keys.as_ref(), &record))
+        .await
+        .map_err(|e| ApiError::Internal(format!("signing task: {e}")))?
+        .map_err(|e| ApiError::Internal(format!("signing a registry record: {e}")))?;
+    let bytes = serde_json::to_vec(&signed).expect("signed record serializes");
+    st.records.put(&cache_key, content, now, bytes);
+    Ok(signed)
+}
+
 /// The service's public keys, signed by the registry key.
 pub async fn service_record(State(st): State<AppState>) -> ApiResult<Json<SignedServiceRecord>> {
-    let signed = st
-        .keys
-        .sign_service_record(&ServiceRecord {
-            v: PROTOCOL_VERSION,
-            service_id: st.service_id.to_string(),
-            kem_public: st.keys.service_kem_public().to_vec(),
-            grant_public: st.keys.grant_public().to_vec(),
-            issued_at: unix_now(),
-            // A relayed provider's client secret stays on the service.
-            personal_idps: st
-                .personal_idps
-                .iter()
-                .cloned()
-                .map(|mut p| {
-                    if p.relay {
-                        p.client_secret = None;
-                    }
-                    p
-                })
-                .collect(),
-        })
-        .map_err(|e| ApiError::Internal(format!("signing the service record: {e}")))?;
+    let now = unix_now();
+    let record = ServiceRecord {
+        v: PROTOCOL_VERSION,
+        service_id: st.service_id.to_string(),
+        kem_public: st.keys.service_kem_public().to_vec(),
+        grant_public: st.keys.grant_public().to_vec(),
+        issued_at: now,
+        // A relayed provider's client secret stays on the service.
+        personal_idps: st
+            .personal_idps
+            .iter()
+            .cloned()
+            .map(|mut p| {
+                if p.relay {
+                    p.client_secret = None;
+                }
+                p
+            })
+            .collect(),
+    };
+    let blank = ServiceRecord {
+        issued_at: 0,
+        ..record.clone()
+    };
+    let signed = signed_cached(&st, "service".into(), &blank, record, now, |k, r| {
+        k.sign_service_record(r)
+    })
+    .await?;
     Ok(Json(signed))
 }
 
@@ -77,6 +114,7 @@ pub(crate) async fn signed_org_record(st: &AppState, org: &str) -> ApiResult<Sig
     } else {
         (OrgKind::Company, None)
     };
+    let now = unix_now();
     let record = OrgRecord {
         v: PROTOCOL_VERSION,
         org_id: o.org_id,
@@ -85,11 +123,16 @@ pub(crate) async fn signed_org_record(st: &AppState, org: &str) -> ApiResult<Sig
         idp_issuer: o.idp_issuer,
         key_agent_url: o.key_agent_url,
         keys,
-        issued_at: unix_now(),
+        issued_at: now,
         kind,
         account_email,
     };
-    st.keys
-        .sign_record(&record)
-        .map_err(|e| ApiError::Internal(format!("signing the registry record: {e}")))
+    let blank = OrgRecord {
+        issued_at: 0,
+        ..record.clone()
+    };
+    signed_cached(st, format!("org:{org}"), &blank, record, now, |k, r| {
+        k.sign_record(r)
+    })
+    .await
 }

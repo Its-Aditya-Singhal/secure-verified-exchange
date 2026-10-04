@@ -1,0 +1,12 @@
+{
+  "derived_from": "max-valid-basic",
+  "description": "One bit flipped in the first MLKEM1024-P384 encapsulated key.",
+  "expected_result": "reject",
+  "file": "max-invalid-envelope-tampered.svx",
+  "file_sha256": "cb2b7d2e8855b509496742d764d5519703a3e04b7825205222ac85eaa05527cb",
+  "name": "max-invalid-envelope-tampered",
+  "reject_stage": "verify",
+  "trusted_senders": [
+    "acme-security"
+  ]
+}

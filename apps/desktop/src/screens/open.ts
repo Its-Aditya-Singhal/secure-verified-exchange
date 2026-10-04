@@ -107,7 +107,7 @@ export function openScreen(ctx: Ctx, root: HTMLElement, initialPath: string | nu
           ["Expires", fmtTime(s.expires_at)],
           ["Policy", s.policy],
           ["Protection", s.post_quantum
-            ? h("span", {}, h("span", { class: "badge badge-ok" }, icon("ok"), "post-quantum"), " ", s.protection)
+            ? h("span", {}, h("span", { class: "badge badge-ok" }, icon("ok"), s.suite_id === 4 ? "Maximum (SVX-2)" : "post-quantum"), " ", s.protection)
             : h("span", {}, h("span", { class: "badge badge-warn" }, "classical"), " ", s.protection)],
         ]),
         h("p", { class: "muted" },
@@ -139,7 +139,7 @@ export function openScreen(ctx: Ctx, root: HTMLElement, initialPath: string | nu
           ["Sent", fmtTime(s.created_at)],
           ["Expires", fmtTime(s.expires_at)],
           ["Protection", s.post_quantum
-            ? h("span", {}, h("span", { class: "badge badge-ok" }, icon("ok"), "post-quantum"), " ", s.protection)
+            ? h("span", {}, h("span", { class: "badge badge-ok" }, icon("ok"), s.suite_id === 4 ? "Maximum (SVX-2)" : "post-quantum"), " ", s.protection)
             : h("span", {}, h("span", { class: "badge badge-warn" }, "classical"), " ", s.protection)],
         ]),
         h("p", { class: "muted" },

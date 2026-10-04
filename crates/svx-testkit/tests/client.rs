@@ -87,7 +87,7 @@ async fn setup_verifies_against_the_pin() {
     // Another registry's fingerprint: refused before any record is trusted.
     let mut wrong = request(&w, EXAMPLE);
     wrong.registry_key = hex::encode(
-        svx_core::crypto::SigningKey::generate_hybrid(&mut svx_core::crypto::os_rng())
+        svx_core::crypto::SigningKey::generate_max(&mut svx_core::crypto::os_rng())
             .verifying_key()
             .fingerprint(),
     );
@@ -224,7 +224,7 @@ async fn admins_settings_policies_and_audit() {
     assert_eq!(o.org_id, EXAMPLE);
     assert_eq!(o.admins.len(), 1);
     let kinds: Vec<_> = o.keys.iter().map(|k| (k.kind, k.status)).collect();
-    assert!(kinds.contains(&(KeyKindWire::XWing, KeyStatus::Active)));
+    assert!(kinds.contains(&(KeyKindWire::MlKem1024P384, KeyStatus::Active)));
     assert!(kinds.contains(&(KeyKindWire::X25519, KeyStatus::Retired)));
 
     // Administrators: add, remove; the last one stays.
@@ -316,7 +316,7 @@ async fn keychain_signing_key_signs_files() {
             .keys
             .iter()
             .any(|e| hex::encode(e.key_id) == k.key_id
-                && e.kind == KeyKindWire::Ed25519Mldsa65
+                && e.kind == KeyKindWire::Max
                 && e.status == KeyStatus::Active)
     );
 

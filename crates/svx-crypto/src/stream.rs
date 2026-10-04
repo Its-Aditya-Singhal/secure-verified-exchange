@@ -29,7 +29,7 @@ fn nonce(prefix: &[u8; 7], counter: u32, is_final: bool) -> Nonce {
 struct StreamState {
     cipher: ChaCha20Poly1305,
     prefix: [u8; 7],
-    aad: [u8; 32],
+    aad: Vec<u8>,
     counter: u64,
     done: bool,
 }
@@ -40,7 +40,7 @@ impl StreamState {
         Self {
             cipher,
             prefix,
-            aad: *header_hash.as_bytes(),
+            aad: header_hash.as_bytes().to_vec(),
             counter: 0,
             done: false,
         }

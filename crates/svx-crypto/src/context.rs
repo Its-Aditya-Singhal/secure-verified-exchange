@@ -1,12 +1,17 @@
-//! Domain-separated hybrid signatures for non-artifact objects (release
-//! grants, registry records, the service record). A signature made for one
-//! context can never verify in another, or as an artifact signature.
+//! Domain-separated signatures for non-artifact objects (release grants,
+//! registry records, the service record, account requests). A signature
+//! made for one context can never verify in another, or as an artifact
+//! signature.
 //!
-//! Only hybrid Ed25519 + ML-DSA-65 keys sign or verify here, and both halves
-//! must verify: a classical Ed25519 key or signature is refused.
+//! Only post-quantum keys sign or verify here: hybrid Ed25519 + ML-DSA-65
+//! (protocol v3) or Max keys (suite SVX-2, protocol v4). With a Max key,
+//! long-lived objects (registry and service records) carry all three
+//! signatures; short-lived ones (grants, account requests, checked within
+//! minutes) carry Ed25519 + ML-DSA-87. Every part present must verify; a
+//! classical Ed25519 key or signature is refused.
 
 use crate::error::{CryptoError, Result};
-use crate::keys::{KeyKind, SigningKey, VerifyingKey};
+use crate::keys::{KeyKind, SigSet, SigningKey, VerifyingKey};
 
 /// What a context signature is for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -30,27 +35,50 @@ impl SignContext {
             SignContext::AccountRequest => b"SVX-1 account request\0",
         }
     }
+
+    /// Which parts of a Max key sign in this context.
+    fn set(self) -> SigSet {
+        match self {
+            SignContext::RegistryRecord | SignContext::ServiceRecord => SigSet::Full,
+            SignContext::ReleaseGrant | SignContext::AccountRequest => SigSet::Fast,
+        }
+    }
 }
 
-fn message(ctx: SignContext, msg: &[u8]) -> Vec<u8> {
-    let mut m = ctx.label().to_vec();
+fn message(ctx: SignContext, key: KeyKind, msg: &[u8]) -> Vec<u8> {
+    // Max keys sign under a distinct prefix, so a v3 (hybrid) signature and
+    // a v4 one are never interchangeable.
+    let mut m = if key == KeyKind::MaxSigning {
+        b"SVX-2 ".to_vec()
+    } else {
+        Vec::new()
+    };
+    m.extend_from_slice(ctx.label());
     m.extend_from_slice(msg);
     m
 }
 
-/// Sign `msg` under `ctx` with a hybrid key (`Ed25519 sig ‖ ML-DSA-65 sig`,
-/// the ML-DSA half hedged with the OS RNG).
-pub fn sign_context(key: &SigningKey, ctx: SignContext, msg: &[u8]) -> Result<Vec<u8>> {
-    if key.kind() != KeyKind::HybridSigning {
-        return Err(CryptoError::WrongKeyKind);
-    }
-    key.sign_raw(&message(ctx, msg), &mut crate::os_rng())
+fn allowed(kind: KeyKind) -> bool {
+    matches!(kind, KeyKind::HybridSigning | KeyKind::MaxSigning)
 }
 
-/// Verify a context signature: hybrid key only, both halves must verify.
+/// Sign `msg` under `ctx` with a post-quantum key (ML-DSA and SLH-DSA hedged
+/// with the OS RNG).
+pub fn sign_context(key: &SigningKey, ctx: SignContext, msg: &[u8]) -> Result<Vec<u8>> {
+    if !allowed(key.kind()) {
+        return Err(CryptoError::WrongKeyKind);
+    }
+    key.sign_raw(
+        &message(ctx, key.kind(), msg),
+        ctx.set(),
+        &mut crate::os_rng(),
+    )
+}
+
+/// Verify a context signature: post-quantum key only, every part must verify.
 pub fn verify_context(key: &VerifyingKey, ctx: SignContext, msg: &[u8], sig: &[u8]) -> Result<()> {
-    if key.kind() != KeyKind::HybridSigning {
+    if !allowed(key.kind()) {
         return Err(CryptoError::BadSignature);
     }
-    key.verify_raw(&message(ctx, msg), sig)
+    key.verify_raw(&message(ctx, key.kind(), msg), sig, ctx.set())
 }

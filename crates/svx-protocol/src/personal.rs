@@ -104,10 +104,10 @@ pub struct SignUpRequest {
     /// An ID token whose `nonce` is [`signup_nonce`] of the two keys below,
     /// so a captured token can't register someone else's keys.
     pub id_token: String,
-    /// Hybrid (Ed25519 + ML-DSA-65) signing key.
+    /// Max (Ed25519 + ML-DSA-87 + SLH-DSA) signing key.
     #[serde(with = "hex_vec")]
     pub signing_public: Vec<u8>,
-    /// X-Wing encryption key.
+    /// MLKEM1024-P384 encryption key.
     #[serde(with = "hex_vec")]
     pub kem_public: Vec<u8>,
     /// Replace the account's keys (lost device without a backup). Files
@@ -251,7 +251,7 @@ pub struct PersonalReleaseRequest {
     pub header_region: Vec<u8>,
     #[serde(with = "b64")]
     pub trailer: Vec<u8>,
-    /// The X-Wing one-time key the service share is sealed to.
+    /// The MLKEM1024-P384 one-time key the service share is sealed to.
     #[serde(with = "hex_vec")]
     pub client_key: Vec<u8>,
     #[serde(with = "hex_array")]
@@ -415,7 +415,8 @@ impl RequestAuth {
             .decode(get(HDR_SIGNATURE)?)
             .ok()?;
         let account = get(HDR_ACCOUNT)?;
-        if account.is_empty() || account.len() > 128 || signature.len() > 4096 {
+        // Ed25519 + ML-DSA-87 (4691 bytes) fits; anything much larger is refused.
+        if account.is_empty() || account.len() > 128 || signature.len() > 8192 {
             return None;
         }
         Some(RequestAuth {
@@ -460,7 +461,7 @@ mod tests {
 
     #[test]
     fn signed_requests_bind_everything() {
-        let k = SigningKey::generate_hybrid(&mut os_rng());
+        let k = SigningKey::generate_max(&mut os_rng());
         let vk = k.verifying_key();
         let a = sign_request(&k, "u.0000000000000a11", "post", "/v1/x?y=1", b"{}", 1000).unwrap();
         a.verify(&vk, "POST", "/v1/x?y=1", b"{}", 1010).unwrap();
@@ -481,7 +482,7 @@ mod tests {
         assert!(a.verify(&vk, "POST", "/v1/x?y=1", b"{}", 1061).is_err());
         assert!(a.verify(&vk, "POST", "/v1/x?y=1", b"{}", 939).is_err());
         // Another key.
-        let other_key = SigningKey::generate_hybrid(&mut os_rng()).verifying_key();
+        let other_key = SigningKey::generate_max(&mut os_rng()).verifying_key();
         assert!(
             a.verify(&other_key, "POST", "/v1/x?y=1", b"{}", 1000)
                 .is_err()

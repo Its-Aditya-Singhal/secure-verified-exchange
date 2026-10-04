@@ -8,6 +8,8 @@
 //! key_commitment = HKDF-Expand(prk, "svx/1/commitment", 32)
 //! ```
 //!
+//! HKDF uses SHA-256 in suites SVX-1 and SVX-1H and SHA-512 in SVX-2.
+//!
 //! Both shares are required. Neither the managed service (which can unwrap
 //! only `share_service`) nor the recipient organization's key agent (which
 //! can unwrap only `share_recipient`) can derive the payload key alone.
@@ -15,7 +17,7 @@
 use std::fmt;
 
 use hkdf::Hkdf;
-use sha2::Sha256;
+use sha2::{Sha256, Sha512};
 use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -70,19 +72,24 @@ impl ArtifactKeys {
         ikm[..SHARE_LEN].copy_from_slice(service_share.as_bytes());
         ikm[SHARE_LEN..].copy_from_slice(recipient_share.as_bytes());
 
-        let hk = Hkdf::<Sha256>::new(Some(&salt), ikm.as_ref());
         let mut keys = ArtifactKeys {
             payload_key: [0; 32],
             manifest_key: [0; 32],
             key_commitment: [0; 32],
         };
-        // 32-byte outputs are far below the HKDF-SHA256 limit, so expand cannot fail.
-        hk.expand(b"svx/1/payload", &mut keys.payload_key)
-            .expect("valid HKDF length");
-        hk.expand(b"svx/1/manifest", &mut keys.manifest_key)
-            .expect("valid HKDF length");
-        hk.expand(b"svx/1/commitment", &mut keys.key_commitment)
-            .expect("valid HKDF length");
+        // 32-byte outputs are far below the HKDF limit, so expand cannot fail.
+        let mut expand = |f: &dyn Fn(&[u8], &mut [u8])| {
+            f(b"svx/1/payload", &mut keys.payload_key);
+            f(b"svx/1/manifest", &mut keys.manifest_key);
+            f(b"svx/1/commitment", &mut keys.key_commitment);
+        };
+        if suite.wide_hash() {
+            let hk = Hkdf::<Sha512>::new(Some(&salt), ikm.as_ref());
+            expand(&|info, out| hk.expand(info, out).expect("valid HKDF length"));
+        } else {
+            let hk = Hkdf::<Sha256>::new(Some(&salt), ikm.as_ref());
+            expand(&|info, out| hk.expand(info, out).expect("valid HKDF length"));
+        }
         keys
     }
 

@@ -75,8 +75,8 @@ impl World {
     /// Sign `name` up with fresh keys.
     pub async fn sign_up(&self, name: &str) -> Person {
         let mut rng = os_rng();
-        let sign = SigningKey::generate_hybrid(&mut rng);
-        let kem = KemSecretKey::generate_hybrid(&mut rng);
+        let sign = SigningKey::generate_max(&mut rng);
+        let kem = KemSecretKey::generate_max(&mut rng);
         let a = self.sign_up_with(name, &sign, &kem, false).await.unwrap();
         Person {
             account: a.account,
@@ -128,7 +128,7 @@ impl World {
             .collect();
         let svc = self.service_kem();
         let req = PackRequest {
-            suite: Suite::Svx1H,
+            suite: Suite::Svx2,
             sender_org: Identifier::new(&from.account).unwrap(),
             signing_key: &from.sign,
             recipient_org: ids[0].clone(),

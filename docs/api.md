@@ -20,13 +20,13 @@ JSON over HTTPS. Binary blobs are standard base64; keys, IDs and transaction IDs
 ## Public
 
 ### `GET /v1/service`
-The service's public keys. Nothing here is trusted by itself. Clients pin `registry_fingerprint` out of band and accept `registry_public` only if its fingerprint matches the pin (see `spec/crypto-profile.md` §13). Key agents pin `grant_public` (as a key file). Both keys are hybrid Ed25519 + ML-DSA-65.
+The service's public keys. Nothing here is trusted by itself. Clients pin `registry_fingerprint` out of band and accept `registry_public` only if its fingerprint matches the pin (see `spec/crypto-profile.md` §13). Key agents pin `grant_public` (as a key file). Both keys are SVX-2 keys (Ed25519 + ML-DSA-87 + SLH-DSA).
 ```json
-{ "service_id": "svx.example", "kem_public": "<hex1216 X-Wing>", "grant_public": "<hex1984 Ed25519 + ML-DSA-65>", "registry_public": "<hex1984 Ed25519 + ML-DSA-65>", "registry_fingerprint": "<hex32>" }
+{ "service_id": "svx.example", "kem_public": "<hex1665 MLKEM1024-P384>", "grant_public": "<hex2688 SVX-2 signing>", "registry_public": "<hex2688 SVX-2 signing>", "registry_fingerprint": "<hex32>" }
 ```
 
 ### `GET /v1/service/record`
-The service's public keys, signed with the registry key under context `"SVX-1 service\0"` (hybrid signature, both halves must verify). Records older than 15 minutes are rejected. `grant_public` must be a hybrid key.
+The service's public keys, signed with the registry key under context `"SVX-1 service\0"` (full SVX-2 signature, all three parts must verify). Records older than 15 minutes are rejected. `grant_public` must be an SVX-2 key.
 ```json
 { "record": "<b64 JSON {v, service_id, kem_public, grant_public, issued_at}>", "signature": "<b64>" }
 ```
@@ -35,7 +35,7 @@ Senders take the service KEM key from here instead of from the unsigned `/v1/ser
 ### `GET /v1/registry/orgs/{org_id}`
 Signed record of a **verified** organization. Returns 404 otherwise.
 ```json
-{ "record": "<b64 JSON OrgRecord>", "signature": "<b64 Ed25519 ‖ ML-DSA-65, 3373 bytes>" }
+{ "record": "<b64 JSON OrgRecord>", "signature": "<b64 Ed25519 ‖ ML-DSA-87 ‖ SLH-DSA, 34483 bytes>" }
 ```
 The signature uses context `"SVX-1 registry\0"` over the exact record bytes. Clients reject records older than 15 minutes.
 
@@ -43,7 +43,7 @@ The signature uses context `"SVX-1 registry\0"` over the exact record bytes. Cli
 
 | Field | Value |
 |-------|-------|
-| `v` | protocol version (`2`: post-quantum hybrid keys; records of another version are refused) |
+| `v` | protocol version (`4`: SVX-2 keys; records of another version are refused) |
 | `org_id` | org identifier |
 | `display_name` | display name |
 | `domain` | verified domain |
@@ -126,18 +126,18 @@ Evaluation is default-deny. A user is allowed only if they match `allow_users` o
 ### `POST /v1/release`
 ```json
 { "header_region": "<b64>", "trailer": "<b64>", "id_token": "<JWT>",
-  "client_key": "<hex1216 X-Wing>", "txn": "<hex16>" }
+  "client_key": "<hex1665 MLKEM1024-P384>", "txn": "<hex16>" }
 ```
 The service checks, in order:
 1. **The artifact.** Its header parses and names this service. Its signature verifies against the sender org's registered active key, or a retired key if the artifact was created before retirement. The recipient org is verified.
-2. **The ID token.** It is validated against the **recipient** org's IdP, with `nonce == hex(SHA-256("SVX-1H oidc\0" ‖ client_key ‖ txn))`. The one-time `client_key` must be an X-Wing key; a classical key is refused with 400.
+2. **The ID token.** It is validated against the **recipient** org's IdP, with `nonce == hex(SHA-256("SVX-2 oidc\0" ‖ client_key ‖ txn))`. The one-time `client_key` must be an MLKEM1024-P384 key; X25519 and X-Wing keys are refused with 400.
 3. **Revocation.** Neither party has revoked the artifact.
 4. **Policy and expiry.** The recipient org's policy `policy_ref` allows the user, and the artifact has not expired by the server's clock.
 5. **Replay.** `txn` has not been used before. Transaction IDs are single-use.
 
 On success it responds:
 ```json
-{ "share": { "encapped_key": "<b64, 1120-byte X-Wing enc>", "ciphertext": "<b64>" },
+{ "share": { "encapped_key": "<b64, 1665-byte MLKEM1024-P384 enc>", "ciphertext": "<b64>" },
   "grant": { "payload": "<b64 JSON Grant>", "signature": "<b64>", "key_id": "<hex16>" } }
 ```
 - `share` is the service share, HPKE-sealed to `client_key` (crypto profile §12).
@@ -194,7 +194,7 @@ Relayed providers' client secrets are never published in the service record.
 ### `POST /v1/agent/release`
 The agent is operated by the recipient org.
 ```json
-{ "header_region": "<b64>", "id_token": "<JWT>", "client_key": "<hex1216 X-Wing>", "txn": "<hex16>", "grant": { ... } }
+{ "header_region": "<b64>", "id_token": "<JWT>", "client_key": "<hex1665 MLKEM1024-P384>", "txn": "<hex16>", "grant": { ... } }
 ```
 The agent checks:
 1. **The grant.** It verifies under the **pinned** service grant key and is fresh.

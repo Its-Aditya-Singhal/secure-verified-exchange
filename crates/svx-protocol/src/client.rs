@@ -71,9 +71,9 @@ pub struct ReleaseSession {
 impl ReleaseSession {
     pub fn new() -> Self {
         ReleaseSession {
-            // A post-quantum hybrid one-time key: services and key agents
-            // re-seal released shares to it with X-Wing.
-            key: KemSecretKey::generate_hybrid(&mut os_rng()),
+            // A post-quantum one-time key: services and key agents re-seal
+            // released shares to it with MLKEM1024-P384 (suite SVX-2).
+            key: KemSecretKey::generate_max(&mut os_rng()),
             txn: random_bytes(),
         }
     }

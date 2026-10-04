@@ -12,6 +12,8 @@
 //! | `ed25519-mldsa65-secret` / `ed25519-mldsa65-public` | hybrid Ed25519 + ML-DSA-65 signing key (suite SVX-1H) |
 //! | `x25519-secret` / `x25519-public` | X25519 KEM key (suite SVX-1) |
 //! | `xwing-secret` / `xwing-public` | X-Wing (X25519 + ML-KEM-768) KEM key (suite SVX-1H) |
+//! | `ed25519-mldsa87-slhdsa-secret` / `-public` | Max Ed25519 + ML-DSA-87 + SLH-DSA-SHA2-256s signing key (suite SVX-2) |
+//! | `mlkem1024-p384-secret` / `-public` | MLKEM1024-P384 KEM key (suite SVX-2) |
 //!
 //! Secret files are created with mode 0600 on Unix. In production, long-term
 //! secret keys belong in a KMS/HSM rather than files (`docs/key-hierarchy.md`).
@@ -45,6 +47,14 @@ pub enum KeyType {
     XWingSecret,
     #[serde(rename = "xwing-public")]
     XWingPublic,
+    #[serde(rename = "ed25519-mldsa87-slhdsa-secret")]
+    MaxSigningSecret,
+    #[serde(rename = "ed25519-mldsa87-slhdsa-public")]
+    MaxSigningPublic,
+    #[serde(rename = "mlkem1024-p384-secret")]
+    MaxKemSecret,
+    #[serde(rename = "mlkem1024-p384-public")]
+    MaxKemPublic,
 }
 
 impl KeyType {
@@ -56,6 +66,8 @@ impl KeyType {
                 | KeyType::HybridSigningSecret
                 | KeyType::X25519Secret
                 | KeyType::XWingSecret
+                | KeyType::MaxSigningSecret
+                | KeyType::MaxKemSecret
         )
     }
 
@@ -65,6 +77,8 @@ impl KeyType {
             KeyType::HybridSigningSecret | KeyType::HybridSigningPublic => KeyKind::HybridSigning,
             KeyType::X25519Secret | KeyType::X25519Public => KeyKind::X25519Kem,
             KeyType::XWingSecret | KeyType::XWingPublic => KeyKind::XWingKem,
+            KeyType::MaxSigningSecret | KeyType::MaxSigningPublic => KeyKind::MaxSigning,
+            KeyType::MaxKemSecret | KeyType::MaxKemPublic => KeyKind::MaxKem,
         }
     }
 
@@ -78,6 +92,10 @@ impl KeyType {
             (KeyKind::X25519Kem, false) => KeyType::X25519Public,
             (KeyKind::XWingKem, true) => KeyType::XWingSecret,
             (KeyKind::XWingKem, false) => KeyType::XWingPublic,
+            (KeyKind::MaxSigning, true) => KeyType::MaxSigningSecret,
+            (KeyKind::MaxSigning, false) => KeyType::MaxSigningPublic,
+            (KeyKind::MaxKem, true) => KeyType::MaxKemSecret,
+            (KeyKind::MaxKem, false) => KeyType::MaxKemPublic,
         }
     }
 }
@@ -99,7 +117,7 @@ impl Drop for KeyFile {
     }
 }
 
-/// Large enough for a hybrid public key (1984 bytes, hex encoded).
+/// Large enough for a Max public key (2688 bytes, hex encoded).
 const MAX_KEYFILE_LEN: u64 = 8192;
 
 struct Loaded {
@@ -187,7 +205,11 @@ fn write(
 pub fn load_signing_key(path: &Path) -> Result<(Identifier, SigningKey)> {
     let l = read(
         path,
-        &[KeyType::Ed25519Secret, KeyType::HybridSigningSecret],
+        &[
+            KeyType::Ed25519Secret,
+            KeyType::HybridSigningSecret,
+            KeyType::MaxSigningSecret,
+        ],
     )?;
     let sk = SigningKey::from_secret_bytes(l.key_type.kind(), &l.key).map_err(|_| bad_key())?;
     check_id(&l.key_id, &sk.verifying_key().key_id())?;
@@ -198,7 +220,11 @@ pub fn load_signing_key(path: &Path) -> Result<(Identifier, SigningKey)> {
 pub fn load_verifying_key(path: &Path) -> Result<(Identifier, VerifyingKey)> {
     let l = read(
         path,
-        &[KeyType::Ed25519Public, KeyType::HybridSigningPublic],
+        &[
+            KeyType::Ed25519Public,
+            KeyType::HybridSigningPublic,
+            KeyType::MaxSigningPublic,
+        ],
     )?;
     let vk = VerifyingKey::from_kind_bytes(l.key_type.kind(), &l.key)?;
     check_id(&l.key_id, &vk.key_id())?;
@@ -207,7 +233,14 @@ pub fn load_verifying_key(path: &Path) -> Result<(Identifier, VerifyingKey)> {
 
 /// Load a KEM secret key (X25519 or X-Wing).
 pub fn load_kem_secret(path: &Path) -> Result<(Identifier, KemSecretKey)> {
-    let l = read(path, &[KeyType::X25519Secret, KeyType::XWingSecret])?;
+    let l = read(
+        path,
+        &[
+            KeyType::X25519Secret,
+            KeyType::XWingSecret,
+            KeyType::MaxKemSecret,
+        ],
+    )?;
     let bytes: &[u8; 32] = l.key.as_slice().try_into().map_err(|_| bad_key())?;
     let sk = KemSecretKey::from_kind_bytes(l.key_type.kind(), bytes)?;
     check_id(&l.key_id, &sk.public_key().key_id())?;
@@ -216,7 +249,14 @@ pub fn load_kem_secret(path: &Path) -> Result<(Identifier, KemSecretKey)> {
 
 /// Load a KEM public key (X25519 or X-Wing).
 pub fn load_kem_public(path: &Path) -> Result<(Identifier, KemPublicKey)> {
-    let l = read(path, &[KeyType::X25519Public, KeyType::XWingPublic])?;
+    let l = read(
+        path,
+        &[
+            KeyType::X25519Public,
+            KeyType::XWingPublic,
+            KeyType::MaxKemPublic,
+        ],
+    )?;
     let pk = KemPublicKey::from_kind_bytes(l.key_type.kind(), &l.key)?;
     check_id(&l.key_id, &pk.key_id())?;
     Ok((l.owner, pk))

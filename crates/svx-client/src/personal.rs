@@ -3,7 +3,7 @@
 //! the sender's live approval, and manage sent files afterwards.
 //!
 //! After sign-up, every request to the service is signed with the device's
-//! hybrid key, so opening a file never needs a browser.
+//! SVX-2 key, so opening a file never needs a browser.
 
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
@@ -35,7 +35,7 @@ use crate::error::{ClientError, Result};
 use crate::keystore::{self, KeyRef, SecretStore};
 use crate::login::{Authenticator, BrowserLogin, DevLogin, RelayLogin};
 use crate::open::{OpenOutcome, Output, Step, write_output};
-use crate::registry::{Registry, active_hybrid_kem_key};
+use crate::registry::{Registry, active_kem_key};
 
 /// How often to ask again while waiting for the sender's approval.
 pub const POLL_INTERVAL: Duration = Duration::from_secs(3);
@@ -57,8 +57,8 @@ impl DeviceKeys {
     pub fn generate() -> DeviceKeys {
         let mut rng = os_rng();
         DeviceKeys {
-            signing: SigningKey::generate_hybrid(&mut rng),
-            kem: KemSecretKey::generate_hybrid(&mut rng),
+            signing: SigningKey::generate_max(&mut rng),
+            kem: KemSecretKey::generate_max(&mut rng),
             account: None,
             email: None,
         }
@@ -319,7 +319,7 @@ pub fn read_backup(path: &Path, password: &str) -> Result<DeviceKeys> {
         k.try_into().map_err(|_| bad())?,
     )
     .map_err(|_| bad())?;
-    if signing.kind() != KeyKind::HybridSigning || kem.kind() != KeyKind::XWingKem {
+    if signing.kind() != KeyKind::MaxSigning || kem.kind() != KeyKind::MaxKem {
         return Err(bad());
     }
     Ok(DeviceKeys {
@@ -535,9 +535,7 @@ impl Client {
         let me = registry.org(&d.account).await?;
         let my_id = d.signing.verifying_key().key_id();
         if !me.keys.iter().any(|k| {
-            k.kind == KeyKindWire::Ed25519Mldsa65
-                && k.status == KeyStatus::Active
-                && k.key_id == my_id
+            k.kind == KeyKindWire::Max && k.status == KeyStatus::Active && k.key_id == my_id
         }) {
             return Err(ClientError::Config(
                 "this device's key is no longer active for your account (keys were reset on \
@@ -548,7 +546,7 @@ impl Client {
         let mut recipients = Vec::new();
         for e in &emails {
             let rec = self.lookup_record(e).await?;
-            let key = active_hybrid_kem_key(&rec)?;
+            let key = active_kem_key(&rec)?;
             let id = Identifier::new(&rec.org_id)
                 .map_err(|_| ClientError::Other("invalid account ID".into()))?;
             recipients.push((
@@ -580,7 +578,7 @@ impl Client {
         let tmp = tempfile::NamedTempFile::new_in(&dir)?;
         let summary = svx_core::pack(
             &PackRequest {
-                suite: Suite::Svx1H,
+                suite: Suite::CURRENT,
                 sender_org: Identifier::new(&d.account)
                     .map_err(|_| ClientError::Other("invalid account ID".into()))?,
                 signing_key: &d.signing,

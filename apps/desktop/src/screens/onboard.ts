@@ -196,7 +196,7 @@ function keysStep(ctx: Ctx, root: HTMLElement): void {
     steps(3),
     card(
       "Signing key",
-      h("p", {}, "Files you send are signed with a post-quantum key (Ed25519 + ML-DSA-65) kept in this computer's keychain. It never leaves this device."),
+      h("p", {}, "Files you send are signed with a post-quantum key (Ed25519 + ML-DSA-87 + SLH-DSA) kept in this computer's keychain. It never leaves this device."),
       h("div", { class: "actions" }, create),
       out,
     ),

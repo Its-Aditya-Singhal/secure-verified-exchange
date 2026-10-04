@@ -19,9 +19,9 @@ pub struct ReleaseRequest {
     /// ID token from the recipient organization's IdP, issued with
     /// `nonce = nonce_binding(client_key, txn)`.
     pub id_token: String,
-    /// Client's one-time X-Wing (X25519 + ML-KEM-768) public key for this
-    /// request (1216 bytes). Classical keys are refused, so a recorded
-    /// release can't be decrypted later by a quantum computer.
+    /// Client's one-time MLKEM1024-P384 public key for this request (1665
+    /// bytes). Other kinds are refused, so a recorded release can't be
+    /// decrypted later by a quantum computer.
     #[serde(with = "hex_vec")]
     pub client_key: Vec<u8>,
     /// Random, single-use transaction identifier.
@@ -33,7 +33,7 @@ pub struct ReleaseRequest {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SealedShare {
-    /// X-Wing encapsulated key (1120 bytes).
+    /// MLKEM1024-P384 encapsulated key (1665 bytes).
     #[serde(with = "b64")]
     pub encapped_key: Vec<u8>,
     #[serde(with = "b64")]
@@ -54,7 +54,7 @@ pub struct AgentReleaseRequest {
     #[serde(with = "b64")]
     pub header_region: Vec<u8>,
     pub id_token: String,
-    /// The same one-time X-Wing key as in [`ReleaseRequest::client_key`].
+    /// The same one-time key as in [`ReleaseRequest::client_key`].
     #[serde(with = "hex_vec")]
     pub client_key: Vec<u8>,
     #[serde(with = "hex_array")]
@@ -84,10 +84,10 @@ pub struct AgentKey {
     pub kind: crate::registry::KeyKindWire,
 }
 
-/// Parse a release request's one-time client key. Only X-Wing keys are
-/// accepted.
+/// Parse a release request's one-time client key. Only MLKEM1024-P384
+/// keys (suite SVX-2) are accepted.
 pub fn parse_client_key(bytes: &[u8]) -> Option<KemPublicKey> {
-    KemPublicKey::from_kind_bytes(KeyKind::XWingKem, bytes).ok()
+    KemPublicKey::from_kind_bytes(KeyKind::MaxKem, bytes).ok()
 }
 
 /// Deliberately coarse denial reasons. Precise reasons go to the audit log

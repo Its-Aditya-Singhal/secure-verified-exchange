@@ -4,11 +4,15 @@
 //! |-----------|------|---------------------------|-----------------------|
 //! | `0x0001` | SVX-1 | HPKE DHKEM(X25519) | Ed25519 (`0x0001`) |
 //! | `0x0003` | SVX-1H (post-quantum hybrid) | HPKE X-Wing (X25519 + ML-KEM-768) | Ed25519 + ML-DSA-65 (`0x0002`) |
+//! | `0x0004` | SVX-2 (maximum) | HPKE MLKEM1024-P384, HKDF-SHA512 | Ed25519 + ML-DSA-87 + SLH-DSA-SHA2-256s (`0x0003`) |
 //!
-//! Both use ChaCha20-Poly1305, HKDF-SHA256 and SHA-256. A reader accepts
-//! exactly these; there is no negotiation. Every domain-separation label of
-//! SVX-1H starts with `"SVX-1H"`, so nothing produced under one suite can be
-//! accepted under the other.
+//! All use ChaCha20-Poly1305 for content. SVX-1 and SVX-1H hash with
+//! SHA-256 and HKDF-SHA256; SVX-2 with SHA-512 and HKDF-SHA512, so every
+//! part of it targets NIST category 5. A reader accepts exactly these;
+//! there is no negotiation, and writers produce only SVX-2. Every
+//! domain-separation label starts with the suite name (`"SVX-1 "`,
+//! `"SVX-1H "`, `"SVX-2 "`), so nothing produced under one suite can be
+//! accepted under another.
 
 use crate::error::{CryptoError, Result};
 use crate::keys::KeyKind;
@@ -17,10 +21,14 @@ use crate::keys::KeyKind;
 pub const SUITE_SVX1: u16 = 0x0001;
 /// Suite identifier for SVX-1H (post-quantum hybrid).
 pub const SUITE_SVX1H: u16 = 0x0003;
+/// Suite identifier for SVX-2 (maximum strength).
+pub const SUITE_SVX2: u16 = 0x0004;
 /// Signature algorithm: Ed25519.
 pub const SIG_ALG_ED25519: u16 = 0x0001;
 /// Signature algorithm: Ed25519 and ML-DSA-65, both required.
 pub const SIG_ALG_ED25519_MLDSA65: u16 = 0x0002;
+/// Signature algorithm: Ed25519, ML-DSA-87 and SLH-DSA-SHA2-256s, all required.
+pub const SIG_ALG_MAX: u16 = 0x0003;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Suite {
@@ -28,6 +36,8 @@ pub enum Suite {
     Svx1,
     /// X-Wing / Ed25519 + ML-DSA-65.
     Svx1H,
+    /// MLKEM1024-P384 / Ed25519 + ML-DSA-87 + SLH-DSA-SHA2-256s.
+    Svx2,
 }
 
 impl Suite {
@@ -35,6 +45,7 @@ impl Suite {
         match id {
             SUITE_SVX1 => Ok(Suite::Svx1),
             SUITE_SVX1H => Ok(Suite::Svx1H),
+            SUITE_SVX2 => Ok(Suite::Svx2),
             other => Err(CryptoError::UnsupportedSuite(other)),
         }
     }
@@ -43,6 +54,7 @@ impl Suite {
         match self {
             Suite::Svx1 => SUITE_SVX1,
             Suite::Svx1H => SUITE_SVX1H,
+            Suite::Svx2 => SUITE_SVX2,
         }
     }
 
@@ -50,6 +62,7 @@ impl Suite {
         match self {
             Suite::Svx1 => SIG_ALG_ED25519,
             Suite::Svx1H => SIG_ALG_ED25519_MLDSA65,
+            Suite::Svx2 => SIG_ALG_MAX,
         }
     }
 
@@ -58,6 +71,7 @@ impl Suite {
         match self {
             Suite::Svx1 => KeyKind::X25519Kem,
             Suite::Svx1H => KeyKind::XWingKem,
+            Suite::Svx2 => KeyKind::MaxKem,
         }
     }
 
@@ -66,6 +80,7 @@ impl Suite {
         match self {
             Suite::Svx1 => KeyKind::Ed25519Signing,
             Suite::Svx1H => KeyKind::HybridSigning,
+            Suite::Svx2 => KeyKind::MaxSigning,
         }
     }
 
@@ -74,11 +89,20 @@ impl Suite {
         match self {
             Suite::Svx1 => crate::keys::X25519_PUBLIC_LEN,
             Suite::Svx1H => crate::keys::XWING_ENC_LEN,
+            Suite::Svx2 => crate::keys::MAX_KEM_ENC_LEN,
         }
     }
 
     pub fn is_post_quantum(self) -> bool {
-        self == Suite::Svx1H
+        matches!(self, Suite::Svx1H | Suite::Svx2)
+    }
+
+    /// The suite every writer produces.
+    pub const CURRENT: Suite = Suite::Svx2;
+
+    /// SHA-512 (and HKDF-SHA512) instead of SHA-256.
+    pub(crate) fn wide_hash(self) -> bool {
+        self == Suite::Svx2
     }
 
     /// A short human-readable description.
@@ -86,15 +110,17 @@ impl Suite {
         match self {
             Suite::Svx1 => "classical (X25519, Ed25519)",
             Suite::Svx1H => "post-quantum hybrid (X25519 + ML-KEM-768, Ed25519 + ML-DSA-65)",
+            Suite::Svx2 => "maximum (ML-KEM-1024 + P-384, Ed25519 + ML-DSA-87 + SLH-DSA, SHA-512)",
         }
     }
 
-    /// `"<SVX-1|SVX-1H> <what>\0"`
+    /// `"<SVX-1|SVX-1H|SVX-2> <what>\0"`
     pub(crate) fn label(self, what: &str) -> Vec<u8> {
         let mut v = Vec::with_capacity(8 + what.len());
         v.extend_from_slice(match self {
             Suite::Svx1 => b"SVX-1 ",
             Suite::Svx1H => b"SVX-1H ",
+            Suite::Svx2 => b"SVX-2 ",
         });
         v.extend_from_slice(what.as_bytes());
         v.push(0);
@@ -102,11 +128,13 @@ impl Suite {
     }
 }
 
-/// The suite whose key-release KEM matches `kind` (X25519 → SVX-1, X-Wing → SVX-1H).
+/// The suite whose KEM matches `kind` (X25519 → SVX-1, X-Wing → SVX-1H,
+/// MLKEM1024-P384 → SVX-2).
 pub(crate) fn suite_of_kem(kind: KeyKind) -> Result<Suite> {
     match kind {
         KeyKind::X25519Kem => Ok(Suite::Svx1),
         KeyKind::XWingKem => Ok(Suite::Svx1H),
+        KeyKind::MaxKem => Ok(Suite::Svx2),
         _ => Err(CryptoError::InvalidKey),
     }
 }
@@ -119,9 +147,11 @@ mod tests {
     fn labels_are_disjoint() {
         assert_eq!(Suite::Svx1.label("envelope"), b"SVX-1 envelope\0");
         assert_eq!(Suite::Svx1H.label("envelope"), b"SVX-1H envelope\0");
+        assert_eq!(Suite::Svx2.label("envelope"), b"SVX-2 envelope\0");
         assert!(Suite::from_id(0x0002).is_err());
         assert!(Suite::from_id(0x0000).is_err());
-        for s in [Suite::Svx1, Suite::Svx1H] {
+        assert!(Suite::from_id(0x0005).is_err());
+        for s in [Suite::Svx1, Suite::Svx1H, Suite::Svx2] {
             assert_eq!(Suite::from_id(s.id()).unwrap(), s);
         }
     }

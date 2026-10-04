@@ -259,7 +259,7 @@ async fn revoked_sender_key_is_rejected() {
     w.put_key(
         ACME,
         &admin,
-        KeyKindWire::Ed25519Mldsa65,
+        KeyKindWire::Max,
         w.acme_sign.verifying_key().to_vec(),
         KeyStatus::Revoked,
     )
@@ -270,7 +270,7 @@ async fn revoked_sender_key_is_rejected() {
         w.put_key(
             ACME,
             &admin,
-            KeyKindWire::Ed25519Mldsa65,
+            KeyKindWire::Max,
             w.acme_sign.verifying_key().to_vec(),
             KeyStatus::Active
         )
@@ -370,14 +370,14 @@ async fn compromised_service_cannot_get_org_share() {
     let alice = ReleaseSession::new();
     let alice_token = w.token(EXAMPLE, "alice", &alice.nonce()).await;
 
-    let attacker_key = KemSecretKey::generate_hybrid(&mut os_rng());
+    let attacker_key = KemSecretKey::generate_max(&mut os_rng());
     let h = &v.header;
     let grant = SignedGrant::sign(
         &Grant {
             v: svx_protocol::PROTOCOL_VERSION,
             service_id: SERVICE_ID.into(),
             artifact_id: h.artifact_id,
-            header_hash: *v.header_hash().as_bytes(),
+            header_hash: v.header_hash().as_bytes().to_vec(),
             recipient_org: EXAMPLE.into(),
             issuer: w.example_idp.issuer().into(),
             sub: "alice".into(),
@@ -406,7 +406,7 @@ async fn compromised_service_cannot_get_org_share() {
     ));
 
     // A grant signed by anyone other than the pinned service key is refused.
-    let rogue = SigningKey::generate_hybrid(&mut os_rng());
+    let rogue = SigningKey::generate_max(&mut os_rng());
     let s = ReleaseSession::new();
     let t = w.token(EXAMPLE, "alice", &s.nonce()).await;
     let (_, real) = w
@@ -537,10 +537,7 @@ async fn registry_records_are_signed_and_scoped() {
     assert_eq!(rec.org_id, EXAMPLE);
     assert_eq!(rec.key_agent_url.as_deref(), Some(w.agent_url.as_str()));
     assert_eq!(
-        rec.active_hybrid_kem_key()
-            .unwrap()
-            .kem_public_key()
-            .unwrap(),
+        rec.active_kem_key().unwrap().kem_public_key().unwrap(),
         *w.example_kem.public_key()
     );
     // Verifying with the wrong registry key fails.
@@ -570,68 +567,72 @@ async fn legacy_classical_files_still_open() {
 
     let new = w.pack();
     let v = svx_core::verify(Cursor::new(&new), &w.trust().await).unwrap();
-    assert_eq!(v.head().suite, Suite::Svx1H);
+    assert_eq!(v.head().suite, Suite::Svx2);
 }
 
-/// Releases are re-sealed only to post-quantum one-time keys: a classical
-/// X25519 client key is refused before anything is released.
+/// Releases are re-sealed only to SVX-2 one-time keys: a classical X25519
+/// or an X-Wing client key is refused before anything is released.
 #[tokio::test]
-async fn classical_client_keys_are_refused() {
+async fn older_client_keys_are_refused() {
     let w = world!();
     let file = w.pack();
     let v = svx_core::verify(Cursor::new(&file), &w.trust().await).unwrap();
-    let classical = KemSecretKey::generate(&mut os_rng());
-    let txn = [7u8; 16];
-    let nonce = svx_core::crypto::nonce_binding(classical.public_key(), &txn);
-    let token = w.token(EXAMPLE, "alice", &nonce).await;
-    let req = ReleaseRequest {
-        header_region: v.header_region.clone(),
-        trailer: v.trailer.encode().unwrap(),
-        id_token: token.clone(),
-        client_key: classical.public_key().to_vec(),
-        txn,
-    };
-    let r: Result<ReleaseResponse, _> = w
-        .client
-        .post_json(&w.service_url, "/v1/release", &req, None)
-        .await;
-    assert!(matches!(
-        r,
-        Err(ProtocolError::Denied(DenyReason::InvalidRequest))
-    ));
-
-    let grant = SignedGrant::sign(
-        &Grant {
-            v: svx_protocol::PROTOCOL_VERSION,
-            service_id: SERVICE_ID.into(),
-            artifact_id: v.header.artifact_id,
-            header_hash: *v.header_hash().as_bytes(),
-            recipient_org: EXAMPLE.into(),
-            issuer: w.example_idp.issuer().into(),
-            sub: "alice".into(),
-            client_key_id: classical.public_key().key_id(),
+    for older in [
+        KemSecretKey::generate(&mut os_rng()),
+        KemSecretKey::generate_hybrid(&mut os_rng()),
+    ] {
+        let txn = [7u8; 16];
+        let nonce = svx_core::crypto::nonce_binding(older.public_key(), &txn);
+        let token = w.token(EXAMPLE, "alice", &nonce).await;
+        let req = ReleaseRequest {
+            header_region: v.header_region.clone(),
+            trailer: v.trailer.encode().unwrap(),
+            id_token: token.clone(),
+            client_key: older.public_key().to_vec(),
             txn,
-            iat: now(),
-            exp: now() + 60,
-        },
-        &w.service_grant,
-    )
-    .unwrap();
-    let req = AgentReleaseRequest {
-        header_region: v.header_region.clone(),
-        id_token: token,
-        client_key: classical.public_key().to_vec(),
-        txn,
-        grant,
-    };
-    let r: Result<AgentReleaseResponse, _> = w
-        .client
-        .post_json(&w.agent_url, "/v1/agent/release", &req, None)
-        .await;
-    assert!(matches!(
-        r,
-        Err(ProtocolError::Denied(DenyReason::InvalidRequest))
-    ));
+        };
+        let r: Result<ReleaseResponse, _> = w
+            .client
+            .post_json(&w.service_url, "/v1/release", &req, None)
+            .await;
+        assert!(matches!(
+            r,
+            Err(ProtocolError::Denied(DenyReason::InvalidRequest))
+        ));
+
+        let grant = SignedGrant::sign(
+            &Grant {
+                v: svx_protocol::PROTOCOL_VERSION,
+                service_id: SERVICE_ID.into(),
+                artifact_id: v.header.artifact_id,
+                header_hash: v.header_hash().as_bytes().to_vec(),
+                recipient_org: EXAMPLE.into(),
+                issuer: w.example_idp.issuer().into(),
+                sub: "alice".into(),
+                client_key_id: older.public_key().key_id(),
+                txn,
+                iat: now(),
+                exp: now() + 60,
+            },
+            &w.service_grant,
+        )
+        .unwrap();
+        let req = AgentReleaseRequest {
+            header_region: v.header_region.clone(),
+            id_token: token,
+            client_key: older.public_key().to_vec(),
+            txn,
+            grant,
+        };
+        let r: Result<AgentReleaseResponse, _> = w
+            .client
+            .post_json(&w.agent_url, "/v1/agent/release", &req, None)
+            .await;
+        assert!(matches!(
+            r,
+            Err(ProtocolError::Denied(DenyReason::InvalidRequest))
+        ));
+    }
 }
 
 /// Key registration checks the exact length for each kind.
@@ -639,13 +640,13 @@ async fn classical_client_keys_are_refused() {
 async fn key_registration_checks_kind_and_length() {
     let w = world!();
     let admin = w.token(EXAMPLE, "example-admin", "keys").await;
-    let xwing = KemSecretKey::generate_hybrid(&mut os_rng());
-    let pk = xwing.public_key().to_vec();
-    // An X-Wing key registered as X25519, a truncated key, a signing kind.
+    let kem = KemSecretKey::generate_max(&mut os_rng());
+    let pk = kem.public_key().to_vec();
+    // An SVX-2 key registered as X-Wing, a truncated key, a signing kind.
     for (kind, key) in [
-        (KeyKindWire::X25519, pk.clone()),
-        (KeyKindWire::XWing, pk[..1215].to_vec()),
-        (KeyKindWire::Ed25519Mldsa65, pk.clone()),
+        (KeyKindWire::XWing, pk.clone()),
+        (KeyKindWire::MlKem1024P384, pk[..1664].to_vec()),
+        (KeyKindWire::Max, pk.clone()),
     ] {
         assert!(
             w.put_key(EXAMPLE, &admin, kind, key, KeyStatus::Active)
@@ -653,10 +654,10 @@ async fn key_registration_checks_kind_and_length() {
                 .is_err()
         );
     }
-    let hybrid_sign = SigningKey::generate_hybrid(&mut os_rng()).verifying_key();
+    let sign = SigningKey::generate_max(&mut os_rng()).verifying_key();
     for (kind, key) in [
-        (KeyKindWire::XWing, pk),
-        (KeyKindWire::Ed25519Mldsa65, hybrid_sign.to_vec()),
+        (KeyKindWire::MlKem1024P384, pk),
+        (KeyKindWire::Max, sign.to_vec()),
     ] {
         w.put_key(EXAMPLE, &admin, kind, key, KeyStatus::Retired)
             .await

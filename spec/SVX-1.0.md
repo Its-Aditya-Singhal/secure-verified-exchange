@@ -1,6 +1,6 @@
 # SVX 1.x Container Format Specification
 
-Status: Draft 3. Covers SVX 1.0, SVX 1.1, which adds the post-quantum hybrid suite `0x0003` (envelope layout V2, §3.2), and SVX 1.2, which adds artifacts with several recipients (§3.3). Cryptographic operations are defined in [`crypto-profile.md`](crypto-profile.md). The key words MUST, MUST NOT, SHOULD and MAY are used as defined in RFC 2119.
+Status: Draft 4. Covers SVX 1.0, SVX 1.1, which adds the post-quantum hybrid suite `0x0003` (envelope layout V2, §3.2), SVX 1.2, which adds artifacts with several recipients (§3.3), and SVX 1.3, which adds the maximum-strength suite `0x0004` (SVX-2). Cryptographic operations are defined in [`crypto-profile.md`](crypto-profile.md). The key words MUST, MUST NOT, SHOULD and MAY are used as defined in RFC 2119.
 
 ## 1. Overview
 
@@ -29,8 +29,8 @@ All integers are little-endian unless stated otherwise. The only exception is th
 |-------:|-----:|-------|-------|
 | 0 | 8 | magic | `89 53 56 58 0D 0A 1A 0A` (`\x89SVX\r\n\x1a\n`) |
 | 8 | 1 | major | `1` |
-| 9 | 1 | minor | `0` for suite `0x0001`, `1` for suite `0x0003` |
-| 10 | 2 | suite_id | `0x0001` (SVX-1) or `0x0003` (SVX-1H, post-quantum hybrid) |
+| 9 | 1 | minor | `0` for suite `0x0001`; `1` for suite `0x0003` (`2` with several recipients); `3` for suite `0x0004` |
+| 10 | 2 | suite_id | `0x0001` (SVX-1), `0x0003` (SVX-1H, post-quantum hybrid) or `0x0004` (SVX-2, maximum strength) |
 | 12 | 4 | header_len | ≤ 1 048 576 |
 
 The magic follows the design of the PNG signature. A high-bit byte, CR LF, SUB and LF detect 7-bit stripping, newline translation and text-mode truncation.
@@ -70,10 +70,10 @@ field = tag (u16) ‖ len (u32) ‖ value (len bytes)
 | `0x800B` | key_commitment | yes | 32 bytes |
 | `0x800C` | key_envelopes | yes | see §3.1 |
 | `0x800D` | encrypted_manifest | yes | 16 ≤ len ≤ 65 552 bytes (AEAD ciphertext and tag) |
-| `0x800E` | key_envelopes_v2 | (suite `0x0003`) | see §3.2. Since 1.1. |
-| `0x800F` | recipients | no | see §3.3. Since 1.2; suite `0x0003` only. |
+| `0x800E` | key_envelopes_v2 | (suites `0x0003`, `0x0004`) | see §3.2. Since 1.1. |
+| `0x800F` | recipients | no | see §3.3. Since 1.2; suites `0x0003` and `0x0004` only. |
 
-Exactly one of `0x800C` and `0x800E` MUST be present: `0x800C` for suite `0x0001`, `0x800E` for suite `0x0003`. Any other combination MUST be rejected (this also stops a suite downgrade, since the prelude is covered by the header hash and the signature).
+Exactly one of `0x800C` and `0x800E` MUST be present: `0x800C` for suite `0x0001`, `0x800E` for suites `0x0003` and `0x0004`. Any other combination MUST be rejected (this also stops a suite downgrade, since the prelude is covered by the header hash and the signature).
 
 Every fixed-size value MUST have exactly its stated length.
 
@@ -98,7 +98,7 @@ key_envelopes_v2 = count (u8, 1..=16) ‖ envelope_v2{count}
 envelope_v2      = role (u8) ‖ key_id (16) ‖ enc_len (u16, 1..=2048) ‖ enc ‖ ct_len (u16, 1..=1024) ‖ ct
 ```
 
-Roles and their rules are as in §3.1. For suite `0x0003`, `enc` is an X-Wing ciphertext and `enc_len` MUST be exactly 1120. The tag is critical, so a 1.0 reader rejects 1.1 hybrid files instead of misreading them.
+Roles and their rules are as in §3.1. For suite `0x0003`, `enc` is an X-Wing ciphertext and `enc_len` MUST be exactly 1120. For suite `0x0004`, `enc` is an MLKEM1024-P384 ciphertext and `enc_len` MUST be exactly 1665. Readers MUST reject any envelope whose `enc_len` doesn't match the prelude's suite; this stops a downgrade between the two post-quantum suites. The tag is critical, so a 1.0 reader rejects 1.1 hybrid files instead of misreading them. A 1.1 or 1.2 reader rejects SVX-2 files because it doesn't know suite `0x0004`.
 
 ### 3.3 Several recipients (SVX 1.2)
 
@@ -106,9 +106,9 @@ Roles and their rules are as in §3.1. For suite `0x0003`, `enc` is an X-Wing ci
 recipients = count (u8, 2..=15) ‖ { len (u8, 1..=128) ‖ identifier }{count}
 ```
 
-An artifact for more than one recipient carries this critical field. Writers MUST set the prelude minor version to 2 and MUST NOT write the field for a single recipient (that is written as in 1.1). When it is present, readers MUST check that:
+An artifact for more than one recipient carries this critical field. Writers MUST set the prelude minor version to 2 (3 for suite `0x0004`) and MUST NOT write the field for a single recipient (that is written as in 1.1). When it is present, readers MUST check that:
 
-- the envelope layout is V2 (suite `0x0003`);
+- the envelope layout is V2 (suite `0x0003` or `0x0004`);
 - the identifiers are distinct and the first equals `recipient_org`;
 - there is exactly one Service envelope and exactly `count` RecipientOrg envelopes, with pairwise distinct `key_id`s.
 
@@ -141,9 +141,9 @@ Because the record structure is fixed, every payload length has exactly one vali
 |-----:|-------|
 | 4 | `"SVXT"` |
 | 8 | chunk_count (u64), MUST equal the number of chunk records |
-| 32 | payload_commitment |
-| 2 | sig_alg (`0x0001` = Ed25519; `0x0002` = Ed25519 + ML-DSA-65) |
-| 2 | sig_len (1..=4096; 64 for Ed25519, 3373 for Ed25519 + ML-DSA-65) |
+| 32 or 64 | payload_commitment (32 bytes; 64 bytes, SHA-512, for suite `0x0004`) |
+| 2 | sig_alg (`0x0001` = Ed25519; `0x0002` = Ed25519 + ML-DSA-65; `0x0003` = Ed25519 + ML-DSA-87 + SLH-DSA-SHA2-256s) |
+| 2 | sig_len (1..=65535; exactly 64, 3373 or 34483 for the three `sig_alg`s) |
 | sig_len | signature |
 
 End of input MUST follow immediately. Any trailing byte MUST cause rejection.
@@ -197,8 +197,9 @@ The reference implementation (`svx-format`, `svx-core`) reports these classes. C
 
 - valid artifacts, each with a JSON file giving every intermediate value (header hash, payload commitment, signature, test-only shares, plaintext);
 - invalid artifacts, each with the expected rejection stage (`parse` or `verify`);
-- `keys.json` (suite `0x0001`) and `keys-hybrid.json` (suite `0x0003`), which hold **test-only** keys derived from public labels;
+- `keys.json` (suite `0x0001`), `keys-hybrid.json` (suite `0x0003`) and `keys-max.json` (suite `0x0004`), which hold **test-only** keys derived from public labels;
 - `hybrid-*` vectors for SVX 1.1 / suite `0x0003`, including a downgrade attempt and tampering with each half of the hybrid signature;
-- `multi-*` vectors for SVX 1.2: two recipients that each open the file, and a renamed recipient that fails verification.
+- `multi-*` vectors for SVX 1.2: two recipients that each open the file, and a renamed recipient that fails verification;
+- `max-*` vectors for SVX 1.3 / suite `0x0004`: a downgrade attempt to `0x0003`, tampering with each of the three signatures, a tampered envelope, a tampered chunk and an untrusted signer.
 
 The vectors are reproducible byte for byte with `cargo run -p svx-testvectors`.

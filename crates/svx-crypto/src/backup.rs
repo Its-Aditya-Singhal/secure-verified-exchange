@@ -26,10 +26,13 @@ pub struct BackupParams {
 }
 
 impl BackupParams {
-    /// What new backups use: 64 MiB, 3 passes.
+    /// What new backups use: 256 MiB, 4 passes (about 1 s on a laptop),
+    /// so each password guess against a stolen backup costs an attacker the
+    /// same. Older backups (64 MiB, 3 passes) keep opening: the parameters
+    /// are stored in the file.
     pub const STRONG: BackupParams = BackupParams {
-        m_kib: 64 * 1024,
-        t: 3,
+        m_kib: 256 * 1024,
+        t: 4,
         p: 1,
     };
 

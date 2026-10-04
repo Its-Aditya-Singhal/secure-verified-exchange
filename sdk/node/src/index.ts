@@ -155,9 +155,9 @@ export interface Envelope {
 export interface ArtifactInfo {
   format_version: string;
   suite_id: number;
-  /** Human-readable protection level, e.g. "post-quantum hybrid (...)". */
+  /** Human-readable protection level, e.g. "maximum (...)". */
   protection: string;
-  /** True for the post-quantum hybrid suite (SVX-1H, 0x0003). */
+  /** True for the post-quantum suites (SVX-1H 0x0003, SVX-2 0x0004). */
   post_quantum: boolean;
   artifact_id: string;
   /** Unix seconds, UTC. */

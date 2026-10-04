@@ -30,11 +30,11 @@ createdb svx_agent_example
 ## 1. Keys (test-only files; use a KMS/HSM in production)
 
 ```sh
-$B/svx keygen --kind kem          --owner svx.example   --out service    # receives the service share (X-Wing)
-$B/svx keygen --kind sign         --owner svx.example   --out grant      # signs release grants (Ed25519 + ML-DSA-65)
+$B/svx keygen --kind kem          --owner svx.example   --out service    # receives the service share (MLKEM1024-P384)
+$B/svx keygen --kind sign         --owner svx.example   --out grant      # signs release grants (SVX-2)
 $B/svx keygen --kind sign         --owner svx.example   --out registry   # signs registry records; prints the fingerprint clients pin
-$B/svx keygen --kind sign         --owner acme-security --out acme       # Acme signs artifacts (Ed25519 + ML-DSA-65)
-$B/svx keygen --kind kem          --owner example-corp  --out example    # Example Corp's org key (X-Wing)
+$B/svx keygen --kind sign         --owner acme-security --out acme       # Acme signs artifacts (SVX-2)
+$B/svx keygen --kind kem          --owner example-corp  --out example    # Example Corp's org key (MLKEM1024-P384)
 ```
 
 ## 2. Identity providers

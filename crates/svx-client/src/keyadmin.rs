@@ -41,7 +41,7 @@ pub async fn create_signing_key(
         cfg,
         client,
         bearer,
-        KeyKindWire::Ed25519Mldsa65,
+        KeyKindWire::Max,
         vk.to_vec(),
         KeyStatus::Active,
     )
@@ -73,16 +73,18 @@ pub async fn register_signing_public(
             cfg.org_id
         )));
     }
-    if vk.kind() != KeyKind::HybridSigning {
+    if vk.kind() != KeyKind::MaxSigning {
         return Err(ClientError::Config(
-            "only post-quantum hybrid signing keys can be registered for new files".into(),
+            "only SVX-2 signing keys (Ed25519 + ML-DSA-87 + SLH-DSA) can be registered for \
+             new files: create one with `svx keygen --kind sign`"
+                .into(),
         ));
     }
     admin::put_key(
         cfg,
         client,
         bearer,
-        KeyKindWire::Ed25519Mldsa65,
+        KeyKindWire::Max,
         vk.to_vec(),
         KeyStatus::Active,
     )
@@ -99,12 +101,12 @@ pub struct ExportedKemKey {
     pub public_file: PathBuf,
 }
 
-/// Generate an X-Wing encryption key into `dir` (owner-only secret file).
+/// Generate an SVX-2 (MLKEM1024-P384) encryption key into `dir` (owner-only secret file).
 /// Nothing is registered yet: see [`activate_encryption_key`].
 pub fn export_encryption_key(cfg: &ClientConfig, dir: &Path) -> Result<ExportedKemKey> {
     let owner =
         Identifier::new(&cfg.org_id).map_err(|_| ClientError::Config("invalid org_id".into()))?;
-    let sk = KemSecretKey::generate_hybrid(&mut os_rng());
+    let sk = KemSecretKey::generate_max(&mut os_rng());
     let key_id = hex::encode(sk.public_key().key_id());
     let name = format!("{}-{}", cfg.org_id, &key_id[..8]);
     let prefix = dir.join(&name);
@@ -135,9 +137,9 @@ pub async fn activate_encryption_key(
             cfg.org_id
         )));
     }
-    if pk.kind() != KeyKind::XWingKem {
+    if pk.kind() != KeyKind::MaxKem {
         return Err(ClientError::Config(
-            "only post-quantum (X-Wing) encryption keys can be activated".into(),
+            "only SVX-2 (MLKEM1024-P384) encryption keys can be activated".into(),
         ));
     }
     let overview = admin::overview(cfg, client, bearer).await?;
@@ -157,7 +159,7 @@ pub async fn activate_encryption_key(
         cfg,
         client,
         bearer,
-        KeyKindWire::XWing,
+        KeyKindWire::MlKem1024P384,
         pk.to_vec(),
         KeyStatus::Active,
     )

@@ -156,8 +156,10 @@ export interface StatusView {
   service_id: string;
   /** Human-readable protection level of the file's suite. */
   protection: string;
-  /** Whether the file resists quantum attacks (suite SVX-1H). */
+  /** Whether the file resists quantum attacks (suites SVX-1H and SVX-2). */
   post_quantum: boolean;
+  /** Suite ID: 1 = SVX-1, 3 = SVX-1H, 4 = SVX-2. */
+  suite_id: number;
 }
 
 export interface Progress {

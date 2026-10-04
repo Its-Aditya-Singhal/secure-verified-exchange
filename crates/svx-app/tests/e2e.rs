@@ -115,8 +115,9 @@ async fn desktop_commands_end_to_end() {
     // Status before any login.
     let s = example.status(&sent.path).await.unwrap();
     assert!(s.for_you && !s.expired);
-    assert!(s.post_quantum, "new files are post-quantum hybrid");
-    assert!(sent.protection.starts_with("post-quantum hybrid"));
+    assert!(s.post_quantum, "new files are post-quantum");
+    assert_eq!(s.suite_id, 0x0004, "new files are SVX-2");
+    assert!(sent.protection.starts_with("maximum"));
     assert_eq!(s.sender_org, ACME);
     assert!(!acme.status(&sent.path).await.unwrap().for_you);
 

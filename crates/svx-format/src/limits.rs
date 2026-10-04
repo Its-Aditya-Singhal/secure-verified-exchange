@@ -33,5 +33,7 @@ pub const CHUNK_TAG_LEN: u32 = 16;
 pub const MAX_CHUNKS: u64 = 1 << 32;
 /// Maximum length of an identifier string.
 pub const MAX_IDENTIFIER_LEN: usize = 128;
-/// Maximum length of a signature.
-pub const MAX_SIGNATURE_LEN: usize = 4096;
+/// Maximum length of a signature (the trailer's 16-bit length field). The
+/// cryptographic layer requires each suite's exact length: 64, 3373 or
+/// 34483 bytes.
+pub const MAX_SIGNATURE_LEN: usize = u16::MAX as usize;

@@ -1,7 +1,7 @@
 //! Client configuration (`config.toml`).
 //!
 //! The only trust anchor is `registry_key`: the fingerprint of the managed
-//! service's hybrid (Ed25519 + ML-DSA-65) registry key, pinned at `svx init`
+//! service's SVX-2 (Ed25519 + ML-DSA-87 + SLH-DSA) registry key, pinned at `svx init`
 //! time from an out-of-band source (the organization's admin, the service's
 //! published fingerprint). Setup saves the full key in `registry_public`
 //! only after it matched the fingerprint, and every load checks it again.
@@ -24,7 +24,7 @@ pub struct ClientConfig {
     pub service_url: String,
     /// Pinned fingerprint of the registry key (hex, 32 bytes).
     pub registry_key: String,
-    /// The registry's hybrid public key (hex), saved by setup after it
+    /// The registry's SVX-2 public key (hex), saved by setup after it
     /// matched `registry_key`.
     #[serde(default)]
     pub registry_public: String,
@@ -59,9 +59,9 @@ pub struct ClientConfig {
 pub struct AccountConfig {
     /// The verified email of the account.
     pub email: String,
-    /// The device's hybrid signing key (`keychain:<account>/<key_id>`).
+    /// The device's SVX-2 signing key (`keychain:<account>/<key_id>`).
     pub signing_key: String,
-    /// The key ID (hex) of the device's X-Wing key in the keychain.
+    /// The key ID (hex) of the device's MLKEM1024-P384 key in the keychain.
     pub kem_key: String,
 }
 
@@ -137,8 +137,12 @@ impl ClientConfig {
         }
         let bytes = hex::decode(self.registry_public.trim())
             .map_err(|_| ClientError::Config("registry_public is not hex".into()))?;
-        let key = VerifyingKey::from_kind_bytes(KeyKind::HybridSigning, &bytes).map_err(|_| {
-            ClientError::Config("registry_public is not a post-quantum hybrid key".into())
+        let key = VerifyingKey::from_kind_bytes(KeyKind::MaxSigning, &bytes).map_err(|_| {
+            ClientError::Config(
+                "this setup predates SVX-2 registry signatures: run `svx init` again (or Setup \
+                 in the app) with the service's registry key fingerprint"
+                    .into(),
+            )
         })?;
         if key.fingerprint() != pinned {
             return Err(ClientError::Config(
@@ -211,7 +215,9 @@ mod tests {
 
     fn registry() -> VerifyingKey {
         // One fixed key, so `registry_key` and `registry_public` match.
-        SigningKey::hybrid_from_seeds(&[1; 32], &[2; 32]).verifying_key()
+        SigningKey::from_secret_bytes(KeyKind::MaxSigning, &[1; 160])
+            .unwrap()
+            .verifying_key()
     }
 
     fn cfg() -> ClientConfig {
@@ -255,18 +261,26 @@ mod tests {
         // Another key in registry_public: refused.
         let mut c = cfg();
         c.registry_public = hex::encode(
-            SigningKey::hybrid_from_seeds(&[3; 32], &[4; 32])
+            SigningKey::from_secret_bytes(KeyKind::MaxSigning, &[3; 160])
+                .unwrap()
                 .verifying_key()
                 .to_vec(),
         );
         assert!(c.validate().is_err());
+        // An older (hybrid) key whose fingerprint was pinned: refused.
+        let old = SigningKey::hybrid_from_seeds(&[3; 32], &[4; 32]).verifying_key();
+        let mut c = cfg();
+        c.registry_key = hex::encode(old.fingerprint());
+        c.registry_public = hex::encode(old.to_vec());
+        let e = c.validate().unwrap_err().to_string();
+        assert!(e.contains("svx init"), "{e}");
         // A classical key whose fingerprint was pinned: refused.
         let ed = SigningKey::from_bytes(&[5; 32]).verifying_key();
         let mut c = cfg();
         c.registry_key = hex::encode(ed.fingerprint());
         c.registry_public = hex::encode(ed.to_vec());
         assert!(c.validate().is_err());
-        // A configuration from before hybrid registry signatures: asked to set up again.
+        // A configuration from before post-quantum registry signatures: asked to set up again.
         let mut c = cfg();
         c.registry_key = hex::encode(ed.to_bytes());
         c.registry_public.clear();

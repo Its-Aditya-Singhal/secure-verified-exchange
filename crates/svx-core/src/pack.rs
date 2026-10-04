@@ -14,14 +14,14 @@ use crate::manifest::Manifest;
 /// organization and the managed service come from the organization registry
 /// (Phase 2) or local key files (Phase 1).
 pub struct PackRequest<'a> {
-    /// [`Suite::Svx1H`] (post-quantum hybrid) for new artifacts; the key
-    /// kinds below must match it.
+    /// [`Suite::CURRENT`] (SVX-2) for new artifacts; older suites only for
+    /// test vectors. The key kinds below must match it.
     pub suite: Suite,
     pub sender_org: Identifier,
     pub signing_key: &'a SigningKey,
     pub recipient_org: Identifier,
     pub recipient_key: &'a KemPublicKey,
-    /// Further recipients (SVX 1.2, suite SVX-1H only). Each gets its own
+    /// Further recipients (SVX 1.2 and later; not suite SVX-1). Each gets its own
     /// envelope sealing the same recipient share; empty for one recipient.
     pub more_recipients: Vec<(Identifier, &'a KemPublicKey)>,
     pub service_id: Identifier,
@@ -135,7 +135,7 @@ pub fn pack<R: Read, W: Write>(
         key_commitment: keys.key_commitment(),
         envelope_layout: match suite {
             Suite::Svx1 => EnvelopeLayout::V1,
-            Suite::Svx1H => EnvelopeLayout::V2,
+            Suite::Svx1H | Suite::Svx2 => EnvelopeLayout::V2,
         },
         envelopes,
         encrypted_manifest: seal_manifest(&keys, &artifact_id, &manifest_bytes)?,
@@ -143,9 +143,9 @@ pub fn pack<R: Read, W: Write>(
     };
 
     let mut writer = Writer::new(output, suite.id(), &header)?;
-    let hh = header_hash(writer.header_region());
+    let hh = header_hash(suite, writer.header_region());
     let mut enc = StreamEncryptor::new(&keys, nonce_prefix, &hh);
-    let mut hasher = PayloadHasher::new(&hh);
+    let mut hasher = PayloadHasher::new(suite, &hh);
 
     // One chunk of look-ahead tells us whether the current chunk is final.
     let cs = chunk_size as usize;

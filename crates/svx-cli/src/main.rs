@@ -92,16 +92,16 @@ enum Cmd {
     /// Encrypt and sign a file (or a folder, managed mode) into a .svx artifact.
     Pack {
         input: PathBuf,
-        /// Sender's signing key file (Ed25519 + ML-DSA-65). Its owner is the sender organization.
+        /// Sender's signing key file (SVX-2: Ed25519 + ML-DSA-87 + SLH-DSA). Its owner is the sender organization.
         #[arg(long)]
         sign_key: PathBuf,
         /// Recipient organization (managed: keys come from the verified registry).
         #[arg(long, conflicts_with_all = ["recipient_key", "service_key"])]
         recipient: Option<String>,
-        /// Offline mode: recipient organization's X-Wing public key file.
+        /// Offline mode: recipient organization's MLKEM1024-P384 public key file.
         #[arg(long, requires = "service_key")]
         recipient_key: Option<PathBuf>,
-        /// Offline mode: managed service's X-Wing public key file.
+        /// Offline mode: managed service's MLKEM1024-P384 public key file.
         #[arg(long, requires = "recipient_key")]
         service_key: Option<PathBuf>,
         /// Authorization policy reference (defined by the recipient).
@@ -300,9 +300,9 @@ enum OrgSub {
 
 #[derive(Clone, Copy, ValueEnum)]
 pub enum KeyKindArg {
-    /// Artifact signing key (Ed25519 + ML-DSA-65).
+    /// Signing key (Ed25519 + ML-DSA-87 + SLH-DSA-SHA2-256s).
     Sign,
-    /// Encryption key (X-Wing: X25519 + ML-KEM-768).
+    /// Encryption key (MLKEM1024-P384: ML-KEM-1024 + P-384).
     Kem,
 }
 

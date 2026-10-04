@@ -42,13 +42,13 @@ The app and the `svx` CLI share the configuration and the admin session (`~/Libr
 3. Choose the recipient's **policy**, an **expiry**, an optional **classification** and **note**. Files are signed with this computer's **keychain key** (created on the Admin page), or a `.sign.key` file you choose; only a reference is remembered.
 4. Optionally **record the file with the service** (needs an administrator sign-in on the Admin page).
 
-**Protect file** writes `<name>.svx` next to the original. New files are always post-quantum hybrid; the result shows the protection level. Send it any way you like: email, chat, a file share.
+**Protect file** writes `<name>.svx` next to the original. New files always use the maximum-strength suite SVX-2; the result shows the protection level. Send it any way you like: email, chat, a file share.
 
 ## Open
 
 A `.svx` file arrives by double-click, drag-and-drop or **Choose file…**:
 
-1. **Before any sign-in** the file is verified against the registry. The app shows who sent it (signature verified), who it is for, when it expires, its policy and its protection level: **post-quantum** for every file made with SVX 1.1 (X25519 + ML-KEM-768, Ed25519 + ML-DSA-65), or **classical** for older files. A tampered file, a file for another organization or an expired file is refused here, and you are never asked to sign in.
+1. **Before any sign-in** the file is verified against the registry. The app shows who sent it (signature verified), who it is for, when it expires, its policy and its protection level: **Maximum (SVX-2)** for files made with SVX 1.3 (ML-KEM-1024 + P-384, Ed25519 + ML-DSA-87 + SLH-DSA), **post-quantum** for SVX 1.1 and 1.2 files (X25519 + ML-KEM-768, Ed25519 + ML-DSA-65), or **classical** for older files. A tampered file, a file for another organization or an expired file is refused here, and you are never asked to sign in.
 2. **Open securely** starts the flow, shown as a live timeline: checking the file → signature verified → connecting → signing you in (your browser opens your company sign-in) → checking you're allowed → access approved → decrypting on this device.
 3. The result:
 
@@ -90,7 +90,7 @@ All administration happens here (there is no web portal). Sign in with your comp
 - The web view loads only the bundled UI under a strict Content Security Policy (no remote content, no inline script). All values are rendered as text, never as HTML.
 - The UI has no file-system or shell permissions of its own. File pickers, **Show in Finder** and **Open** are app commands, and the last two only accept paths the app itself produced in this session. Commands that write files (key export, audit export) open their own save dialog; the UI never supplies a path to write to.
 - Signing keys created in the app live in the OS keychain and are used inside the Rust layer; they never reach the UI.
-- Sign-in uses the system browser with a loopback redirect (RFC 8252) and a nonce bound to a fresh one-time X-Wing key per open, exactly as in the CLI. Connections to the service and key agent use post-quantum TLS (X25519MLKEM768).
+- Sign-in uses the system browser with a loopback redirect (RFC 8252) and a nonce bound to a fresh one-time MLKEM1024-P384 key per open, exactly as in the CLI. Connections to the service and key agent use post-quantum TLS (X25519MLKEM768).
 - Development mode (local stacks only) allows plain http and test users; the app shows a **dev** badge. Never use it with real data.
 
 ## Personal accounts

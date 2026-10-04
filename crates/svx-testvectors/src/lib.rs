@@ -1,5 +1,7 @@
-//! Deterministic SVX test vectors: SVX 1.0 (suite `0x0001`) and SVX 1.1
-//! post-quantum hybrid (suite `0x0003`, files named `hybrid-*`).
+//! Deterministic SVX test vectors: SVX 1.0 (suite `0x0001`), SVX 1.1
+//! post-quantum hybrid (suite `0x0003`, files named `hybrid-*`), SVX 1.2
+//! several recipients (`multi-*`) and SVX 1.3 maximum strength (suite
+//! `0x0004`, files named `max-*`).
 //!
 //! All keys here are derived from public labels and are **for testing only**.
 //! Randomness comes from ChaCha20Rng seeded with SHA-256 of the vector name,
@@ -33,6 +35,29 @@ pub struct TestKeys {
     pub mallory_sign_h: SigningKey,
     pub example_kem_h: KemSecretKey,
     pub service_kem_h: KemSecretKey,
+    /// SVX-2 counterparts.
+    pub acme_sign_m: SigningKey,
+    pub mallory_sign_m: SigningKey,
+    pub example_kem_m: KemSecretKey,
+    pub service_kem_m: KemSecretKey,
+}
+
+/// A deterministic SVX-2 signing key: Ed25519 seed, ML-DSA-87 seed and the
+/// three SLH-DSA seeds, each SHA-256 of a public label.
+fn max_signing(who: &str) -> SigningKey {
+    let mut secret = Vec::with_capacity(svx_core::crypto::MAX_SECRET_LEN);
+    for part in [
+        "ed25519",
+        "ml-dsa-87",
+        "slh-dsa sk_seed",
+        "slh-dsa sk_prf",
+        "slh-dsa pk_seed",
+    ] {
+        secret.extend_from_slice(&sha(
+            format!("SVX-2 TEST VECTOR ONLY: {who} {part}").as_bytes()
+        ));
+    }
+    SigningKey::from_secret_bytes(KeyKind::MaxSigning, &secret).expect("SVX-2 signing key")
 }
 
 impl TestKeys {
@@ -62,14 +87,27 @@ impl TestKeys {
                 b"SVX-1H TEST VECTOR ONLY: svx.example x-wing",
             )
             .expect("X-Wing key"),
+            acme_sign_m: max_signing("acme-security"),
+            mallory_sign_m: max_signing("mallory"),
+            example_kem_m: KemSecretKey::derive_kind(
+                KeyKind::MaxKem,
+                b"SVX-2 TEST VECTOR ONLY: example-corp mlkem1024-p384",
+            )
+            .expect("MLKEM1024-P384 key"),
+            service_kem_m: KemSecretKey::derive_kind(
+                KeyKind::MaxKem,
+                b"SVX-2 TEST VECTOR ONLY: svx.example mlkem1024-p384",
+            )
+            .expect("MLKEM1024-P384 key"),
         }
     }
 
-    /// Acme's classical and hybrid signing keys are both trusted.
+    /// Acme's classical, hybrid and SVX-2 signing keys are all trusted.
     pub fn trust(&self) -> TrustStore {
         let mut t = TrustStore::new();
         t.add(id("acme-security"), self.acme_sign.verifying_key());
         t.add(id("acme-security"), self.acme_sign_h.verifying_key());
+        t.add(id("acme-security"), self.acme_sign_m.verifying_key());
         t
     }
 
@@ -78,7 +116,34 @@ impl TestKeys {
         match suite {
             Suite::Svx1 => (&self.service_kem, &self.example_kem),
             Suite::Svx1H => (&self.service_kem_h, &self.example_kem_h),
+            Suite::Svx2 => (&self.service_kem_m, &self.example_kem_m),
         }
+    }
+
+    fn json_max(&self) -> Value {
+        let kem = |k: &KemSecretKey| {
+            json!({
+                "mlkem1024_p384_secret": hex::encode(*k.to_bytes()),
+                "mlkem1024_p384_public": hex::encode(k.public_key().to_vec()),
+                "key_id": hex::encode(k.public_key().key_id()),
+            })
+        };
+        let k = &self.acme_sign_m;
+        json!({
+            "WARNING": "TEST ONLY. These keys are public. Never use them for real data.",
+            "note": "Suite 0x0004 (SVX-2). Signing secrets are Ed25519 seed || ML-DSA-87 seed || SLH-DSA-SHA2-256s sk_seed || sk_prf || pk_seed; MLKEM1024-P384 secrets are the 32-byte seed.",
+            "acme-security": {
+                "ed25519_mldsa87_slhdsa_secret": hex::encode(&*k.to_secret_bytes()),
+                "ed25519_mldsa87_slhdsa_public": hex::encode(k.verifying_key().to_vec()),
+                "key_id": hex::encode(k.verifying_key().key_id()),
+            },
+            "example-corp": kem(&self.example_kem_m),
+            "svx.example": kem(&self.service_kem_m),
+            "mallory (untrusted)": {
+                "ed25519_mldsa87_slhdsa_public": hex::encode(self.mallory_sign_m.verifying_key().to_vec()),
+                "key_id": hex::encode(self.mallory_sign_m.verifying_key().key_id()),
+            },
+        })
     }
 
     fn json_hybrid(&self) -> Value {
@@ -355,8 +420,9 @@ This is not a real secret and exists only to exercise SVX implementations.\n";
         files.push((format!("{name}.svx"), bytes));
     }
 
-    hybrid(&keys, text, specs, &mut files);
+    hybrid(&keys, text, &specs, &mut files);
     multi(&keys, text, &mut files);
+    max(&keys, text, &specs, &mut files);
     files
 }
 
@@ -436,14 +502,14 @@ fn emit_valid(
 }
 
 /// SVX 1.1 / suite 0x0003 vectors (`hybrid-*`).
-fn hybrid(keys: &TestKeys, text: &[u8], specs: [ValidSpec; 3], files: &mut Vec<File>) {
+fn hybrid(keys: &TestKeys, text: &[u8], specs: &[ValidSpec], files: &mut Vec<File>) {
     files.push(("keys-hybrid.json".to_string(), pretty(&keys.json_hybrid())));
     let basic = emit_valid(
         Suite::Svx1H,
         keys,
         &keys.acme_sign_h,
         "hybrid-",
-        &specs,
+        specs,
         files,
     );
     let c = svx_core::format::parse(&basic).expect("parse hybrid basic");
@@ -621,4 +687,88 @@ fn multi(keys: &TestKeys, text: &[u8], files: &mut Vec<File>) {
 
 fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
     hay.windows(needle.len()).position(|w| w == needle)
+}
+
+/// SVX 1.3 / suite 0x0004 vectors (`max-*`).
+fn max(keys: &TestKeys, text: &[u8], specs: &[ValidSpec], files: &mut Vec<File>) {
+    use svx_core::crypto::{ED25519_SIG_LEN, MAX_SIG_LEN, MLDSA87_SIG_LEN};
+    files.push(("keys-max.json".to_string(), pretty(&keys.json_max())));
+    let basic = emit_valid(Suite::Svx2, keys, &keys.acme_sign_m, "max-", specs, files);
+    let c = svx_core::format::parse(&basic).expect("parse max basic");
+    let sig_start = basic.len() - MAX_SIG_LEN;
+    let ml_start = sig_start + ED25519_SIG_LEN;
+    let slh_start = ml_start + MLDSA87_SIG_LEN;
+    let first_chunk_ct = c.header_region.len() + 5;
+    let env_field = find(&basic, &0x800Eu16.to_le_bytes()).expect("v2 envelopes");
+    let first_enc = env_field + 2 + 4 + 1 + 1 + 16 + 2;
+
+    let mut invalid: Vec<(&str, &str, &str, Vec<u8>)> = Vec::new();
+    let mut mutate = |name, desc, stage, f: &dyn Fn(&mut Vec<u8>)| {
+        let mut b = basic.clone();
+        f(&mut b);
+        invalid.push((name, desc, stage, b));
+    };
+    mutate(
+        "max-invalid-downgraded-suite",
+        "Prelude suite changed from 0x0004 to 0x0003 (downgrade attempt): suite 0x0003 needs X-Wing encapsulations.",
+        "parse",
+        &|b| b[10..12].copy_from_slice(&3u16.to_le_bytes()),
+    );
+    mutate(
+        "max-invalid-ed25519-tampered",
+        "One bit flipped in the Ed25519 part of the signature (ML-DSA-87 and SLH-DSA intact).",
+        "verify",
+        &|b| b[sig_start] ^= 0x01,
+    );
+    mutate(
+        "max-invalid-mldsa-tampered",
+        "One bit flipped in the ML-DSA-87 part of the signature (Ed25519 and SLH-DSA intact).",
+        "verify",
+        &|b| b[ml_start + 7] ^= 0x01,
+    );
+    mutate(
+        "max-invalid-slhdsa-tampered",
+        "One bit flipped in the SLH-DSA part of the signature (Ed25519 and ML-DSA-87 intact).",
+        "verify",
+        &|b| b[slh_start + 1000] ^= 0x01,
+    );
+    mutate(
+        "max-invalid-envelope-tampered",
+        "One bit flipped in the first MLKEM1024-P384 encapsulated key.",
+        "verify",
+        &|b| b[first_enc + 500] ^= 0x01,
+    );
+    mutate(
+        "max-invalid-chunk-tampered",
+        "One bit flipped in the first chunk ciphertext.",
+        "verify",
+        &|b| b[first_chunk_ct] ^= 0x01,
+    );
+    invalid.push((
+        "max-invalid-untrusted-signer",
+        "Signed by mallory's SVX-2 key while claiming sender acme-security.",
+        "verify",
+        build(
+            Suite::Svx2,
+            keys,
+            &keys.mallory_sign_m,
+            "max-invalid-untrusted-signer",
+            text,
+            64,
+        ),
+    ));
+    for (name, desc, stage, bytes) in invalid {
+        let meta = json!({
+            "name": name,
+            "description": desc,
+            "expected_result": "reject",
+            "reject_stage": stage,
+            "derived_from": "max-valid-basic",
+            "file": format!("{name}.svx"),
+            "file_sha256": hex::encode(sha(&bytes)),
+            "trusted_senders": ["acme-security"],
+        });
+        files.push((format!("{name}.json"), pretty(&meta)));
+        files.push((format!("{name}.svx"), bytes));
+    }
 }

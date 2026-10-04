@@ -21,10 +21,10 @@ use crate::registry::Registry;
 pub struct ArtifactInfo {
     pub format_version: String,
     pub suite_id: u16,
-    /// Human-readable protection level of the suite, e.g. "post-quantum
-    /// hybrid (X25519 + ML-KEM-768, Ed25519 + ML-DSA-65)".
+    /// Human-readable protection level of the suite, e.g. "maximum
+    /// (ML-KEM-1024 + P-384, Ed25519 + ML-DSA-87 + SLH-DSA, SHA-512)".
     pub protection: String,
-    /// Whether the suite resists quantum attacks (SVX-1H).
+    /// Whether the suite resists quantum attacks (SVX-1H, SVX-2).
     pub post_quantum: bool,
     pub artifact_id: String,
     /// Unix seconds, UTC.

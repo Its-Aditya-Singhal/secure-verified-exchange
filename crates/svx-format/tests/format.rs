@@ -67,7 +67,7 @@ fn build_suite(suite: u16, header: &Header, pt_len: usize) -> Vec<u8> {
     }
     let trailer = Trailer {
         chunk_count: count,
-        payload_commitment: [0xCD; 32],
+        payload_commitment: vec![0xCD; payload_commitment_len(suite)],
         sig_alg: 1,
         signature: vec![0xEF; 64],
     };
@@ -91,7 +91,7 @@ fn hybrid_layout_round_trip() {
     // A large hybrid signature fits; one over the limit does not.
     let t = Trailer {
         chunk_count: 1,
-        payload_commitment: [0; 32],
+        payload_commitment: vec![0; 32],
         sig_alg: 2,
         signature: vec![1; 64 + 3309],
     };
@@ -101,6 +101,55 @@ fn hybrid_layout_round_trip() {
         ..t
     };
     assert!(t.encode().is_err());
+}
+
+/// The same header in the SVX 1.3 layout (MLKEM1024-P384-sized encapsulations).
+fn max_header() -> Header {
+    let mut h = hybrid_header();
+    for e in &mut h.envelopes {
+        e.encapped_key = vec![e.encapped_key[0]; MAX_ENCAPPED_KEY_LEN_SVX2];
+    }
+    h
+}
+
+#[test]
+fn max_layout_round_trip() {
+    let h = max_header();
+    let bytes = build_suite(SUITE_ID_SVX2, &h, 300);
+    let c = parse(&bytes).unwrap();
+    assert_eq!(c.prelude.suite_id, SUITE_ID_SVX2);
+    assert_eq!(c.prelude.minor, FORMAT_MINOR_MAX);
+    assert_eq!(c.header, h);
+    assert_eq!(c.trailer.payload_commitment, vec![0xCD; 64]);
+    // A Max signature (Ed25519 + ML-DSA-87 + SLH-DSA-SHA2-256s) fits.
+    let t = Trailer {
+        chunk_count: 1,
+        payload_commitment: vec![0; 64],
+        sig_alg: 3,
+        signature: vec![1; 64 + 4627 + 29792],
+    };
+    assert_eq!(
+        Trailer::decode(SUITE_ID_SVX2, &t.encode().unwrap()).unwrap(),
+        t
+    );
+    // The commitment length is fixed by the suite.
+    assert!(Trailer::decode(SUITE_ID_SVX1H, &t.encode().unwrap()).is_err());
+    let mut w = Writer::new(Vec::new(), SUITE_ID_SVX2, &h).unwrap();
+    w.write_chunk(true, &[0; 16]).unwrap();
+    let short = Trailer {
+        chunk_count: 1,
+        payload_commitment: vec![0; 32],
+        sig_alg: 3,
+        signature: vec![1; 64],
+    };
+    assert!(w.finish(&short).is_err());
+    // SVX-2 needs layout V2 with 1665-byte encapsulations.
+    assert!(Writer::new(Vec::new(), SUITE_ID_SVX2, &hybrid_header()).is_err());
+    assert!(Writer::new(Vec::new(), SUITE_ID_SVX1H, &h).is_err());
+    // A suite swapped in the prelude is refused by the reader.
+    let mut bytes = build_suite(SUITE_ID_SVX2, &h, 10);
+    bytes[10..12].copy_from_slice(&SUITE_ID_SVX1H.to_le_bytes());
+    assert!(parse(&bytes).is_err());
 }
 
 #[test]

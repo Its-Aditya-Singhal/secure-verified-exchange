@@ -6,15 +6,17 @@
 //! on the service only for the *policy* decision, never for user identity.
 //!
 //! The signature covers the exact JSON payload bytes (no canonicalization),
-//! under the `"SVX-1 grant\0"` signing context, and is a hybrid
-//! Ed25519 + ML-DSA-65 signature (both halves must verify).
+//! under the `"SVX-1 grant\0"` signing context. With the service's Max
+//! grant key (protocol v4) it is an Ed25519 + ML-DSA-87 signature: grants
+//! live for minutes, so the hash-based SLH-DSA part (kept for long-lived
+//! records and files) is left out. Both parts must verify.
 
 use serde::{Deserialize, Serialize};
 use svx_core::crypto::{
     CryptoError, SignContext, SigningKey, VerifyingKey, sign_context, verify_context,
 };
 
-use crate::encoding::{b64, hex_array};
+use crate::encoding::{b64, hex_array, hex_vec};
 
 /// Upper bound on a grant payload.
 const MAX_GRANT_LEN: usize = 8 * 1024;
@@ -26,9 +28,10 @@ pub struct Grant {
     pub service_id: String,
     #[serde(with = "hex_array")]
     pub artifact_id: [u8; 16],
-    /// Header hash of the artifact the service verified.
-    #[serde(with = "hex_array")]
-    pub header_hash: [u8; 32],
+    /// Header hash of the artifact the service verified (32 bytes for
+    /// SVX-1/SVX-1H, 64 for SVX-2).
+    #[serde(with = "hex_vec")]
+    pub header_hash: Vec<u8>,
     pub recipient_org: String,
     /// `iss` and `sub` of the user the service authorized.
     pub issuer: String,
@@ -114,7 +117,7 @@ mod tests {
             v: crate::PROTOCOL_VERSION,
             service_id: "svx.example".into(),
             artifact_id: [1; 16],
-            header_hash: [2; 32],
+            header_hash: vec![2; 64],
             recipient_org: "example-corp".into(),
             issuer: "https://idp.example".into(),
             sub: "alice".into(),
@@ -127,8 +130,8 @@ mod tests {
 
     #[test]
     fn sign_verify_and_tamper() {
-        let sk = SigningKey::generate_hybrid(&mut os_rng());
-        let other = SigningKey::generate_hybrid(&mut os_rng());
+        let sk = SigningKey::generate_max(&mut os_rng());
+        let other = SigningKey::generate_max(&mut os_rng());
         let g = grant(1000);
         let sg = SignedGrant::sign(&g, &sk).unwrap();
         assert_eq!(sg.verify(&sk.verifying_key(), 1010).unwrap(), g);
@@ -154,7 +157,7 @@ mod tests {
         let ed = SigningKey::generate(&mut os_rng());
         assert!(SignedGrant::sign(&grant(1000), &ed).is_err());
         // A grant carrying an Ed25519 signature by the pinned key's ID is refused.
-        let hybrid = SigningKey::generate_hybrid(&mut os_rng());
+        let hybrid = SigningKey::generate_max(&mut os_rng());
         let mut sg = SignedGrant::sign(&grant(1000), &hybrid).unwrap();
         sg.signature.truncate(64);
         assert_eq!(
@@ -169,7 +172,7 @@ mod tests {
 
     #[test]
     fn grants_of_another_protocol_version_are_refused() {
-        let sk = SigningKey::generate_hybrid(&mut os_rng());
+        let sk = SigningKey::generate_max(&mut os_rng());
         let mut g = grant(1000);
         g.v = 2;
         let sg = SignedGrant::sign(&g, &sk).unwrap();

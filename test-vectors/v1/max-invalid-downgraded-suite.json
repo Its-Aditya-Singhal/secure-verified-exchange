@@ -1,0 +1,12 @@
+{
+  "derived_from": "max-valid-basic",
+  "description": "Prelude suite changed from 0x0004 to 0x0003 (downgrade attempt): suite 0x0003 needs X-Wing encapsulations.",
+  "expected_result": "reject",
+  "file": "max-invalid-downgraded-suite.svx",
+  "file_sha256": "817ece5bbfa0d2eb7e9a45c36b3921e5f19bf4fdcce54109bd3b5423313a73b0",
+  "name": "max-invalid-downgraded-suite",
+  "reject_stage": "parse",
+  "trusted_senders": [
+    "acme-security"
+  ]
+}

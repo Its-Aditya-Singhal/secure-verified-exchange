@@ -15,7 +15,7 @@ Then run:
 svx init --service https://svx.example --registry-key <64 hex> --org example-corp --client-id svx
 ```
 
-`init` fetches the service's registry key and accepts it only if its fingerprint matches the one you supplied. It then fetches your organization's registry record and the service record and verifies **both signatures with that key**. A wrong fingerprint fails here, before anything is saved. The registry key is a post-quantum hybrid key (Ed25519 + ML-DSA-65), too long to type, which is why you pin its 64-hex-character fingerprint; the configuration stores both, and every run checks that they still match.
+`init` fetches the service's registry key and accepts it only if its fingerprint matches the one you supplied. It then fetches your organization's registry record and the service record and verifies **both signatures with that key**. A wrong fingerprint fails here, before anything is saved. The registry key is an SVX-2 key (Ed25519 + ML-DSA-87 + SLH-DSA, 2688 bytes), too long to type, which is why you pin its 64-hex-character fingerprint; the configuration stores both, and every run checks that they still match.
 
 A configuration made before protocol version 3 (when the registry key was Ed25519) is refused with a message to run `svx init` again.
 

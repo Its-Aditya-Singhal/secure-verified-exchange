@@ -36,8 +36,10 @@ pub use types::*;
 
 /// Current wire protocol version, included in grants and records. Version 2
 /// carries post-quantum hybrid keys (X-Wing, Ed25519 + ML-DSA-65); version 3
-/// signs grants and registry and service records with hybrid keys too.
-pub const PROTOCOL_VERSION: u32 = 3;
+/// signs grants and registry and service records with hybrid keys too;
+/// version 4 moves everything to suite SVX-2 (MLKEM1024-P384, Ed25519 +
+/// ML-DSA-87 + SLH-DSA-SHA2-256s service keys and one-time release keys).
+pub const PROTOCOL_VERSION: u32 = 4;
 
 /// Seconds since the Unix epoch, UTC.
 pub fn unix_now() -> i64 {

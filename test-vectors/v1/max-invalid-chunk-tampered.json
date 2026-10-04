@@ -1,0 +1,12 @@
+{
+  "derived_from": "max-valid-basic",
+  "description": "One bit flipped in the first chunk ciphertext.",
+  "expected_result": "reject",
+  "file": "max-invalid-chunk-tampered.svx",
+  "file_sha256": "14617b5099067bf169d2072bab88ffee6b6604e510871a2ded7474f6534973c9",
+  "name": "max-invalid-chunk-tampered",
+  "reject_stage": "verify",
+  "trusted_senders": [
+    "acme-security"
+  ]
+}
