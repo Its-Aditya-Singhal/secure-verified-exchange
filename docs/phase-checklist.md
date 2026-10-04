@@ -194,6 +194,48 @@ The website never receives, encrypts or decrypts files.
 - [ ] Public beta
 - Not planned (paid): signed and notarized macOS installers, signed Windows installers, hardware-bound keys (Secure Enclave, TPM, KMS), signed wheels/npm packages and a published key agent image (they need registries' signing or paid accounts; revisit later)
 
+## Phase 7: View-only files (requested 2026-10-04; plan first, nothing built)
+
+The sender can make a file **view-only**: the recipient sees it only inside the app, with no screenshots, recording, copy or save, until the sender allows sharing.
+
+- [ ] File rule `view_only`, chosen when sending: on or off, plus "let them ask to share it".
+  - Kept on the service with the other per-file rules.
+  - Also signed into the file, so a modified app can't just ignore it.
+- [ ] View-only files never become a normal file on disk.
+  - After opening, the app keeps the content re-encrypted with a key held on this device. It isn't plaintext, it shows the app icon, and only the app opens it.
+  - The content is decrypted into memory only while it's on screen.
+- [ ] Built-in viewer for common types: PDF, images, plain text, and maybe Office files via PDF.
+  - Other types can't be view-only. The app says so when sending.
+- [ ] Block screen capture of the viewer window. Screenshots and recordings show a black window.
+  - macOS: window sharing type "none".
+  - Windows: `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)`.
+  - Linux: no OS support. Refuse view-only files there, or warn.
+  - Tauri exposes this as `set_content_protected`.
+- [ ] No copy, cut, select-all, drag-out, print, "save as" or "open with" in the viewer.
+  - The clipboard is cleared when the viewer opens and closes.
+- [ ] Visible watermark: the recipient's email, the time, and the file ID across the content.
+  - It deters photos of the screen and identifies who leaked a copy.
+- [ ] "Ask to share": the recipient requests permission and the sender approves or declines in Requests.
+  - This reuses the approval flow.
+  - Only after approval does the app export a normal file. Copy and screenshots then work for that file.
+  - Every step goes in the audit trail.
+- [ ] The sender can switch view-only and "let them ask" later from the file's page.
+- [ ] Tamper resistance, as far as is possible for $0:
+  - [ ] the security parts stay in Rust, compiled and optimized (no JavaScript to edit);
+  - [ ] the app checks its own files at start and refuses view-only files if they changed;
+  - [ ] the service gives the key for a view-only file only to a known app build;
+  - [ ] the key for re-encrypted content is kept in the keychain;
+  - [ ] symbols are stripped and the binary is obfuscated.
+- [ ] Docs and threat model:
+  - say clearly what view-only stops (casual copying, screenshots, screen recording) and what it can't stop (see below);
+  - add tests.
+
+**Limits to keep in mind (no software can remove these):**
+- **Photos of the screen.** A phone can always photograph the screen; the watermark only discourages it and traces it.
+- **A determined technical attacker.** Encrypting the app's own code doesn't stop someone with full control of their computer. The processor must run the decrypted code, so the key has to be inside the app, where an attacker can find it. The same goes for the decrypted file in memory while it's shown. Everything above raises the effort a lot, but doesn't make it impossible. Streaming services use DRM hardware in the graphics chip for this, which isn't available to apps like ours.
+- **Unsigned app.** The strongest standard protection against a modified app is OS code signing, which needs the paid Apple and Windows certificates. Without them, the self-checks above are the next best thing.
+- **What stays strong:** who can open a file (sender, service and keys) stays enforced by the service and cryptography, not by the app's honesty.
+
 ## Later (not in v1)
 
 - [ ] Federation
