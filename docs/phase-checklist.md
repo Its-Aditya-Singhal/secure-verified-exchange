@@ -190,7 +190,7 @@ The website never receives, encrypts or decrypts files.
   - [ ] a Google OAuth client ("Desktop app" client ID) for Continue with Google
 - [x] Self-update from a symlinked path (found 2026-10-04: "StartingBinary found current_exe() that contains a symlink on a non-allowed platform: /tmp"). Cause: macOS `/tmp` is a symlink to `/private/tmp`, and Tauri refuses to update an app reached through a symlink (a security rule, kept on). Fixed: the app now says so clearly and what to do (`symlinked_location` in `apps/desktop/src-tauri/src/main.rs`, with a test), and `docs/releasing.md` tests from `/private/tmp`. 
   - [ ] Repeat the 0.1.0 → 0.1.1 test from `/private/tmp` by hand (app 0.1.0 is open from there; click Install)
-- [ ] Compatibility test suite across versions and platforms
+- [x] Compatibility test suite (`docs/compatibility.md`): every committed vector of every suite verified and decrypted by the current reader, backups from the older Argon2id cost and a committed backup fixture, records of other protocol versions refused; platforms covered by the CI matrix
 - [ ] Independent external security review
 - [ ] Public beta
 - Not planned (paid): signed and notarized macOS installers, signed Windows installers, hardware-bound keys (Secure Enclave, TPM, KMS), signed wheels/npm packages and a published key agent image (they need registries' signing or paid accounts; revisit later)

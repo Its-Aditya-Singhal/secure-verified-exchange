@@ -551,6 +551,48 @@ mod tests {
         );
     }
 
+    /// Records written for another protocol version are refused even with a
+    /// valid signature: no downgrade to an older record format.
+    #[test]
+    fn records_from_other_protocol_versions_are_refused() {
+        let reg = SigningKey::generate_max(&mut os_rng());
+        let kem = KemSecretKey::generate_max(&mut os_rng());
+        for v in [crate::PROTOCOL_VERSION - 1, crate::PROTOCOL_VERSION + 1] {
+            let svc = ServiceRecord {
+                v,
+                service_id: "svx.example".into(),
+                kem_public: kem.public_key().to_vec(),
+                grant_public: grant(),
+                issued_at: 1000,
+                personal_idps: vec![],
+            };
+            let s = SignedServiceRecord::sign(&svc, &reg).unwrap();
+            assert_eq!(
+                s.verify(&reg.verifying_key(), 1001),
+                Err(RecordError::Malformed),
+                "service record v{v}"
+            );
+            let org = OrgRecord {
+                v,
+                org_id: "acme-security".into(),
+                display_name: "Acme Security".into(),
+                domain: "acme.example".into(),
+                idp_issuer: "https://idp.acme.example".into(),
+                key_agent_url: None,
+                keys: vec![],
+                issued_at: 1000,
+                kind: Default::default(),
+                account_email: None,
+            };
+            let s = SignedOrgRecord::sign(&org, &reg).unwrap();
+            assert_eq!(
+                s.verify(&reg.verifying_key(), "acme-security", 1001),
+                Err(RecordError::Malformed),
+                "org record v{v}"
+            );
+        }
+    }
+
     #[test]
     fn service_record_requires_an_svx2_kem_key() {
         let reg = SigningKey::generate_max(&mut os_rng());
