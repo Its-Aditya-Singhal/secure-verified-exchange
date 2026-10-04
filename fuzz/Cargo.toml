@@ -14,6 +14,7 @@ svx-client = { path = "../crates/svx-client" }
 svx-core = { path = "../crates/svx-core" }
 svx-protocol = { path = "../crates/svx-protocol" }
 svx-testvectors = { path = "../crates/svx-testvectors" }
+svx-viewer = { path = "../crates/svx-viewer" }
 tempfile = "3"
 
 # Not part of the main workspace: requires nightly + cargo-fuzz.
@@ -99,6 +100,27 @@ bench = false
 [[bin]]
 name = "update_manifest"
 path = "fuzz_targets/update_manifest.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "viewer_pdf"
+path = "fuzz_targets/viewer_pdf.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "viewer_image"
+path = "fuzz_targets/viewer_image.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "viewer_view_zip"
+path = "fuzz_targets/viewer_view_zip.rs"
 test = false
 doc = false
 bench = false

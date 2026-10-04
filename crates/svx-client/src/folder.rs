@@ -227,7 +227,7 @@ fn entry_path(root: &Path, name: &str) -> Result<(PathBuf, bool)> {
 }
 
 /// The portable subset of names that are safe on every platform.
-fn check_entry_name(rel: &str) -> std::result::Result<(), &'static str> {
+pub(crate) fn check_entry_name(rel: &str) -> std::result::Result<(), &'static str> {
     if rel.is_empty() {
         return Err("empty name");
     }
@@ -307,7 +307,7 @@ fn new_private_file(path: &Path) -> Result<BufWriter<File>> {
     }
 }
 
-fn zip_err(e: zip::result::ZipError) -> ClientError {
+pub(crate) fn zip_err(e: zip::result::ZipError) -> ClientError {
     match e {
         zip::result::ZipError::Io(e) => ClientError::Io(e),
         e => ClientError::Other(format!("zip: {e}")),

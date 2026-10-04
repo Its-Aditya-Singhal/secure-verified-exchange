@@ -195,48 +195,32 @@ The website never receives, encrypts or decrypts files.
 - [ ] Public beta
 - Not planned (paid): signed and notarized macOS installers, signed Windows installers, hardware-bound keys (Secure Enclave, TPM, KMS), signed wheels/npm packages and a published key agent image (they need registries' signing or paid accounts; revisit later)
 
-## Phase 7: View-only files (requested 2026-10-04; plan first, nothing built)
+## Phase 7: View-only files (requested 2026-10-04; plan approved)
 
-The sender can make a file **view-only**: the recipient sees it only inside the app, with no screenshots, recording, copy or save, until the sender allows sharing.
+The sender can make a file **view-only**: the recipient sees it only inside the app, with no screenshots, recording, copy or save, until the sender allows sharing. The plan is in the session notes; decisions: nothing is kept on disk (viewing again asks the service), tamper protection is the honest minimum, Linux refuses to show view-only files, and Office files are supported by converting them on the sender's computer.
 
-- [ ] File rule `view_only`, chosen when sending: on or off, plus "let them ask to share it".
-  - [x] Kept on the service with the other per-file rules; the sender can change it later (service, client library; no app or CLI control until the viewer exists).
-  - [ ] Also signed into the file, so a modified app can't just ignore it. (Opus: format change and design.)
-- [ ] View-only files never become a normal file on disk.
-  - After opening, the app keeps the content re-encrypted with a key held on this device. It isn't plaintext, it shows the app icon, and only the app opens it.
-  - The content is decrypted into memory only while it's on screen.
-- [ ] Built-in viewer for common types: PDF, images, plain text, and maybe Office files via PDF.
-  - Other types can't be view-only. The app says so when sending.
-- [ ] Block screen capture of the viewer window. Screenshots and recordings show a black window.
-  - macOS: window sharing type "none".
-  - Windows: `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)`.
-  - Linux: no OS support. Refuse view-only files there, or warn.
-  - Tauri exposes this as `set_content_protected`.
-- [ ] No copy, cut, select-all, drag-out, print, "save as" or "open with" in the viewer.
-  - The clipboard is cleared when the viewer opens and closes.
-- [ ] Visible watermark: the recipient's email, the time, and the file ID across the content.
-  - It deters photos of the screen and identifies who leaked a copy.
-- [ ] "Ask to share": the recipient requests permission and the sender approves or declines in Requests.
-  - [x] This reuses the approval flow (service, client library, Requests screen shows it).
-  - [x] A `save` of a view-only file is refused by the service until the sender approves; viewing is a separate release mode.
-  - [x] Every step goes in the audit trail.
-  - [ ] Only after approval does the app export a normal file (needs the viewer and its protected storage).
-  - [ ] The recipient's "Ask to share" button in the viewer.
-- [ ] The sender can switch view-only and "let them ask" later from the file's page. (Service and client done; the control in the app comes with the viewer.)
-- [ ] Tamper resistance, as far as is possible for $0:
-  - [ ] the security parts stay in Rust, compiled and optimized (no JavaScript to edit);
-  - [ ] the app checks its own files at start and refuses view-only files if they changed;
-  - [ ] the service gives the key for a view-only file only to a known app build;
-  - [ ] the key for re-encrypted content is kept in the keychain;
-  - [ ] symbols are stripped and the binary is obfuscated.
-- [ ] Docs and threat model:
-  - say clearly what view-only stops (casual copying, screenshots, screen recording) and what it can't stop (see below);
-  - add tests.
+- [x] Service: rules `view_only` and `allow_share_requests`, release modes `save` / `view`, a `save` refused until the sender approves a share request, share requests in Requests, audit, threat model T29 (first version).
+- [ ] **Step 0, risk check** (at the final testing, by the user): does macOS really hide a content-protected window from screenshots and recordings? Run `cargo run -p svx-desktop --example viewer_probe` and try Cmd+Shift+3, Cmd+Shift+4 then Space, Cmd+Shift+5 and QuickTime on the red window (the green one is the control). If it shows up, view-only's main promise fails on that macOS version and the design must change.
+  - [x] PDF rendering check: the pure-Rust renderer drew sample PDFs (text, fonts, vectors, gradients, transparency, an embedded image) correctly.
+- [ ] **A. Signed into the file**: critical header tag `0x8010` and format 1.4 for view-only files, so older apps and the SDKs refuse them, the sender's intent is signed, and the service checks that the registered rule matches. New vectors; existing ones unchanged.
+- [ ] **B. What a view-only file holds.**
+  - [x] Container (`svx_client::viewfile`): `display.<ext>` plus, for converted files, `original/<name>`; read in memory with strict checks.
+  - [x] Office to PDF on the sender's computer with LibreOffice (`svx_client::convert`), 3-minute limit, throwaway profile.
+  - [ ] Wired into sending (part of D).
+- [x] **C. Viewer crate** (`svx-viewer`, pure Rust): PDF (hayro), PNG/JPEG/GIF/WebP, plain text; limits on pages, pixels and size; the watermark (recipient, time, file ID) is burned into the pixels in Rust. Fuzz targets `viewer_pdf`, `viewer_image`, `viewer_view_zip`.
+- [ ] **D. Client boundary**: `Client::view_personal` (asks for presence, refuses on Linux, decrypts only into memory, never writes a file), `prepare_release` shared with `open_personal`, `open_personal` refuses a signed view-only file unless the sender allowed saving, `SendOptions.view_only`.
+- [ ] **E. Protected viewer window** (Tauri `content_protected`, own window and permissions, pages sent as pixels only, no developer tools in release builds).
+- [ ] **F. App screens:** the View only switch when sending (with the honest note), the viewer with "Ask to keep a copy" and "Save a copy", the file page switches, history badge, Linux message.
+- [ ] **G. CLI and SDKs:** `svx send --view-only`, `svx file`, `svx keep`; the SDKs refuse view-only files clearly.
+- [ ] **H. Docs and threat model** finished (T29 with what is and isn't stopped), `docs/personal.md`, `desktop.md`, `api.md`, `compatibility.md`.
+- [ ] Final security review of the whole Phase 7 diff, and the manual test by the user on the Mac (Alice sends a PDF, a photo and a .docx; Bob views them; copy, save and print do nothing; the watermark shows; the share-request flow).
+- Dropped from the first list, on purpose, because they can't be delivered honestly: "the service gives keys only to a known app build" (an unsigned desktop app can't be attested), "obfuscate the binary" (a speed bump we'd have to claim as protection), and "clear the clipboard" (the viewer has nothing to copy; wiping the user's clipboard would only destroy their own data).
 
 **Limits to keep in mind (no software can remove these):**
 - **Photos of the screen.** A phone can always photograph the screen; the watermark only discourages it and traces it.
-- **A determined technical attacker.** Encrypting the app's own code doesn't stop someone with full control of their computer. The processor must run the decrypted code, so the key has to be inside the app, where an attacker can find it. The same goes for the decrypted file in memory while it's shown. Everything above raises the effort a lot, but doesn't make it impossible. Streaming services use DRM hardware in the graphics chip for this, which isn't available to apps like ours.
-- **Unsigned app.** The strongest standard protection against a modified app is OS code signing, which needs the paid Apple and Windows certificates. Without them, the self-checks above are the next best thing.
+- **A determined technical attacker.** The processor must run the viewer and the decrypted content must be in memory while it's shown, so someone with full control of their computer can get at it. Everything here raises the effort a lot, but doesn't make it impossible. Streaming services use DRM hardware in the graphics chip for this, which isn't available to apps like ours.
+- **Unsigned app.** The strongest standard protection against a modified app is OS code signing, which needs the paid Apple and Windows certificates.
+- **Windows** capture blocking (`WDA_EXCLUDEFROMCAPTURE`) is not tested without a Windows machine; Linux has no OS support, so view-only files are refused there.
 - **What stays strong:** who can open a file (sender, service and keys) stays enforced by the service and cryptography, not by the app's honesty.
 
 ## Later (not in v1)

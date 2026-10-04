@@ -36,6 +36,21 @@ opt-level = 3
 opt-level = 3
 [profile.dev.package.ml-kem]
 opt-level = 3
+# The viewer's renderers are far too slow unoptimized.
+[profile.dev.package.svx-viewer]
+opt-level = 3
+[profile.dev.package.hayro]
+opt-level = 3
+[profile.dev.package.hayro-interpret]
+opt-level = 3
+[profile.dev.package.vello_cpu]
+opt-level = 3
+[profile.dev.package.vello_common]
+opt-level = 3
+[profile.dev.package.image]
+opt-level = 3
+[profile.dev.package.png]
+opt-level = 3
 [profile.dev.package.p384]
 opt-level = 3
 

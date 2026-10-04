@@ -29,6 +29,7 @@ pub mod account;
 pub mod admin;
 mod client;
 pub mod config;
+pub mod convert;
 pub mod defaults;
 mod error;
 pub mod folder;
@@ -46,6 +47,7 @@ pub mod registry;
 pub mod session;
 pub mod setup;
 pub mod update;
+pub mod viewfile;
 
 pub use client::{Client, PackOptions, PackResult};
 pub use config::ClientConfig;

@@ -16,7 +16,8 @@ shift || true
 TARGETS=("$@")
 if [ ${#TARGETS[@]} -eq 0 ]; then
   TARGETS=(parse verify_open manifest backup_open grant_verify registry_record
-           request_auth wire_json folder_extract keyfile_parse password_check update_manifest)
+           request_auth wire_json folder_extract keyfile_parse password_check update_manifest
+           viewer_pdf viewer_image viewer_view_zip)
 fi
 # Run the targets in rounds of 30 minutes each until the time is up.
 ROUND=1800

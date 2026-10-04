@@ -1,0 +1,20 @@
+[package]
+name = "svx-viewer"
+description = "Draws view-only documents (PDF, images, text) in memory, with a burned-in watermark"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+# hayro 0.8 needs 1.92; the rest of the workspace stays on 1.88.
+rust-version = "1.92"
+publish = false
+
+[dependencies]
+hayro = "0.8"
+# Only the formats the viewer accepts; no codecs we don't need.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+noto-sans-mono-bitmap = { version = "0.3", default-features = false, features = ["regular", "size_16", "size_20", "size_24", "size_32", "unicode-basic-latin", "unicode-latin-1-supplement"] }
+thiserror = "2"
+
+[lints]
+workspace = true
