@@ -93,6 +93,8 @@ decides.
 Exceptions raised by the callback are reported as "unraisable" and never
 interrupt the open.
 
+View-only files (personal accounts) are shown only in the desktop app: `open` of one raises `AccessDeniedError` with `deny_reason == "view_only"` unless the sender allowed a copy (the CLI's `svx keep` asks for it); a company open refuses it as `RejectedError`.
+
 ## Sending an artifact
 
 ```python

@@ -188,6 +188,12 @@ impl ViewSession {
         &self.display
     }
 
+    /// Hand the display copy to the viewer (which wipes it when it is done),
+    /// leaving nothing behind in the session.
+    pub fn take_display(&mut self) -> Zeroizing<Vec<u8>> {
+        std::mem::take(&mut self.display)
+    }
+
     /// The lines to burn into every page: the viewer's email, the time it
     /// was opened (UTC) and a short file ID.
     pub fn watermark_lines(&self) -> Vec<String> {

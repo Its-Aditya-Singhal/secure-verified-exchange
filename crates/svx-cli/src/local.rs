@@ -181,6 +181,7 @@ pub fn header_json(p: &Prelude, h: &Header) -> serde_json::Value {
         })).collect::<Vec<_>>(),
         "encrypted_manifest_bytes": h.encrypted_manifest.len(),
         "unknown_fields": h.unknown.iter().map(|u| u.tag).collect::<Vec<_>>(),
+        "view_only": h.view_only,
     })
 }
 
@@ -224,6 +225,9 @@ pub fn print_header(v: &serde_json::Value) {
         "  Expires:    {}",
         v["expires_at"].as_str().unwrap_or("never")
     );
+    if v["view_only"].as_bool() == Some(true) {
+        println!("  View only:  yes (shown in the SVX desktop app, never saved)");
+    }
 }
 
 /// Human-readable view of verified artifact metadata.
@@ -243,6 +247,9 @@ pub fn print_info(i: &svx_client::ArtifactInfo) {
         "  Expires:    {}",
         i.expires_at.map(fmt_time).unwrap_or_else(|| "never".into())
     );
+    if i.view_only {
+        println!("  View only:  yes (shown in the SVX desktop app, never saved)");
+    }
 }
 
 pub fn trust_from_files(trust_files: &[PathBuf]) -> Result<TrustStore> {

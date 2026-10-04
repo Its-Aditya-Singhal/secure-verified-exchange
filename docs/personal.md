@@ -165,16 +165,24 @@ key derived from the recovery password with Argon2id (256 MiB, 4 passes; older 6
 The file is owner-only and never overwritten. There is no password
 recovery.
 
-## View-only files (in progress, Phase 7)
+## View-only files (Phase 7)
 
-A sender can mark a file **view-only** and choose whether recipients may **ask to keep it**. What exists today is the service side and the refusal:
+A sender can mark a file **view-only**: recipients see it inside the SVX desktop app, in a window that screenshots and recordings can't capture, with no copy, save or print, until the sender allows a copy. The honest limits are below and in the threat model (T29).
 
-- The rules `view_only` and `allow_share_requests` live on the service with the other per-file rules and can be changed later.
-- A release asks to `save` or to `view`. The service refuses a `save` of a view-only file with `view_only` before anything is used up (a one-time open stays unused), unless the sender approved a **share request**.
-- A recipient asks with `POST /v1/personal/share/{id}`. The sender sees it in Requests (marked as a request to keep a copy), checks it's really them, and approves or declines; an approval lasts 24 hours. Emails name the requester only.
+**Sending.** In the app, **View only** is a switch on the Send screen (with **Let them ask to keep a copy**); on the command line, `svx send --view-only [--allow-share-requests]`. It works for PDF, images (PNG, JPEG, GIF, WebP), plain text and Office files (Word, Excel, PowerPoint, OpenDocument, RTF). Office files are converted to PDF **on the sender's computer** with LibreOffice (free; the app and CLI say so if it isn't installed) from the sender's own file; the recipient never parses an Office format, and **keep a copy** gives them the original. Folders and other types can't be view-only. The flag is signed into the file (format 1.4), so older apps and the SDKs refuse it instead of saving it.
+
+**Viewing.** Opening a view-only file in the app asks the service as usual (including the sender's approval, if required), then decrypts **only into memory** and draws it in a separate protected window: pages arrive as pictures, each carrying the viewer's email, the time and a short file ID burned in. Nothing is written to disk, so **every view asks the service again**: revoking, expiring or changing a rule takes effect on the next view. A one-time view-only file can be viewed once, and then can't be saved either (the same "used up" applies), so turn one-time off if recipients should be able to ask for a copy later. **Linux can't show view-only files** (it has no way to keep the window out of screenshots), and says so before anything is decrypted. Windows capture blocking is untested.
+
+**Keeping a copy.** In the viewer, **Ask to keep a copy** (or `svx keep FILE`) sends the sender a request, marked as a request to keep a copy, in Requests. They check it's really them and approve or decline; an approval lasts 24 hours, a decline stands for 24 hours, and emails name the requester only. After an approval, **Save a copy** (or `svx open FILE`) writes the sender's original as an ordinary file, and that can't be taken back.
+
+**The sender's controls.** On the file page (History → the file), **View only** can be lifted at any time (with a confirmation: everyone who opens it can then save it) and switched back on only for a file that was sent view-only; **Let them ask to keep a copy** can be switched either way. `svx file ID --view-only on|off --share-requests on|off` does the same. A "view only" badge marks these files in History.
+
+**How it's enforced.**
+- The rules `view_only` and `allow_share_requests` live on the service with the other per-file rules. A release asks to `save` or to `view`; the service refuses a `save` of a view-only file (`view_only`, before anything is used up) unless the sender allowed it, and registers a file only with the rule that matches the signed flag.
 - Each step is in the audit trail (`share_requested`, `share_granted`, `share_declined`).
+- Viewing runs in `svx_client::Client::view_personal`; drawing is `svx-viewer`; the protected window is in the desktop shell. No security decision is made in the web layer.
 
-**Not built yet:** the in-app viewer, protected storage, capture blocking, watermark and tamper checks. Until then the app and CLI can't create view-only files, and a view-only file made another way can't be opened (the app says it's view-only). See `docs/phase-checklist.md`, Phase 7. Today the service enforces the rule only against an unmodified app: stopping a modified app from keeping what it was given is exactly what the remaining Phase 7 work is for.
+**What it can't do:** stop a photo of the screen, a modified app (the app is unsigned, so the service can't tell), malware on the recipient's computer, or capture tools that ignore the operating system's flag. Treat view-only as strong friction plus accountability (the watermark), not as a guarantee against a determined recipient. Details and tests: threat model T29.
 
 ## Limits
 

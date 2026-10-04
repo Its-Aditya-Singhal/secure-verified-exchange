@@ -90,6 +90,16 @@ export function openScreen(ctx: Ctx, root: HTMLElement, initialPath: string | nu
   }
 
   function ready(path: string, s: StatusView) {
+    if (s.view_only && !ctx.state.personal) {
+      refused(path, {
+        kind: "invalid",
+        message: "view-only files can only be shown to a personal account in the app",
+        deny_reason: null,
+        exit_code: 2,
+        path: null,
+      });
+      return;
+    }
     if (ctx.state.personal) {
       readyPersonal(path, s);
       return;
@@ -128,7 +138,11 @@ export function openScreen(ctx: Ctx, root: HTMLElement, initialPath: string | nu
   function readyPersonal(path: string, s: StatusView) {
     sender = s.sender_name;
     const others = s.recipients.length - 1;
-    const openBtn = button("Open securely", () => void run(path, s, null, null), "primary");
+    const view = s.view_only;
+    const openBtn = button(view ? "View securely" : "Open securely", () => void run(path, s, null, null, view), "primary");
+    // This computer can't keep the viewer out of screenshots: refuse up front.
+    const blocked = view && !ctx.state.view_supported;
+    openBtn.disabled = blocked;
     show(
       fileHeader(path),
       card(
@@ -138,20 +152,28 @@ export function openScreen(ctx: Ctx, root: HTMLElement, initialPath: string | nu
           ["To", others > 0 ? `You and ${others} other${others > 1 ? "s" : ""}` : "You"],
           ["Sent", fmtTime(s.created_at)],
           ["Expires", fmtTime(s.expires_at)],
+          ...(view ? ([["Kind", h("span", {}, h("span", { class: "badge badge-warn" }, "View only"), " shown in this app, can't be saved")]] as [string, Node][]) : []),
           ["Protection", s.post_quantum
             ? h("span", {}, h("span", { class: "badge badge-ok" }, icon("ok"), s.suite_id === 4 ? "Maximum (SVX-2)" : "post-quantum"), " ", s.protection)
             : h("span", {}, h("span", { class: "badge badge-warn" }, "classical"), " ", s.protection)],
         ]),
+        blocked
+          ? note("This computer can't show view-only files: it can't block screenshots. Open the file on a Mac or a Windows computer.", "stop")
+          : null,
+        view && !blocked
+          ? note("It opens in a separate window that screenshots and screen recordings can't capture. Every page carries your email and the time. You can't save, copy or print it unless the sender allows a copy.", "info")
+          : null,
         h("p", { class: "muted" },
-          "The SVX service checks the sender's rules first. If they asked to approve each open, they'll get a request now. It's decrypted only on this device."),
+          "The SVX service checks the sender's rules first. If they asked to approve each open, they'll get a request now. It's decrypted only on this device" + (view ? ", in memory, and nothing is written to disk." : ".")),
         h("div", { class: "actions" }, openBtn, button("Cancel", idle)),
       ),
     );
     openBtn.focus();
   }
 
-  async function run(path: string, s: StatusView, outputDir: string | null, devUser: string | null) {
-    const defs = ctx.state.personal ? PERSONAL_STEPS : STEPS;
+  async function run(path: string, s: StatusView, outputDir: string | null, devUser: string | null, view = false) {
+    const base = ctx.state.personal ? PERSONAL_STEPS : STEPS;
+    const defs = view ? base.map((d) => (d.step === "decrypting" ? { ...d, label: "Decrypting in memory on this device" } : d)) : base;
     const items = defs.map((st) =>
       h("li", { class: "step is-pending", "data-step": st.step },
         h("span", { class: "step-mark", "aria-hidden": "true" }),
@@ -191,13 +213,19 @@ export function openScreen(ctx: Ctx, root: HTMLElement, initialPath: string | nu
     below.appendChild(cancelSlot);
     const unlisten = await listen<Progress>("open-progress", (ev) => mark(ev.payload));
     try {
-      const r = await api.open(path, outputDir, devUser);
+      let panel: HTMLElement;
+      if (view) {
+        await api.viewOpen(path);
+        panel = viewing(path, s);
+      } else {
+        panel = opened(await api.open(path, outputDir, devUser));
+      }
       cancelSlot.replaceChildren();
       items.forEach((li) => {
         li.classList.remove("is-pending", "is-active");
         li.classList.add("is-done");
       });
-      append(below, opened(r));
+      append(below, panel);
     } catch (err) {
       cancelSlot.replaceChildren();
       const e = asAppError(err);
@@ -215,6 +243,10 @@ export function openScreen(ctx: Ctx, root: HTMLElement, initialPath: string | nu
       } else if (explainRetry(e)) {
         actions.push(retryButton(() => ready(path, s)));
       }
+      if (e.kind === "view_unsupported") {
+        // Retrying can't help on this computer.
+        actions.length = 0;
+      }
       actions.push(button("Open another file", idle));
       append(below, errorPanel(e, actions));
     } finally {
@@ -223,6 +255,16 @@ export function openScreen(ctx: Ctx, root: HTMLElement, initialPath: string | nu
   }
 
   let sender: string | null = null;
+
+  function viewing(path: string, s: StatusView): HTMLElement {
+    return h("div", { class: "panel panel-ok", role: "status" },
+      h("div", { class: "panel-head" }, icon("ok"), h("h3", {}, "Open in a protected window")),
+      h("p", {}, "The file is shown in its own window, in memory only. Closing that window ends the view; opening it again asks the service again."),
+      s.expires_at ? h("p", { class: "muted small" }, `The sender's expiry: ${fmtTime(s.expires_at)}.`) : null,
+      h("div", { class: "actions" },
+        button("View again", () => void run(path, s, null, null, true)),
+        button("Open another file", idle)));
+  }
 
   function opened(r: OpenResult): HTMLElement {
     const reveal = button(revealLabel(), () => void api.reveal(r.path), r.can_open ? "secondary" : "primary");

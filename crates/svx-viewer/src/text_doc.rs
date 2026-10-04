@@ -17,10 +17,10 @@ pub(crate) struct TextDoc {
 }
 
 impl TextDoc {
-    pub(crate) fn open(bytes: Vec<u8>) -> Result<TextDoc> {
-        let text =
-            String::from_utf8(bytes).map_err(|_| ViewError::Malformed("not UTF-8 text".into()))?;
-        let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
+    pub(crate) fn open(bytes: &[u8]) -> Result<TextDoc> {
+        let text = std::str::from_utf8(bytes)
+            .map_err(|_| ViewError::Malformed("not UTF-8 text".into()))?;
+        let text = text.strip_prefix('\u{feff}').unwrap_or(text);
         let cols = (PAGE_SIZE.0 as usize - 2 * MARGIN) / SIZE.cell_width();
         let rows = (PAGE_SIZE.1 as usize - 2 * MARGIN) / SIZE.line_height();
         let mut lines = Vec::new();

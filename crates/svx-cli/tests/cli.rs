@@ -1,4 +1,5 @@
 use assert_cmd::Command;
+use predicates::prelude::PredicateBooleanExt;
 use predicates::str::contains;
 
 fn svx(dir: &std::path::Path) -> Command {
@@ -213,4 +214,32 @@ fn secret_keys_are_private() {
         .permissions()
         .mode();
     assert_eq!(mode & 0o077, 0, "secret key readable by group/other");
+}
+
+/// A view-only file says so in `inspect`, in text and JSON; an ordinary one doesn't.
+#[test]
+fn inspect_shows_view_only() {
+    let tmp = tempfile::tempdir().unwrap();
+    let vectors = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-vectors/v1");
+    let flagged = vectors.join("max-valid-view-only.svx");
+    let plain = vectors.join("max-valid-basic.svx");
+    svx(tmp.path())
+        .arg("inspect")
+        .arg(&flagged)
+        .assert()
+        .success()
+        .stdout(contains("View only:  yes"));
+    svx(tmp.path())
+        .arg("inspect")
+        .arg(&flagged)
+        .arg("--json")
+        .assert()
+        .success()
+        .stdout(contains("\"view_only\": true"));
+    svx(tmp.path())
+        .arg("inspect")
+        .arg(&plain)
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("View only").not());
 }

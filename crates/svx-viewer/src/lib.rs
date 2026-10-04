@@ -17,6 +17,7 @@ mod text_doc;
 mod watermark;
 
 pub use watermark::Watermark;
+use zeroize::Zeroizing;
 
 /// Pages a document may have.
 pub const MAX_PAGES: usize = 2_000;
@@ -85,14 +86,17 @@ pub struct Document {
 
 impl Document {
     /// Open `bytes` as `kind`. Fails on damaged, encrypted or oversized files.
-    pub fn open(bytes: Vec<u8>, kind: Kind) -> Result<Document> {
+    /// Pass a `Zeroizing` buffer so the document's bytes are wiped when the
+    /// document is dropped (a plain `Vec` is dropped unwiped).
+    pub fn open(bytes: impl Into<Zeroizing<Vec<u8>>>, kind: Kind) -> Result<Document> {
+        let bytes: Zeroizing<Vec<u8>> = bytes.into();
         if bytes.len() > MAX_INPUT_BYTES {
             return Err(ViewError::TooLarge("bytes"));
         }
         let inner = match kind {
             Kind::Pdf => Inner::Pdf(pdf_doc::PdfDoc::open(bytes)?),
             Kind::Image => Inner::Image(image_doc::ImageDoc::open(&bytes)?),
-            Kind::Text => Inner::Text(text_doc::TextDoc::open(bytes)?),
+            Kind::Text => Inner::Text(text_doc::TextDoc::open(&bytes)?),
         };
         Ok(Document { inner })
     }

@@ -24,6 +24,11 @@ export function stateChip(label: string, state: RecipientState | "expired"): HTM
   return h("span", { class: `status status-${state}` }, label);
 }
 
+/** A small "View only" marker next to a file's name. */
+export function viewOnlyBadge(on: boolean): HTMLElement | null {
+  return on ? h("span", { class: "badge badge-warn", title: "Can be viewed in the app, not saved" }, "View only") : null;
+}
+
 export function fileLabel(name: string | null, id: string): string {
   return name ?? `File ${id.slice(0, 8)}…`;
 }
@@ -73,7 +78,7 @@ export function historyScreen(ctx: Ctx, root: HTMLElement, tab: "sent" | "receiv
         return h("li", {},
           h("button", { type: "button", class: "list-row", onclick: () => ctx.go("file", f.artifact_id) },
             h("span", { class: "list-main" },
-              h("span", { class: "list-title" }, fileLabel(f.file_name, f.artifact_id)),
+              h("span", { class: "list-title" }, fileLabel(f.file_name, f.artifact_id), " ", viewOnlyBadge(f.rules.view_only)),
               h("span", { class: "muted small" }, `To ${to} · ${fmtTime(f.created_at)}`)),
             stateChip(label, state),
             h("span", { class: "chevron", "aria-hidden": "true" }, "›")));
@@ -87,7 +92,7 @@ export function historyScreen(ctx: Ctx, root: HTMLElement, tab: "sent" | "receiv
         h("li", {},
           h("div", { class: "list-row is-static" },
             h("span", { class: "list-main" },
-              h("span", { class: "list-title" }, fileLabel(f.file_name, f.artifact_id)),
+              h("span", { class: "list-title" }, fileLabel(f.file_name, f.artifact_id), " ", viewOnlyBadge(f.view_only)),
               h("span", { class: "muted small" },
                 `From ${f.sender_email ?? f.sender} · sent ${fmtTime(f.created_at)}`,
                 f.opened_at ? ` · opened ${fmtTime(f.opened_at)}` : "")),

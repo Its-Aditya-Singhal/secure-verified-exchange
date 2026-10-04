@@ -6507,6 +6507,7 @@ dependencies = [
  "svx-app",
  "svx-client",
  "svx-protocol",
+ "svx-viewer",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
@@ -6694,6 +6695,7 @@ dependencies = [
  "image",
  "noto-sans-mono-bitmap",
  "thiserror 2.0.21",
+ "zeroize",
 ]
 
 [[package]]

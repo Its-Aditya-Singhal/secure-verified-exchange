@@ -9,6 +9,8 @@
 // No console window on Windows release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod viewer;
+
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -16,7 +18,7 @@ use serde::Deserialize;
 use svx_app::{
     AdminOverview, App, AppError, AppState, CodeSent, EmailForm, HistoryView, OpenResult,
     PersonalSendRequest, Progress, Providers, Recipient, RequestView, SendRequest, SentView,
-    SetupForm, StatusView,
+    SetupForm, StatusView, ViewCheck,
 };
 use svx_client::PackResult;
 use svx_client::account::WhoAmI;
@@ -29,9 +31,9 @@ use svx_client::setup::SetupPreview;
 use svx_client::update::AvailableUpdate;
 use svx_protocol::admin::AuditPage;
 use svx_protocol::email_account::PasswordStrength;
-use svx_protocol::personal::{ApprovalRequest, UpdateFileRequest};
+use svx_protocol::personal::{ApprovalRequest, ShareStatus, UpdateFileRequest};
 use svx_protocol::{KeyEntry, KeyStatus, Policy};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
@@ -115,6 +117,168 @@ async fn open(
         let _ = handle.emit("open-progress", p);
     };
     app.open(&path, output_dir, login, &mut progress).await
+}
+
+// ----- View-only files (Phase 7) -----
+
+/// Whether the Send screen may offer "View only" for this file.
+#[tauri::command]
+fn view_check(path: PathBuf) -> ViewCheck {
+    svx_app::view_check(&path)
+}
+
+/// Only our own viewer page may load in a viewer window.
+fn viewer_page(url: &tauri::Url) -> bool {
+    url.path() == "/viewer.html" && matches!(url.host_str(), Some("localhost" | "tauri.localhost"))
+}
+
+/// Ask the service for a view-only file, open it in memory and show it in a
+/// new capture-protected window. Nothing is written to disk.
+#[tauri::command]
+async fn view_open(
+    handle: AppHandle,
+    app: State<'_, App>,
+    views: State<'_, viewer::Views>,
+    path: PathBuf,
+) -> Result<()> {
+    let mut progress = |p: Progress| {
+        let _ = handle.emit("open-progress", p);
+    };
+    let mut session = app.view_start(&path, &mut progress).await?;
+    let kind = viewer::kind_of(session.display_name())?;
+    let mark = svx_viewer::Watermark::new(session.watermark_lines());
+    let bytes = session.take_display();
+    let (artifact_id, file_name, sender) = (
+        session.artifact_id.clone(),
+        session.file_name.clone(),
+        session.sender.clone(),
+    );
+    drop(session);
+    let doc = tauri::async_runtime::spawn_blocking(move || svx_viewer::Document::open(bytes, kind))
+        .await
+        .map_err(|e| AppError::other(e.to_string()))?
+        .map_err(|e| AppError::other(e.to_string()))?;
+    let view = viewer::View::new(doc, mark, artifact_id, path, file_name.clone(), sender)?;
+    let id = views.add(view);
+    if let Err(e) = open_viewer_window(&handle, id, &file_name) {
+        views.remove(id);
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// The window is protected from capture before anything is drawn in it:
+/// created hidden, protected at creation and again afterwards, and only
+/// shown once that worked. If protection can't be set, there is no viewer.
+fn open_viewer_window(handle: &AppHandle, id: u64, file_name: &str) -> Result<()> {
+    let fail = |m: String| AppError::other(format!("can't open the viewer: {m}"));
+    let win = WebviewWindowBuilder::new(
+        handle,
+        viewer::label(id),
+        WebviewUrl::App(format!("viewer.html?id={id}").into()),
+    )
+    .title(format!("{file_name} (view only)"))
+    .inner_size(920.0, 1000.0)
+    .min_inner_size(480.0, 360.0)
+    .content_protected(true)
+    .visible(false)
+    .on_navigation(viewer_page)
+    .build()
+    .map_err(|e| fail(e.to_string()))?;
+    if let Err(e) = win.set_content_protected(true) {
+        let _ = win.destroy();
+        return Err(fail(format!(
+            "this computer can't block screen capture ({e})"
+        )));
+    }
+    win.show().map_err(|e| fail(e.to_string()))?;
+    let _ = win.set_focus();
+    Ok(())
+}
+
+fn close_views(handle: &AppHandle, views: &viewer::Views) {
+    for (label, w) in handle.webview_windows() {
+        if viewer::id_of(&label).is_some() {
+            let _ = w.destroy();
+        }
+    }
+    views.clear();
+}
+
+#[derive(serde::Serialize)]
+struct ViewInfo {
+    file_name: String,
+    sender: String,
+    /// Each page's natural (width, height), to lay out before drawing.
+    pages: Vec<(u32, u32)>,
+}
+
+#[tauri::command]
+fn view_info(window: WebviewWindow, views: State<'_, viewer::Views>, id: u64) -> Result<ViewInfo> {
+    let v = views.get(id, window.label())?;
+    Ok(ViewInfo {
+        file_name: v.file_name.clone(),
+        sender: v.sender.clone(),
+        pages: v.sizes().to_vec(),
+    })
+}
+
+/// One page as raw pixels (8 bytes of width and height, then RGBA), with the
+/// watermark burned in. The only thing the viewer's web layer ever gets.
+#[tauri::command]
+async fn view_page(
+    window: WebviewWindow,
+    views: State<'_, viewer::Views>,
+    id: u64,
+    page: usize,
+    width: u32,
+) -> Result<tauri::ipc::Response> {
+    let v = views.get(id, window.label())?;
+    let bytes = tauri::async_runtime::spawn_blocking(move || v.render(page, width))
+        .await
+        .map_err(|e| AppError::other(e.to_string()))??;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// Where "keep a copy" stands (`ask`: ask the sender first).
+#[tauri::command]
+async fn view_share(
+    window: WebviewWindow,
+    app: State<'_, App>,
+    views: State<'_, viewer::Views>,
+    id: u64,
+    ask: bool,
+) -> Result<ShareStatus> {
+    let v = views.get(id, window.label())?;
+    if ask {
+        app.request_share(&v.artifact_id).await
+    } else {
+        app.share_status(&v.artifact_id).await
+    }
+}
+
+/// Save a copy once the sender has allowed it: the normal open flow, which
+/// the service only answers for a file the sender allowed to be saved.
+#[tauri::command]
+async fn view_save(
+    window: WebviewWindow,
+    app: State<'_, App>,
+    views: State<'_, viewer::Views>,
+    id: u64,
+) -> Result<OpenResult> {
+    let v = views.get(id, window.label())?;
+    app.open(
+        &v.path,
+        None,
+        App::login_method(None, system_browser()),
+        &mut |_| {},
+    )
+    .await
+}
+
+#[tauri::command]
+fn view_close(window: WebviewWindow) {
+    let _ = window.destroy();
 }
 
 // ----- Send -----
@@ -319,8 +483,10 @@ async fn set_presence(app: State<'_, App>, on: bool, relock_minutes: u32) -> Res
 }
 
 #[tauri::command]
-fn lock_now(app: State<'_, App>) {
+fn lock_now(handle: AppHandle, app: State<'_, App>, views: State<'_, viewer::Views>) {
     app.lock();
+    // Locking also ends every view: showing needs a fresh confirmation.
+    close_views(&handle, &views);
 }
 
 #[tauri::command]
@@ -764,6 +930,15 @@ fn main() {
         .manage(app)
         .manage(Pending::default())
         .manage(PendingUpdate::default())
+        .manage(viewer::Views::default())
+        .on_window_event(|window, event| {
+            // Closing a viewer window wipes its document.
+            if let tauri::WindowEvent::Destroyed = event
+                && let Some(id) = viewer::id_of(window.label())
+            {
+                window.state::<viewer::Views>().remove(id);
+            }
+        })
         .setup(|a| {
             let argv: Vec<String> = std::env::args().collect();
             let cwd = std::env::current_dir().unwrap_or_default();
@@ -778,6 +953,13 @@ fn main() {
             read_config_file,
             status,
             open,
+            view_check,
+            view_open,
+            view_info,
+            view_page,
+            view_share,
+            view_save,
+            view_close,
             recipient,
             send,
             login,

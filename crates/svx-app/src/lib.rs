@@ -13,6 +13,7 @@ mod admin;
 mod error;
 mod personal;
 pub mod prefs;
+mod view;
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -37,6 +38,7 @@ pub use personal::{
     RequestView, SentView,
 };
 pub use prefs::Prefs;
+pub use view::{ViewCheck, view_check};
 
 /// Setup form fields (also what "Import config file…" fills in).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -87,6 +89,8 @@ pub struct AppState {
     pub presence_active: bool,
     /// This build checks for updates (it has a release key built in).
     pub updates_available: bool,
+    /// This computer can show view-only files (not Linux).
+    pub view_supported: bool,
 }
 
 /// A verified artifact, before any login.
@@ -111,6 +115,8 @@ pub struct StatusView {
     pub post_quantum: bool,
     /// Suite ID: `0x0001` SVX-1, `0x0003` SVX-1H, `0x0004` SVX-2.
     pub suite_id: u16,
+    /// Signed as view-only: shown in the app, never written to disk.
+    pub view_only: bool,
 }
 
 /// One progress event of [`App::open`].
@@ -376,6 +382,7 @@ impl App {
             presence_available: self.presence.is_some(),
             presence_active: client.as_ref().is_some_and(|c| c.presence.is_some()),
             updates_available: update::update_source().is_some(),
+            view_supported: App::view_supported(),
         }
     }
 
@@ -449,6 +456,7 @@ impl App {
             protection: s.info.protection,
             post_quantum: s.info.post_quantum,
             suite_id: s.info.suite_id,
+            view_only: s.info.view_only,
         })
     }
 

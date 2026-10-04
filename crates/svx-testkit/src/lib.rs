@@ -496,6 +496,18 @@ impl World {
         expires_at: Option<i64>,
         policy: &str,
     ) -> Vec<u8> {
+        self.pack_flagged(signer, created_at, expires_at, policy, false)
+    }
+
+    /// [`pack_with`](Self::pack_with), optionally marked view-only (SVX-2 only).
+    pub fn pack_flagged(
+        &self,
+        signer: &SigningKey,
+        created_at: i64,
+        expires_at: Option<i64>,
+        policy: &str,
+        view_only: bool,
+    ) -> Vec<u8> {
         let (suite, recipient, svc) = if signer.kind() == KeyKind::MaxSigning {
             (
                 Suite::Svx2,
@@ -523,11 +535,23 @@ impl World {
             expires_at,
             chunk_size: Some(64),
             manifest: Manifest::single_file("evidence.txt", SECRET.len() as u64),
-            view_only: false,
+            view_only,
         };
         let mut out = Vec::new();
         svx_core::pack(&req, SECRET, &mut out, &mut os_rng()).unwrap();
         out
+    }
+
+    /// A company file marked view-only. Companies can't register such files,
+    /// but a sender could still make one: opening must refuse it.
+    pub fn pack_view_only(&self) -> Vec<u8> {
+        self.pack_flagged(
+            &self.acme_sign,
+            now() - 10,
+            Some(now() + 3600),
+            POLICY,
+            true,
+        )
     }
 
     pub fn pack(&self) -> Vec<u8> {

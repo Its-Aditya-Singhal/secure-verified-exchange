@@ -2,7 +2,7 @@
 // checked in the signed directory, in Rust), and the rules the sender keeps
 // control of after sending.
 
-import { type Contact, type SendResult, api, asAppError } from "../api";
+import { type Contact, type SendResult, type ViewCheck, api, asAppError } from "../api";
 import { card, dropZone, errorPanel, facts, note } from "../components";
 import { baseName, busy, button, clear, field, fmtTime, h, icon, revealLabel } from "../dom";
 import type { Ctx } from "../main";
@@ -34,6 +34,7 @@ export function personalSendScreen(ctx: Ctx, root: HTMLElement, arg: { to?: stri
     input = p;
     clear(chosen);
     chosen.append(note(`Selected: ${baseName(p)}`, "ok"), h("p", { class: "muted mono small" }, p));
+    void checkView(p);
   };
   const pick = async (kind: "send_file" | "send_folder") => {
     const p = await api.pick(kind).catch(() => null);
@@ -107,6 +108,52 @@ export function personalSendScreen(ctx: Ctx, root: HTMLElement, arg: { to?: stri
   const approval = h("input", { type: "checkbox", checked: true });
   const oneTime = h("input", { type: "checkbox", checked: true });
   const expiry = h("select", {}, ...EXPIRY.map(([label], i) => h("option", { value: String(i) }, label)));
+  // View only: shown in the app, never saved. Whether this file can be, comes from Rust.
+  const viewOnly = h("input", { type: "checkbox", disabled: true });
+  const viewHint = h("span", { class: "muted small" }, "Choose a file first.");
+  const keepCopy = h("input", { type: "checkbox", disabled: true });
+  const keepRow = h("label", { class: "toggle toggle-sub" }, keepCopy,
+    h("span", {}, h("strong", {}, "Let them ask to keep a copy"),
+      h("span", { class: "muted small" }, "They can ask in the viewer; you decide under Requests. If you allow it, they can save the file, and that can't be taken back.")));
+  const viewWarn = h("div", {});
+  let viewState: ViewCheck | null = null;
+  let checkSeq = 0;
+  const syncView = () => {
+    keepCopy.disabled = !viewOnly.checked;
+    if (!viewOnly.checked) keepCopy.checked = false;
+    keepRow.hidden = !viewOnly.checked;
+    clear(viewWarn);
+    if (viewOnly.checked && oneTime.checked && keepCopy.checked) {
+      viewWarn.appendChild(note(
+        "With one-time on, someone who has viewed the file once can't save a copy afterwards, even if you allow it. " +
+          "Turn one-time off if they should be able to ask later.", "warn"));
+    }
+  };
+  async function checkView(p: string) {
+    const seq = ++checkSeq;
+    viewHint.textContent = "Checking…";
+    viewOnly.disabled = true;
+    viewOnly.checked = false;
+    try {
+      const c = await api.viewCheck(p);
+      if (seq !== checkSeq) return;
+      viewState = c;
+      viewOnly.disabled = !c.ok;
+      viewHint.textContent = c.ok
+        ? c.office
+          ? "They view it in this app but can't save, copy or print it. It's turned into a PDF on this computer for viewing; if you let them keep a copy, they get your original."
+          : "They view it in this app but can't save, copy or print it."
+        : c.reason ?? "This file can't be sent view-only.";
+    } catch {
+      if (seq !== checkSeq) return;
+      viewHint.textContent = "This file can't be checked right now.";
+    }
+    syncView();
+  }
+  viewOnly.addEventListener("change", syncView);
+  keepCopy.addEventListener("change", syncView);
+  keepRow.hidden = true;
+
   const rules = card(
     "Your controls",
     h("label", { class: "toggle" }, approval,
@@ -115,8 +162,15 @@ export function personalSendScreen(ctx: Ctx, root: HTMLElement, arg: { to?: stri
     h("label", { class: "toggle" }, oneTime,
       h("span", {}, h("strong", {}, "One-time"),
         h("span", { class: "muted small" }, "Each person can open it once. The same .svx file won't open again for them."))),
+    h("label", { class: "toggle" }, viewOnly,
+      h("span", {}, h("strong", {}, "View only"), viewHint)),
+    keepRow,
+    viewWarn,
+    h("p", { class: "muted small" },
+      "View only stops saving, copying, printing and screenshots inside the SVX app. It can't stop someone photographing their screen, and it needs a Mac or Windows computer to view."),
     field("Stops opening after", expiry, "You can also revoke it or bring the date forward later, from History."),
   );
+  oneTime.addEventListener("change", syncView);
 
   // Go
   const result = h("div", { class: "stack" });
@@ -141,6 +195,8 @@ export function personalSendScreen(ctx: Ctx, root: HTMLElement, arg: { to?: stri
           require_approval: approval.checked,
           one_time: oneTime.checked,
           expires_at: ttl === null ? null : Math.floor(Date.now() / 1000) + ttl,
+          view_only: viewOnly.checked && viewState?.ok === true,
+          allow_share_requests: viewOnly.checked && keepCopy.checked,
         });
         done(r);
       } catch (e) {
@@ -160,6 +216,9 @@ export function personalSendScreen(ctx: Ctx, root: HTMLElement, arg: { to?: stri
           ["For", people],
           ["Ask me before each open", r.rules.require_approval ? "Yes" : "No"],
           ["One-time", r.rules.one_time ? "Yes" : "No"],
+          ...(r.rules.view_only
+            ? ([["View only", r.rules.allow_share_requests ? "Yes, they can ask to keep a copy" : "Yes"]] as [string, string][])
+            : []),
           ["Stops opening", r.expires_at ? fmtTime(r.expires_at) : "Never (you can revoke it)"],
           ["Protection", r.protection],
         ]),

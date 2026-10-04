@@ -456,3 +456,26 @@ async fn a_new_organization_signs_up() {
     let o = labs.org_overview().await.unwrap();
     assert_eq!(o.admins[0].subject, "dana");
 }
+
+/// A company can't show a view-only file, so a company open of one must not
+/// write it out: refused before sign-in.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_company_open_never_saves_a_view_only_file() {
+    let w = world!();
+    let dir = tempfile::tempdir().unwrap();
+    let artifact = dir.path().join("flagged.svx");
+    std::fs::write(&artifact, w.pack_view_only()).unwrap();
+    let example = client(&w, EXAMPLE, dir.path());
+    let out = dir.path().join("out");
+    let r = open_as(&example, &artifact, &out, "alice").await;
+    assert!(
+        matches!(&r, Err(ClientError::Rejected(m)) if m.contains("view-only")),
+        "{r:?}"
+    );
+    assert!(!out.exists());
+    // The ordinary file next to it still opens.
+    let plain = dir.path().join("plain.svx");
+    std::fs::write(&plain, w.pack()).unwrap();
+    open_as(&example, &plain, &out, "alice").await.unwrap();
+    w.cleanup().await.unwrap();
+}

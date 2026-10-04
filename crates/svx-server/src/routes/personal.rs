@@ -688,6 +688,7 @@ async fn file_status(st: &AppState, f: &FileRow) -> ApiResult<FileStatus> {
         created_at: f.created_at,
         signed_expires_at: f.signed_expires_at,
         rules: f.rules(),
+        signed_view_only: f.signed_view_only,
         revoked_at: f.revoked_at,
         recipients,
     })

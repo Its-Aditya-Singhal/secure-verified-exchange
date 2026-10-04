@@ -41,6 +41,8 @@ pub struct ArtifactInfo {
     pub envelopes: Vec<EnvelopeInfo>,
     pub encrypted_manifest_bytes: usize,
     pub unknown_fields: Vec<u16>,
+    /// Signed as view-only (format 1.4): it can be shown in the app, not saved.
+    pub view_only: bool,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -81,6 +83,7 @@ impl ArtifactInfo {
                 .collect(),
             encrypted_manifest_bytes: h.encrypted_manifest.len(),
             unknown_fields: h.unknown.iter().map(|u| u.tag).collect(),
+            view_only: h.view_only,
         }
     }
 }

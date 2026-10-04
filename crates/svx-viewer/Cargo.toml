@@ -15,6 +15,7 @@ hayro = "0.8"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 noto-sans-mono-bitmap = { version = "0.3", default-features = false, features = ["regular", "size_16", "size_20", "size_24", "size_32", "unicode-basic-latin", "unicode-latin-1-supplement"] }
 thiserror = "2"
+zeroize = "1"
 
 [lints]
 workspace = true

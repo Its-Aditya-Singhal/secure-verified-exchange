@@ -69,6 +69,23 @@ Opened files go to `~/SVX` by default (Settings → **Change folder…**), owner
 
 **Open** is offered only for document types that do not run code (PDF, text, images, Office documents without macros, media, ZIP). Executables, scripts, installers, app bundles, shortcuts and HTML are only shown in their folder.
 
+## View-only files
+
+A personal account can send a file **view only** (see [Personal accounts](personal.md#view-only-files-phase-7)): the Send screen has a **View only** switch, checked in Rust for the chosen file (type, size, LibreOffice for Office files), with **Let them ask to keep a copy** and one honest line about what it can't stop.
+
+When a recipient opens one, the Open screen says it's view-only and **View securely** runs the usual timeline, then opens a **separate protected window** (title "(view only)"):
+
+- The window is created hidden, protected from screenshots and recordings by the operating system (`content_protected`) at creation and again afterwards, and shown only once that worked. If protection can't be set, there is no viewer. Linux can't do it, so the Open screen disables the button there up front.
+- The document lives in the Rust layer (`svx-viewer`). The window's page (`viewer.html`) asks for one page at a time and gets **raw pixels** with the watermark already burned in, drawn on a canvas. It never receives the file, its text or its bytes, so there is nothing to copy, save or print; its keyboard, context-menu and drag handlers are only friction. Each view command answers only the window its session belongs to.
+- The toolbar has page and zoom controls (also `+` `-` `0`, arrows, Home, End, Esc to close), **Ask to keep a copy** (then "Waiting for the sender", "Save a copy" or the sender's refusal) and **Close**. Closing the window wipes the document; **Lock** (Settings) closes every viewer.
+- Nothing is written to disk; opening it again asks the service again. History shows a "view only" badge; the file page has the sender's switches.
+
+To check capture blocking on your Mac (this matters: newer macOS versions may change how window capture is handled), run the probe and try Cmd+Shift+3, Cmd+Shift+4 then Space, Cmd+Shift+5 and QuickTime on the red window; the green window is the control:
+
+```sh
+cargo run -p svx-desktop --example viewer_probe
+```
+
 ## Admin
 
 All administration happens here (there is no web portal). Sign in with your company login; the session is short-lived and can never open files. Every change is authorized by the SVX service and recorded in the audit trail.
@@ -142,7 +159,7 @@ To try double-click opening on macOS, build the bundle (`npm run tauri build -- 
 
 ## Building
 
-Prerequisites: Rust (stable; `svx-desktop` needs 1.90+), Node 20.19+, and on Linux the WebKitGTK packages:
+Prerequisites: Rust (stable; `svx-desktop` needs 1.92+, for the PDF renderer), Node 20.19+, and on Linux the WebKitGTK packages:
 
 ```sh
 sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
@@ -163,6 +180,7 @@ Workspace-wide `cargo build/test/clippy` works without Node: the shell's build s
 
 ## Known limitations
 
+- View-only files can't be shown on Linux, and capture blocking is untested on Windows; see the threat model, T29.
 - Builds are unsigned (no paid certificates); updates are signed with our own keys instead. The Windows installer shows the app icon for `.svx` files (the document icon needs a custom installer template).
 - Recipients are entered by organization ID; there is no directory search yet.
 - Keychain keys are software keys protected by the OS keychain and the Touch ID / password check; hardware-backed keys (Secure Enclave, TPM) need a signed app.

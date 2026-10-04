@@ -383,6 +383,8 @@ async fn personal_accounts_in_the_app() {
             require_approval: true,
             one_time: true,
             expires_at: None,
+            view_only: false,
+            allow_share_requests: false,
         })
         .await
         .unwrap();
@@ -459,6 +461,114 @@ async fn personal_accounts_in_the_app() {
         .await
         .unwrap();
     assert_eq!(restored.account, a.account);
+    w.cleanup().await.unwrap();
+}
+
+/// View-only files through the app layer: the Send screen's check, status
+/// flags the file, saving is refused, and (where it's supported) viewing
+/// returns a session without writing anything.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn view_only_files_in_the_app() {
+    let w = world!();
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path();
+    let alice = personal_app(&w, dir, "alice");
+    let bob = personal_app(&w, dir, "bob");
+    let p = alice.providers().await.unwrap();
+    let issuer = Some(p.providers[0].issuer.clone());
+    alice
+        .sign_up(issuer.clone(), false, dev("alice"), false)
+        .await
+        .unwrap();
+    bob.sign_up(issuer, false, dev("bob"), false).await.unwrap();
+
+    let input = dir.join("minutes.txt");
+    std::fs::write(&input, SECRET).unwrap();
+    assert!(svx_app::view_check(&input).ok);
+    assert!(!svx_app::view_check(dir).ok);
+    let req = |view_only, allow| svx_app::PersonalSendRequest {
+        input: input.clone(),
+        to: vec!["bob@example.test".into()],
+        require_approval: false,
+        one_time: false,
+        expires_at: None,
+        view_only,
+        allow_share_requests: allow,
+    };
+    // "Let them ask" means nothing without view-only.
+    let plain = alice.send_personal(req(false, true)).await.unwrap();
+    assert!(!plain.rules.view_only && !plain.rules.allow_share_requests);
+    assert!(!bob.status(&plain.path).await.unwrap().view_only);
+
+    // Both files would be written as minutes.svx: move the first aside.
+    std::fs::rename(&plain.path, dir.join("plain.svx")).unwrap();
+    let sent = alice.send_personal(req(true, true)).await.unwrap();
+    assert!(sent.rules.view_only && sent.rules.allow_share_requests);
+    let st = bob.status(&sent.path).await.unwrap();
+    assert!(st.view_only && st.for_you);
+    assert!(
+        alice
+            .file(&sent.artifact_id)
+            .await
+            .unwrap()
+            .file
+            .signed_view_only
+    );
+
+    // Saving is refused until the sender allows it; nothing is written.
+    let out = dir.join("bob-out");
+    let e = bob
+        .open(&sent.path, Some(out.clone()), dev("unused"), &mut |_| {})
+        .await
+        .unwrap_err();
+    assert_eq!(
+        (e.kind.as_str(), e.deny_reason.as_deref()),
+        ("denied", Some("view_only"))
+    );
+    assert!(!out.exists());
+
+    // Viewing: a session where supported, a clear refusal otherwise.
+    assert_eq!(bob.state().view_supported, svx_app::App::view_supported());
+    let r = bob.view_start(&sent.path, &mut |_| {}).await;
+    if svx_app::App::view_supported() {
+        let v = r.unwrap();
+        assert_eq!(v.display(), SECRET);
+        assert_eq!(v.file_name, "minutes.txt");
+        assert!(!out.exists());
+        // The name is remembered for History, like a saved file.
+        let h = bob.history().await.unwrap();
+        let got = h
+            .received
+            .iter()
+            .find(|f| hex::encode(f.file.artifact_id) == sent.artifact_id)
+            .unwrap();
+        assert_eq!(got.file_name.as_deref(), Some("minutes.txt"));
+        assert!(got.file.view_only);
+    } else {
+        assert_eq!(r.unwrap_err().kind, "view_unsupported");
+    }
+
+    // Asking to keep a copy, then the sender approves it.
+    let id = &sent.artifact_id;
+    assert_eq!(
+        bob.share_status(id).await.unwrap().state,
+        svx_protocol::personal::ShareState::NotRequested
+    );
+    assert_eq!(
+        bob.request_share(id).await.unwrap().state,
+        svx_protocol::personal::ShareState::Pending
+    );
+    let req = alice.requests().await.unwrap().remove(0);
+    assert_eq!(req.request.kind, svx_protocol::personal::RequestKind::Share);
+    alice
+        .approve(&hex::encode(req.request.request_id))
+        .await
+        .unwrap();
+    let r = bob
+        .open(&sent.path, Some(out), dev("unused"), &mut |_| {})
+        .await
+        .unwrap();
+    assert_eq!(std::fs::read(r.path).unwrap(), SECRET);
     w.cleanup().await.unwrap();
 }
 

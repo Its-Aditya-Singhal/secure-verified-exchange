@@ -78,6 +78,10 @@ The plaintext is handled as follows:
 - Deleting a temporary file does not securely erase it from SSDs, copy-on-write filesystems, backups or swap. SVX minimizes how much plaintext persists; it cannot guarantee erasure. For the most sensitive material, use an encrypted home directory and short-lived output directories.
 - A compromised endpoint can read whatever an authorized user decrypts (threat model T10).
 
+## View-only files
+
+A view-only file is shown only in the desktop app. In the CLI and SDKs, `open` of one fails with "view-only" (`deny_reason` `view_only`) unless the sender allowed a copy (see `svx keep`); then it writes the sender's original as a normal file. A company `open` refuses a view-only file outright. In Rust, `Client::view_personal(path, progress, cancel)` returns a `ViewSession` (the display copy in memory, wiped on drop, plus the watermark lines); it asks for the confirmation gate, refuses on Linux (`view_unsupported`), and never writes a file.
+
 ## Commands
 
 | Command | What it does |
@@ -91,6 +95,9 @@ The plaintext is handled as follows:
 | `svx policy list\|show NAME\|set NAME --file F` | Manage your organization's policies. Admin. |
 | `svx audit [--limit N] [--json]` | Your organization's audit log, with hash-chain verification. Admin. |
 | `svx organizations show ORG` | A verified registry record |
+| `svx send FILE --to EMAIL [--view-only [--allow-share-requests]] …` | Personal account: encrypt for people by email. `--view-only`: they can view it in the desktop app but not save it (PDF, images, text, Office via LibreOffice). |
+| `svx keep FILE\|ID [--wait]` | Personal account: ask the sender to let you keep a copy of a view-only file, and show where the request stands |
+| `svx file ID [--view-only on\|off] [--share-requests on\|off] …` | Personal account: a sent file's rules |
 | `svx keygen`, `svx inspect`, `svx verify [--trust F \| --registry]` | Offline tools |
 
 ### Admin sessions

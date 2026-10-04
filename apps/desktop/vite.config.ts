@@ -4,5 +4,12 @@ import { defineConfig } from "vite";
 export default defineConfig({
   clearScreen: false,
   server: { port: 1420, strictPort: true, host: "localhost" },
-  build: { target: "es2022", outDir: "dist", emptyOutDir: true, sourcemap: false },
+  build: {
+    target: "es2022",
+    outDir: "dist",
+    emptyOutDir: true,
+    sourcemap: false,
+    // The app, and the protected viewer window's page.
+    rollupOptions: { input: { main: "index.html", viewer: "viewer.html" } },
+  },
 });

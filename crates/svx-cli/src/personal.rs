@@ -15,7 +15,9 @@ use svx_client::login::{print_url, system_browser};
 use svx_client::personal::{self, KeyChoice, SendOptions, SignUpOptions};
 use svx_client::presence::{DEFAULT_IDLE, PresenceGate, SystemPresence};
 use svx_protocol::email_account::{CodePurpose, password_strength};
-use svx_protocol::personal::{FileRules, FileStatus, RecipientState, UpdateFileRequest};
+use svx_protocol::personal::{
+    FileRules, FileStatus, RecipientState, RequestKind, ShareState, UpdateFileRequest,
+};
 
 use crate::local::{fmt_time, parse_expiry};
 
@@ -292,6 +294,8 @@ pub struct SendArgs {
     pub to: Vec<String>,
     pub no_approval: bool,
     pub no_one_time: bool,
+    pub view_only: bool,
+    pub allow_share_requests: bool,
     pub expires: Option<String>,
     pub output: Option<PathBuf>,
     pub force: bool,
@@ -308,7 +312,8 @@ pub async fn send(c: &Client, a: SendArgs) -> Result<ExitCode> {
                 require_approval: !a.no_approval,
                 one_time: !a.no_one_time,
                 expires_at: None,
-                ..Default::default()
+                view_only: a.view_only,
+                allow_share_requests: a.allow_share_requests && a.view_only,
             },
             expires_at: a.expires.as_deref().map(parse_expiry).transpose()?,
             name: None,
@@ -319,6 +324,25 @@ pub async fn send(c: &Client, a: SendArgs) -> Result<ExitCode> {
     println!("  For:        {}", to.join(", "));
     println!("  Approval:   {}", on_off(r.rules.require_approval));
     println!("  One-time:   {}", on_off(r.rules.one_time));
+    if r.rules.view_only {
+        println!(
+            "  View only:  on (they can ask to keep a copy: {})",
+            if r.rules.allow_share_requests {
+                "yes"
+            } else {
+                "no"
+            }
+        );
+        println!(
+            "              Shown in the SVX desktop app; can't be saved, copied or printed there."
+        );
+        println!("              It can't stop a photo of the screen.");
+        if r.rules.one_time && r.rules.allow_share_requests {
+            println!(
+                "  Note:       with one-time on, someone who has viewed it once can't save a copy later."
+            );
+        }
+    }
     println!("  File ID:    {}", r.artifact_id);
     println!("Share the .svx file any way you like; only they can open it.");
     Ok(ExitCode::SUCCESS)
@@ -335,12 +359,21 @@ pub async fn requests(c: &Client) -> Result<ExitCode> {
     }
     for r in list {
         println!(
-            "{}  {} wants to open file {} (asked {})",
+            "{}  {} wants to {} file {} (asked {})",
             hex::encode(r.request_id),
             r.requester_email.as_deref().unwrap_or(&r.requester),
+            match r.kind {
+                RequestKind::Open => "open",
+                RequestKind::Share => "keep a copy of",
+            },
             hex::encode(r.artifact_id),
             fmt_time(r.requested_at)
         );
+        if r.kind == RequestKind::Share {
+            println!(
+                "    It's view-only: approving lets them save it as a normal file, which can't be taken back."
+            );
+        }
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -377,9 +410,15 @@ fn print_file(f: &FileStatus) {
         fmt_time(f.created_at)
     );
     println!(
-        "  Approval {}, one-time {}{}{}",
+        "  Approval {}, one-time {}, view-only {}{}{}{}",
         on_off(f.rules.require_approval),
         on_off(f.rules.one_time),
+        on_off(f.rules.view_only),
+        if f.rules.view_only && f.rules.allow_share_requests {
+            " (copies can be requested)"
+        } else {
+            ""
+        },
         f.rules
             .expires_at
             .or(f.signed_expires_at)
@@ -409,11 +448,12 @@ pub async fn history(c: &Client, json: bool) -> Result<ExitCode> {
     println!("Received:");
     for f in &h.received {
         println!(
-            "File {}  from {}  sent {}  {}",
+            "File {}  from {}  sent {}  {}{}",
             hex::encode(f.artifact_id),
             f.sender_email.as_deref().unwrap_or(&f.sender),
             fmt_time(f.created_at),
-            state(f.state)
+            state(f.state),
+            if f.view_only { "  (view-only)" } else { "" }
         );
     }
     Ok(ExitCode::SUCCESS)
@@ -423,6 +463,8 @@ pub struct FileArgs {
     pub target: String,
     pub approval: Option<bool>,
     pub one_time: Option<bool>,
+    pub view_only: Option<bool>,
+    pub share_requests: Option<bool>,
     pub expires: Option<String>,
     pub revoke: bool,
     pub revoke_for: Vec<String>,
@@ -431,6 +473,8 @@ pub struct FileArgs {
 pub async fn file(c: &Client, a: FileArgs) -> Result<ExitCode> {
     let change = a.approval.is_some()
         || a.one_time.is_some()
+        || a.view_only.is_some()
+        || a.share_requests.is_some()
         || a.expires.is_some()
         || a.revoke
         || !a.revoke_for.is_empty();
@@ -456,10 +500,11 @@ pub async fn file(c: &Client, a: FileArgs) -> Result<ExitCode> {
             &UpdateFileRequest {
                 require_approval: a.approval,
                 one_time: a.one_time,
+                view_only: a.view_only,
+                allow_share_requests: a.share_requests,
                 expires_at: a.expires.as_deref().map(parse_expiry).transpose()?,
                 revoke: a.revoke,
                 revoke_recipients,
-                ..Default::default()
             },
         )
         .await?
@@ -468,4 +513,37 @@ pub async fn file(c: &Client, a: FileArgs) -> Result<ExitCode> {
     };
     print_file(&f);
     Ok(ExitCode::SUCCESS)
+}
+
+fn share_state(s: ShareState) -> &'static str {
+    match s {
+        ShareState::Unrestricted => "this file isn't view-only: open it normally (svx open)",
+        ShareState::Forbidden => "the sender doesn't allow copies of this file",
+        ShareState::NotRequested => "not asked yet",
+        ShareState::Pending => "waiting for the sender to answer",
+        ShareState::Approved => "approved: save it with `svx open FILE`",
+        ShareState::Declined => "the sender declined",
+    }
+}
+
+/// Ask to keep a copy of a view-only file (once), and show the answer.
+pub async fn keep(c: &Client, target: &str, wait: bool) -> Result<ExitCode> {
+    let mut s = c.share_status(target).await?;
+    if s.state == ShareState::NotRequested {
+        s = c.request_share(target).await?;
+        println!("Asked the sender to let you keep a copy.");
+    }
+    println!("Status: {}", share_state(s.state));
+    if wait && s.state == ShareState::Pending {
+        eprintln!("Waiting for the sender (Ctrl-C to stop)...");
+        while s.state == ShareState::Pending {
+            tokio::time::sleep(personal::POLL_INTERVAL).await;
+            s = c.share_status(target).await?;
+        }
+        println!("Status: {}", share_state(s.state));
+    }
+    Ok(match s.state {
+        ShareState::Declined | ShareState::Forbidden => ExitCode::from(1),
+        _ => ExitCode::SUCCESS,
+    })
 }

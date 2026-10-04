@@ -108,6 +108,12 @@ pub struct PersonalSendRequest {
     pub one_time: bool,
     #[serde(default)]
     pub expires_at: Option<i64>,
+    /// Recipients can view it in the app but not save it.
+    #[serde(default)]
+    pub view_only: bool,
+    /// For a view-only file: recipients may ask to keep a copy.
+    #[serde(default)]
+    pub allow_share_requests: bool,
 }
 
 /// A request to open one of my files, with the file's local name.
@@ -392,7 +398,8 @@ impl App {
                     require_approval: req.require_approval,
                     one_time: req.one_time,
                     expires_at: None,
-                    ..Default::default()
+                    view_only: req.view_only,
+                    allow_share_requests: req.allow_share_requests && req.view_only,
                 },
                 expires_at: req.expires_at,
                 name: None,

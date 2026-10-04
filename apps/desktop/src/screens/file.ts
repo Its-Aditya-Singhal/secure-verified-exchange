@@ -6,7 +6,7 @@ import { type SentFile, type UpdateFileRequest, api, asAppError } from "../api";
 import { card, errorPanel, facts, note } from "../components";
 import { append, busy, button, clear, field, fmtTime, h } from "../dom";
 import type { Ctx } from "../main";
-import { STATE_LABEL, fileLabel, isExpired, stateChip } from "./history";
+import { STATE_LABEL, fileLabel, isExpired, stateChip, viewOnlyBadge } from "./history";
 
 const DAY = 86_400;
 const SOONER: [string, number][] = [
@@ -64,6 +64,23 @@ export function fileScreen(ctx: Ctx, root: HTMLElement, artifactId: string): voi
     const oneTime = h("input", { type: "checkbox", checked: f.rules.one_time, disabled: ended });
     oneTime.addEventListener("change", () => void change({ one_time: oneTime.checked }));
 
+    // View-only can be lifted at any time (with a confirmation, since it
+    // can't be taken back for copies already saved), and switched back on
+    // only for a file that was sent view-only: the service refuses it for
+    // any other.
+    const liftConfirm = h("input", { type: "checkbox" });
+    const lift = button("Turn off view-only", () => {
+      if (!liftConfirm.checked) {
+        clear(msg);
+        msg.appendChild(note("Tick the box to confirm first.", "warn"));
+        return;
+      }
+      void change({ view_only: false }, lift);
+    }, "danger");
+    const relock = button("Turn view-only back on", () => void change({ view_only: true }, relock));
+    const keepCopy = h("input", { type: "checkbox", checked: f.rules.allow_share_requests, disabled: ended || !f.rules.view_only });
+    keepCopy.addEventListener("change", () => void change({ allow_share_requests: keepCopy.checked }));
+
     const sooner = h("select", {}, ...SOONER
       .filter(([, s]) => effective === null || Date.now() / 1000 + s < effective)
       .map(([label, s]) => h("option", { value: String(s) }, label)));
@@ -82,7 +99,7 @@ export function fileScreen(ctx: Ctx, root: HTMLElement, artifactId: string): voi
     append(body,
       h("header", { class: "screen-head file-head" },
         h("div", { class: "file-icon", "aria-hidden": "true" }, "SVX"),
-        h("div", {}, h("h1", {}, fileLabel(f.file_name, f.artifact_id)),
+        h("div", {}, h("h1", {}, fileLabel(f.file_name, f.artifact_id), " ", viewOnlyBadge(f.rules.view_only)),
           h("p", { class: "muted" }, `Sent ${fmtTime(f.created_at)}`,
             revoked ? ` · revoked ${fmtTime(f.revoked_at)}` : expired ? " · expired" : ""))),
       card("People", people,
@@ -97,6 +114,24 @@ export function fileScreen(ctx: Ctx, root: HTMLElement, artifactId: string): voi
         h("label", { class: "toggle" }, oneTime,
           h("span", {}, h("strong", {}, "One-time"),
             h("span", { class: "muted small" }, "Each person can open it once."))),
+        f.signed_view_only
+          ? h("div", { class: "stack-tight" },
+              h("p", {}, h("strong", {}, "View only: "), f.rules.view_only ? "on" : "off",
+                h("span", { class: "muted small" }, f.rules.view_only
+                  ? " People view it in the app and can't save, copy or print it."
+                  : " Everyone who opens it can save it.")),
+              ended ? null
+                : f.rules.view_only
+                  ? h("div", {}, h("label", { class: "check" }, liftConfirm,
+                      h("span", {}, "Let everyone who opens it save it. This can't be taken back for copies they save.")),
+                    h("div", { class: "actions" }, lift))
+                  : h("div", { class: "actions" }, relock))
+          : null,
+        f.signed_view_only
+          ? h("label", { class: "toggle toggle-sub" }, keepCopy,
+              h("span", {}, h("strong", {}, "Let them ask to keep a copy"),
+                h("span", { class: "muted small" }, "Requests appear under Requests. Approving lets that person save the file, and that can't be taken back.")))
+          : null,
         facts([["Stops opening", effective ? fmtTime(effective) : "Never"]]),
         !ended && sooner.options.length
           ? h("div", { class: "row" }, field("Stop opening sooner", sooner), setExpiry)

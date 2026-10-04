@@ -145,6 +145,13 @@ export function explain(e: AppError): Explained {
         body: "Nothing was done. Confirm it's you with Touch ID, your computer's password or Windows Hello to continue.",
         retry: true,
       };
+    case "view_unsupported":
+      return {
+        tone: "stop",
+        title: "This computer can't show view-only files",
+        body: "View-only files are only shown where the app can keep the window out of screenshots and recordings, and this computer can't. Open the file on a Mac or a Windows computer. Nothing was decrypted.",
+        retry: false,
+      };
     case "not_configured":
       return { tone: "info", title: "Set up needed", body: "Finish setup first.", retry: false };
     case "config":

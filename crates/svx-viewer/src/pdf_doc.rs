@@ -6,6 +6,7 @@ use std::sync::Arc;
 use hayro::hayro_interpret::InterpreterSettings;
 use hayro::hayro_syntax::Pdf;
 use hayro::{PixmapSettings, RenderCache, RenderSettings};
+use zeroize::Zeroizing;
 
 use crate::{MAX_PAGES, Result, Rgba, ViewError};
 
@@ -19,7 +20,7 @@ fn malformed(why: &str) -> ViewError {
 }
 
 impl PdfDoc {
-    pub(crate) fn open(bytes: Vec<u8>) -> Result<PdfDoc> {
+    pub(crate) fn open(bytes: Zeroizing<Vec<u8>>) -> Result<PdfDoc> {
         if !bytes.starts_with(b"%PDF-") && !bytes.windows(5).take(1024).any(|w| w == b"%PDF-") {
             return Err(malformed("not a PDF"));
         }

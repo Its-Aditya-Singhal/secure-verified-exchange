@@ -125,6 +125,15 @@ pub async fn open(
         sender: h.sender_org.to_string(),
     });
 
+    // A view-only file is shown in the app, never written out; only the
+    // personal-account flow can do that. Failing closed here means a company
+    // open can't be used to save one.
+    if h.view_only {
+        return Err(ClientError::Rejected(
+            "this file is view-only: it can be shown only to a personal account in the app".into(),
+        ));
+    }
+
     // 2. Is this for us, from our service, and still valid?
     if h.recipient_org.as_str() != cfg.org_id {
         return Err(ClientError::NotRecipient {

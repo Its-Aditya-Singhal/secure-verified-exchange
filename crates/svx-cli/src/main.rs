@@ -170,6 +170,14 @@ enum Cmd {
         /// Allow opening more than once.
         #[arg(long)]
         no_one_time: bool,
+        /// View only: recipients see it in the SVX desktop app but can't save, copy or print it
+        /// (PDF, images, plain text, or Office files converted with LibreOffice). Not stopped:
+        /// a photo of the screen.
+        #[arg(long)]
+        view_only: bool,
+        /// With --view-only: recipients may ask to keep a copy (you decide, with `svx approve`).
+        #[arg(long, requires = "view_only")]
+        allow_share_requests: bool,
         /// Expiry as RFC 3339 UTC, signed into the file.
         #[arg(long)]
         expires: Option<String>,
@@ -177,6 +185,14 @@ enum Cmd {
         output: Option<PathBuf>,
         #[arg(long)]
         force: bool,
+    },
+    /// Personal account: ask the sender to let you keep a copy of a view-only file you received
+    /// (file or ID), and show where the request stands.
+    Keep {
+        target: String,
+        /// Wait for the sender's answer (Ctrl-C to stop).
+        #[arg(long)]
+        wait: bool,
     },
     /// Personal account: requests waiting for your approval.
     Requests,
@@ -196,6 +212,13 @@ enum Cmd {
         approval: Option<OnOff>,
         #[arg(long, value_enum)]
         one_time: Option<OnOff>,
+        /// View only on or off (on only for a file that was sent view-only; off lets everyone
+        /// who opens it save it, and can't be taken back).
+        #[arg(long, value_enum)]
+        view_only: Option<OnOff>,
+        /// For a view-only file: whether recipients may ask to keep a copy.
+        #[arg(long, value_enum)]
+        share_requests: Option<OnOff>,
         /// Stop opening at this time (RFC 3339 UTC; not later than the signed expiry).
         #[arg(long)]
         expires: Option<String>,
@@ -568,6 +591,8 @@ async fn run(cli: Cli) -> Result<ExitCode> {
             to,
             no_approval,
             no_one_time,
+            view_only,
+            allow_share_requests,
             expires,
             output,
             force,
@@ -579,12 +604,17 @@ async fn run(cli: Cli) -> Result<ExitCode> {
                     to,
                     no_approval,
                     no_one_time,
+                    view_only,
+                    allow_share_requests,
                     expires,
                     output,
                     force,
                 },
             )
             .await
+        }
+        Cmd::Keep { target, wait } => {
+            personal::keep(&personal::client(config)?, &target, wait).await
         }
         Cmd::Requests => personal::requests(&personal::client(config)?).await,
         Cmd::Approve { request_id } => {
@@ -598,6 +628,8 @@ async fn run(cli: Cli) -> Result<ExitCode> {
             target,
             approval,
             one_time,
+            view_only,
+            share_requests,
             expires,
             revoke,
             revoke_for,
@@ -608,6 +640,8 @@ async fn run(cli: Cli) -> Result<ExitCode> {
                     target,
                     approval: approval.map(OnOff::on),
                     one_time: one_time.map(OnOff::on),
+                    view_only: view_only.map(OnOff::on),
+                    share_requests: share_requests.map(OnOff::on),
                     expires,
                     revoke,
                     revoke_for,

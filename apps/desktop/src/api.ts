@@ -131,6 +131,8 @@ export interface AppState {
   presence_active: boolean;
   /** This build checks for updates. */
   updates_available: boolean;
+  /** This computer can show view-only files (not Linux). */
+  view_supported: boolean;
 }
 
 /** A newer release, verified against the release key built into the app. */
@@ -180,6 +182,8 @@ export interface StatusView {
   post_quantum: boolean;
   /** Suite ID: 1 = SVX-1, 3 = SVX-1H, 4 = SVX-2. */
   suite_id: number;
+  /** Signed as view-only: shown in the app, never written to disk. */
+  view_only: boolean;
 }
 
 export interface Progress {
@@ -319,6 +323,10 @@ export interface FileRules {
   require_approval: boolean;
   one_time: boolean;
   expires_at: number | null;
+  /** Recipients can view it in the app but not save it. */
+  view_only: boolean;
+  /** For a view-only file: recipients may ask to keep a copy. */
+  allow_share_requests: boolean;
 }
 
 export interface PersonalSendRequest {
@@ -327,6 +335,8 @@ export interface PersonalSendRequest {
   require_approval: boolean;
   one_time: boolean;
   expires_at: number | null;
+  view_only: boolean;
+  allow_share_requests: boolean;
 }
 
 export interface SendResult {
@@ -355,6 +365,8 @@ export interface SentFile {
   created_at: number;
   signed_expires_at: number | null;
   rules: FileRules;
+  /** Sent as view-only: view-only can be switched back on for this file (and no other). */
+  signed_view_only: boolean;
   revoked_at: number | null;
   recipients: RecipientStatus[];
   file_name: string | null;
@@ -368,6 +380,7 @@ export interface ReceivedFile {
   state: RecipientState;
   requested_at: number | null;
   opened_at: number | null;
+  view_only: boolean;
   file_name: string | null;
 }
 
@@ -392,8 +405,34 @@ export interface UpdateFileRequest {
   require_approval?: boolean;
   one_time?: boolean;
   expires_at?: number;
+  view_only?: boolean;
+  allow_share_requests?: boolean;
   revoke?: boolean;
   revoke_recipients?: string[];
+}
+
+/** Whether a file can be sent view-only, and why not (from Rust). */
+export interface ViewCheck {
+  ok: boolean;
+  /** An Office file: converted to PDF for viewing; the original is what "keep a copy" saves. */
+  office: boolean;
+  reason: string | null;
+}
+
+export type ShareState = "unrestricted" | "forbidden" | "not_requested" | "pending" | "approved" | "declined";
+
+export interface ShareStatus {
+  artifact_id: string;
+  state: ShareState;
+  expires_at: number | null;
+}
+
+/** What the viewer window may know: layout and names, never the document. */
+export interface ViewInfo {
+  file_name: string;
+  sender: string;
+  /** Each page's natural [width, height]. */
+  pages: [number, number][];
 }
 
 export type PickKind =
@@ -499,6 +538,15 @@ export const api = {
   updateFile: (artifactId: string, update: UpdateFileRequest) =>
     call<SentFile>("update_file", { artifactId, update }),
   cancelOpen: () => call<void>("cancel_open"),
+  viewCheck: (path: string) => call<ViewCheck>("view_check", { path }),
+  viewOpen: (path: string) => call<void>("view_open", { path }),
+  viewInfo: (id: number) => call<ViewInfo>("view_info", { id }),
+  /** 8 bytes (width, height as little-endian u32), then RGBA rows, watermark burned in. */
+  viewPage: (id: number, page: number, width: number) =>
+    call<ArrayBuffer>("view_page", { id, page, width }),
+  viewShare: (id: number, ask: boolean) => call<ShareStatus>("view_share", { id, ask }),
+  viewSave: (id: number) => call<OpenResult>("view_save", { id }),
+  viewClose: () => call<void>("view_close"),
   setOutputDir: () => call<string | null>("set_output_dir"),
   signOut: () => call<void>("sign_out"),
   pick: (kind: PickKind) => call<string | null>("pick", { kind }),

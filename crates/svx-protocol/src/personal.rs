@@ -199,6 +199,10 @@ pub struct FileStatus {
     /// Expiry signed into the file.
     pub signed_expires_at: Option<i64>,
     pub rules: FileRules,
+    /// Sent as view-only: the flag is signed into the file, so view-only
+    /// can be switched back on for it (and for no other file).
+    #[serde(default)]
+    pub signed_view_only: bool,
     pub revoked_at: Option<i64>,
     pub recipients: Vec<RecipientStatus>,
 }

@@ -72,6 +72,8 @@ decides.
 
 Calls are delivered asynchronously, in order.
 
+View-only files (personal accounts) are shown only in the desktop app: `open` of one throws `AccessDeniedError` with `denyReason === "view_only"` unless the sender allowed a copy (the CLI's `svx keep` asks for it); a company open refuses it as `RejectedError`.
+
 ### Login
 
 `open` signs in through the system browser every time, using the RFC 8252

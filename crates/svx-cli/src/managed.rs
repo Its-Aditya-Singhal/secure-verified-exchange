@@ -77,6 +77,11 @@ pub fn report(e: &ClientError) -> ExitCode {
                     }
                 }
             );
+            if *r == DenyReason::ViewOnly {
+                eprintln!(
+                    "View it in the SVX desktop app, or ask the sender to let you keep a copy: svx keep FILE"
+                );
+            }
         }
         ClientError::Expired => eprintln!("ACCESS DENIED\nReason: artifact expired"),
         ClientError::Rejected(why) => eprintln!("REJECTED: {why}\nNothing was decrypted."),
