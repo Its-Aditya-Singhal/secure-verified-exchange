@@ -185,7 +185,10 @@ The website never receives, encrypts or decrypts files.
 - [x] ~~12 fuzz targets; long local runs (`scripts/fuzz-local.sh`, corpus kept between runs)~~
 - [x] ~~`cargo-audit` in the local preflight (`scripts/preflight.sh`); CI keeps `cargo-deny`, which checks the same RustSec database against the real dependency graph~~
 - [ ] Manual tests by the user: email account in the app; Touch ID prompts; self-update 0.1.0 → 0.1.1
-- [ ] Production: Google OAuth client, Gmail SMTP account
+- [ ] Production (free, by the user, when going live):
+  - [ ] a Gmail address with an app password, for sending code and approval emails (steps in `docs/personal.md`, "Production setup")
+  - [ ] a Google OAuth client ("Desktop app" client ID) for Continue with Google
+- [ ] **Open issue:** self-update fails at install with "StartingBinary found current_exe() that contains a symlink on a non-allowed platform: /tmp" (2026-10-04 manual test: 0.1.0 found and offered 0.1.1, Install failed). macOS `/tmp` is a symlink to `/private/tmp`, and the Tauri updater refuses to replace an app whose path contains a symlink. Fix next session: test from a real path (e.g. `~/Applications` or `/private/tmp`), make `docs/releasing.md` and `scripts/release.sh` use one, show a clear message when the app runs from a symlinked or read-only location, then repeat the 0.1.0 → 0.1.1 test.
 - [ ] Compatibility test suite across versions and platforms
 - [ ] Independent external security review
 - [ ] Public beta
