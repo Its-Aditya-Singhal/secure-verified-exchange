@@ -12,7 +12,7 @@ use std::sync::LazyLock;
 
 use axum::Json;
 use axum::body::Bytes;
-use axum::extract::State;
+use axum::extract::{Extension, State};
 use axum::http::{HeaderMap, Method, Uri};
 use sha2::{Digest, Sha256};
 use svx_core::crypto::{
@@ -28,6 +28,7 @@ use tokio::sync::Semaphore;
 
 use super::personal::{Existing, Identity, authenticate, bind_device, valid_email};
 use crate::error::{ApiError, ApiResult};
+use crate::limits::{ClientIp, HOUR, check_ip, email_budget};
 use crate::notify::Email;
 use crate::{AppState, audit};
 
@@ -97,10 +98,13 @@ async fn email_account_org(st: &AppState, email_lc: &str) -> ApiResult<Option<St
 /// `POST /v1/auth/email/code`
 pub async fn send_code(
     State(st): State<AppState>,
+    ip: Option<Extension<ClientIp>>,
     Json(req): Json<EmailCodeRequest>,
 ) -> ApiResult<Json<EmailCodeResponse>> {
     let (email, email_lc) = normalize(&req.email)?;
     let now = unix_now();
+    let lim = st.limits.codes_per_ip_per_hour;
+    check_ip(&st, ip.map(|e| e.0), "codes", lim, HOUR)?;
     if !st.limiter.allow("email-codes", CODES_PER_MINUTE) {
         return Err(ApiError::Conflict(
             "the service is busy; try again in a minute".into(),
@@ -126,6 +130,13 @@ pub async fn send_code(
     if last.is_some_and(|t| now - t < CODE_INTERVAL_SECS) {
         return Err(ApiError::Conflict(
             "a code was just sent; wait half a minute before asking again".into(),
+        ));
+    }
+    // Counted whether or not this address gets the email, so the answer
+    // still doesn't tell who has an account.
+    if !email_budget(&st) {
+        return Err(ApiError::TooMany(
+            "the service has sent too many emails today; try again tomorrow".into(),
         ));
     }
     let challenge = random_bytes::<16>();
@@ -323,8 +334,10 @@ fn strong_enough(password: &str, inputs: &[&str]) -> ApiResult<()> {
 /// device's keys for one.
 pub async fn account(
     State(st): State<AppState>,
+    ip: Option<Extension<ClientIp>>,
     Json(req): Json<EmailAccountRequest>,
 ) -> ApiResult<Json<Account>> {
+    let ip = ip.map(|e| e.0);
     let (email, email_lc) = normalize(&req.email)?;
     let signing = VerifyingKey::from_kind_bytes(KeyKind::MaxSigning, &req.signing_public)
         .map_err(|_| bad("signing_public must be an Ed25519 + ML-DSA-87 + SLH-DSA key"))?;
@@ -367,6 +380,7 @@ pub async fn account(
                 &kem,
                 false,
                 Existing::Refuse,
+                ip,
             )
             .await?
         }
@@ -389,6 +403,7 @@ pub async fn account(
                 &kem,
                 req.keys == KeyMode::Reset,
                 Existing::Require,
+                ip,
             )
             .await?
         }

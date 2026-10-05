@@ -1,0 +1,10 @@
+#!/bin/sh
+# svx-admin with the service's database settings, run as the svx user.
+# Install as /usr/local/bin/svx-admin (the binary goes to
+# /usr/local/lib/svx/svx-admin) and use it with sudo:
+#   sudo svx-admin stats
+set -eu
+set -a
+. /etc/svx/db.env
+set +a
+exec setpriv --reuid=svx --regid=svx --init-groups /usr/local/lib/svx/svx-admin "$@"

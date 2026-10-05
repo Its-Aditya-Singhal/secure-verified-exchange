@@ -13,6 +13,8 @@ pub enum ApiError {
     Unauthorized,
     NotFound,
     Conflict(String),
+    /// Over an abuse limit (HTTP 429, with a detail the app shows).
+    TooMany(String),
     Internal(String),
 }
 
@@ -48,6 +50,11 @@ impl IntoResponse for ApiError {
                 Some("not found".into()),
             ),
             ApiError::Conflict(d) => (StatusCode::CONFLICT, DenyReason::InvalidRequest, Some(d)),
+            ApiError::TooMany(d) => (
+                StatusCode::TOO_MANY_REQUESTS,
+                DenyReason::InvalidRequest,
+                Some(d),
+            ),
             ApiError::Internal(e) => {
                 // Never echo internal errors to clients.
                 tracing::error!(error = %e, "internal error");

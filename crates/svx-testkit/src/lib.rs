@@ -132,7 +132,8 @@ async fn serve(router: axum::Router) -> String {
 fn serve_on(l: tokio::net::TcpListener, router: axum::Router) -> String {
     let url = format!("http://{}", l.local_addr().unwrap());
     tokio::spawn(async move {
-        let _ = axum::serve(l, router).await;
+        let service = router.into_make_service_with_connect_info::<std::net::SocketAddr>();
+        let _ = axum::serve(l, service).await;
     });
     url
 }
@@ -148,6 +149,18 @@ impl World {
             return None;
         };
         Some(World::connect(&admin_url, "t").await)
+    }
+
+    /// [`World::new`] with options (e.g. small abuse limits).
+    pub async fn with_options(opts: &WorldOptions) -> Option<World> {
+        let Ok(admin_url) = std::env::var("SVX_TEST_DATABASE_URL") else {
+            if std::env::var_os("SVX_REQUIRE_DB").is_some() {
+                panic!("SVX_TEST_DATABASE_URL must be set when SVX_REQUIRE_DB is set");
+            }
+            eprintln!("skipping: SVX_TEST_DATABASE_URL not set");
+            return None;
+        };
+        Some(World::connect_with(&admin_url, "t", opts).await)
     }
 
     /// Start a fresh world with two new databases created through
@@ -260,6 +273,8 @@ impl World {
             }]),
             notifier: mail.clone(),
             limiter: Arc::new(RateLimiter::default()),
+            limits: opts.limits.unwrap_or_default(),
+            client_ip_header: Some(axum::http::HeaderName::from_static(CLIENT_IP_HEADER)),
             records: Arc::new(RecordCache::default()),
             updates: Some(Arc::new(updates_dir.clone())),
             dev: true,
@@ -799,7 +814,13 @@ pub struct WorldOptions {
     /// Publish app updates from here (default: a new temporary directory,
     /// removed by [`World::cleanup`]).
     pub updates_dir: Option<PathBuf>,
+    /// Abuse limits (default: production's).
+    pub limits: Option<svx_server::limits::Limits>,
 }
+
+/// The header tests use to act from another network address (the service
+/// trusts it like `CF-Connecting-IP` in production).
+pub const CLIENT_IP_HEADER: &str = "x-svx-test-client-ip";
 
 /// What [`World::write_state`] writes to `state.json`.
 #[derive(Clone, Debug, Serialize)]

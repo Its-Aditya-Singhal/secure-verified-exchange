@@ -210,6 +210,11 @@ People without Google create an account with an email address and a password; th
   - **After the sender approves a copy,** the saved file is an ordinary file; approving can't be taken back.
 - **Related:** T4 (a copy of a decrypted file), T10 (a compromised recipient endpoint), T16 (hostile input).
 
+### T30. Abuse of the public service (floods, sign-up and email spam)
+- **Threat:** strangers flood the free public service (a small VM), create accounts in bulk, use sign-up codes to send email to arbitrary addresses (burning the mail account's daily quota or reputation), poll releases or registry lookups to exhaust CPU (SLH-DSA signing), or fill the database with files.
+- **What the design does:** per-address limits on all requests, codes, new accounts, company registrations and registry lookups (IPv6 counted per /64); per-account limits on files, releases and share requests; a daily email budget below the provider's cap; at most two registry signatures at a time; existing per-address code limits, password lock-out and a hashing semaphore. Behind Cloudflare the address comes from `CF-Connecting-IP`, trusted only because the firewall admits only Cloudflare's ranges. The operator can suspend an account (no sign-in, no record, its files stop opening) or erase it (`svx-admin`). ✅ (`crates/svx-server/tests/abuse.rs`)
+- **What is *not* stopped:** a distributed attack from many addresses (Cloudflare's own protection is the only defence there), counters reset when the service restarts, and a determined sender with many addresses can still create accounts within the per-address limits. Erasure keeps entries about the erased account in other accounts' audit logs.
+
 ## 5. Security claims we will make (after review)
 
 - "Encrypted before transfer."

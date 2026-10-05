@@ -148,6 +148,7 @@ async fn run(cli: Cli) -> Result<ExitCode> {
                 &svx_testkit::WorldOptions {
                     service_port,
                     updates_dir,
+                    ..Default::default()
                 },
             )
             .await?;

@@ -19,6 +19,7 @@ use svx_oidc::Validator;
 use svx_protocol::personal::PersonalIdp;
 use svx_server::dns::SystemDns;
 use svx_server::keys::{KeyProvider, LocalKeys};
+use svx_server::limits::Limits;
 use svx_server::notify::{LogNotifier, SmtpNotifier};
 use svx_server::{AppState, RateLimiter, RecordCache, app};
 
@@ -65,6 +66,16 @@ struct Args {
     /// packages it names, served under /v1/updates.
     #[arg(long, env = "SVX_UPDATES_DIR")]
     updates_dir: Option<PathBuf>,
+    /// Read the client's address from this header, set by a proxy in front
+    /// of the service (Cloudflare: `CF-Connecting-IP`). Only when the
+    /// firewall admits nothing but that proxy: otherwise anyone can claim
+    /// any address. Without it, the connection's address is used.
+    #[arg(long, env = "SVX_CLIENT_IP_HEADER")]
+    client_ip_header: Option<axum::http::HeaderName>,
+    /// Emails the service may send per day (codes and notifications); keep
+    /// it under the mail provider's limit.
+    #[arg(long, env = "SVX_MAX_EMAILS_PER_DAY", default_value_t = Limits::default().emails_per_day)]
+    max_emails_per_day: u32,
 }
 
 fn parse_personal_idp(s: &str) -> Result<PersonalIdp, String> {
@@ -134,22 +145,28 @@ async fn main() -> Result<()> {
             }
         },
         limiter: Arc::new(RateLimiter::default()),
+        limits: Limits {
+            emails_per_day: a.max_emails_per_day,
+            ..Limits::default()
+        },
+        client_ip_header: a.client_ip_header,
         records: Arc::new(RecordCache::default()),
         updates: a.updates_dir.map(Arc::new),
         dev: a.dev,
     };
     let router = app(state).await?;
     tracing::info!(listen = %a.listen, tls = a.tls_cert.is_some(), "svx-server starting");
+    let service = router.into_make_service_with_connect_info::<SocketAddr>();
     match (a.tls_cert, a.tls_key) {
         (Some(cert), Some(key)) => {
             let tls = axum_server::tls_rustls::RustlsConfig::from_pem_file(cert, key).await?;
             axum_server::bind_rustls(a.listen, tls)
-                .serve(router.into_make_service())
+                .serve(service)
                 .await?;
         }
         _ => {
             let listener = tokio::net::TcpListener::bind(a.listen).await?;
-            axum::serve(listener, router).await?;
+            axum::serve(listener, service).await?;
         }
     }
     Ok(())

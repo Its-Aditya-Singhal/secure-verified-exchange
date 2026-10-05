@@ -199,6 +199,24 @@ A sender can mark a file **view-only**: recipients see it inside the SVX desktop
   app asks the sender to confirm by another channel, and emails never
   contain links.
 
+## Abuse limits and operator commands
+
+The public service limits what one network address or one account can ask
+for (requests, emailed codes, new accounts, files, opens, share requests)
+and how many emails it sends a day; over a limit it answers HTTP 429 with a
+reason the app shows (release requests just say "unavailable"). Behind a
+proxy it counts the address from the proxy's header (`--client-ip-header`,
+only when the firewall admits nothing else). The numbers and the operator
+commands (`svx-admin stats | users | user | suspend | unsuspend | delete`)
+are in [`deploy/service/README.md`](../deploy/service/README.md).
+
+A **suspended** account can't sign in or make signed requests, has no
+registry record (nobody can find it or send to it), and its signing keys
+aren't trusted, so files it sent stop opening. **Deleting** an account
+erases its rows and its own audit log in one transaction (the audit
+trigger allows a `DELETE` only under `SET LOCAL svx.erasure = 'on'`; never
+an `UPDATE`); entries about it in other accounts' logs stay.
+
 ## Running it locally
 
 ```sh

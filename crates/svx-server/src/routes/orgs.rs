@@ -1,13 +1,14 @@
 //! Organization registration and domain verification.
 
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Extension, Path, State};
 use svx_core::crypto::random_bytes;
 use svx_core::format::Identifier;
 use svx_protocol::admin::{RegisterOrgRequest, RegisterOrgResponse, VerifyOrgRequest};
 use svx_protocol::{check_url, unix_now};
 
 use crate::error::{ApiError, ApiResult, is_unique_violation};
+use crate::limits::{ClientIp, DAY, check_ip};
 use crate::{AppState, audit, db};
 
 /// Pending registrations older than this can be taken over (anti-squatting).
@@ -42,8 +43,16 @@ fn bad(msg: &str) -> ApiError {
 
 pub async fn register(
     State(st): State<AppState>,
+    ip: Option<Extension<ClientIp>>,
     Json(req): Json<RegisterOrgRequest>,
 ) -> ApiResult<Json<RegisterOrgResponse>> {
+    check_ip(
+        &st,
+        ip.map(|e| e.0),
+        "orgs",
+        st.limits.orgs_per_ip_per_day,
+        DAY,
+    )?;
     Identifier::new(&req.org_id).map_err(|_| bad("invalid org_id"))?;
     if !valid_domain(&req.domain) {
         return Err(bad("invalid domain"));

@@ -111,7 +111,20 @@ pub async fn queue(st: &AppState, dedupe_key: &str, email: Email) {
     .execute(&st.db)
     .await;
     match inserted {
-        Ok(r) if r.rows_affected() == 1 => st.notifier.deliver(email),
+        Ok(r) if r.rows_affected() == 1 => {
+            if crate::limits::email_budget(st) {
+                st.notifier.deliver(email);
+            } else {
+                // Over today's budget: keep it, marked unsent. The app
+                // shows the request anyway.
+                tracing::warn!("daily email budget used up: notification not sent");
+                let _ =
+                    sqlx::query("UPDATE notifications SET sent_at = NULL WHERE dedupe_key = $1")
+                        .bind(dedupe_key)
+                        .execute(&st.db)
+                        .await;
+            }
+        }
         Ok(_) => {}
         Err(e) => tracing::error!(error = %e, "could not queue a notification"),
     }

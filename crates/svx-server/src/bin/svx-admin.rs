@@ -1,0 +1,191 @@
+//! `svx-admin`: operator commands for the SVX service, run on the server.
+//!
+//! ```sh
+//! svx-admin stats
+//! svx-admin users [--search alice] [--limit 50]
+//! svx-admin user alice@example.com
+//! svx-admin suspend alice@example.com --reason "spam reports"
+//! svx-admin unsuspend alice@example.com
+//! svx-admin delete alice@example.com --yes
+//! ```
+//!
+//! Reads `DATABASE_URL`. Accounts are named by email address or account ID.
+
+use anyhow::{Context, Result, bail};
+use clap::{Parser, Subcommand};
+use sqlx::PgPool;
+use svx_server::admin_ops::{self, User};
+
+#[derive(Parser)]
+#[command(name = "svx-admin", version, about = "SVX service operator commands")]
+struct Args {
+    #[arg(long, env = "DATABASE_URL", hide_env_values = true)]
+    database_url: String,
+    #[command(subcommand)]
+    cmd: Cmd,
+}
+
+#[derive(Subcommand)]
+enum Cmd {
+    /// Counts: accounts, files, opens, database size.
+    Stats,
+    /// List accounts, newest first.
+    Users {
+        /// Match email, name or account ID.
+        #[arg(long)]
+        search: Option<String>,
+        #[arg(long, default_value_t = 50)]
+        limit: i64,
+    },
+    /// One account in detail.
+    User { who: String },
+    /// Stop an account: no sign-in, no requests, nobody can send it new
+    /// files, and files it sent stop opening.
+    Suspend {
+        who: String,
+        #[arg(long)]
+        reason: String,
+    },
+    /// Lift a suspension.
+    Unsuspend { who: String },
+    /// Erase an account and its data on request (cannot be undone).
+    Delete {
+        who: String,
+        /// Confirm the erasure.
+        #[arg(long)]
+        yes: bool,
+    },
+}
+
+fn when(t: Option<i64>) -> String {
+    t.map(|t| {
+        let days = t.div_euclid(86_400);
+        let (y, m, d) = civil(days);
+        format!("{y:04}-{m:02}-{d:02}")
+    })
+    .unwrap_or_else(|| "-".into())
+}
+
+/// Days since 1970-01-01 to a calendar date (proleptic Gregorian).
+fn civil(z: i64) -> (i64, i64, i64) {
+    let z = z + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    (yoe + era * 400 + i64::from(m <= 2), m, d)
+}
+
+async fn account(db: &PgPool, who: &str) -> Result<User> {
+    admin_ops::find(db, who)
+        .await?
+        .with_context(|| format!("no personal account {who:?}"))
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let a = Args::parse();
+    let db = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .connect(&a.database_url)
+        .await
+        .context("connecting to Postgres")?;
+    match a.cmd {
+        Cmd::Stats => println!("{}", admin_ops::stats(&db).await?),
+        Cmd::Users { search, limit } => {
+            let list = admin_ops::users(&db, search.as_deref(), limit).await?;
+            println!(
+                "{:<36} {:<24} {:<20} {:<7} {:<10} {:<10} STATUS",
+                "EMAIL", "NAME", "ACCOUNT", "SIGN-IN", "CREATED", "ACTIVE"
+            );
+            for u in &list {
+                println!(
+                    "{:<36} {:<24} {:<20} {:<7} {:<10} {:<10} {}",
+                    u.email,
+                    u.name(),
+                    u.org_id,
+                    u.sign_in(),
+                    when(Some(u.created_at)),
+                    when(u.last_active),
+                    if u.suspended_at.is_some() {
+                        "suspended"
+                    } else {
+                        "ok"
+                    }
+                );
+            }
+            println!("{} shown", list.len());
+        }
+        Cmd::User { who } => {
+            let u = account(&db, &who).await?;
+            let act = admin_ops::activity(&db, &u.org_id).await?;
+            println!("email          {}", u.email);
+            println!("name           {}", u.name());
+            println!("account        {}", u.org_id);
+            println!("sign-in        {}", u.sign_in());
+            println!("created        {}", when(Some(u.created_at)));
+            println!("last active    {}", when(u.last_active));
+            match u.suspended_at {
+                Some(t) => println!(
+                    "status         suspended {} ({})",
+                    when(Some(t)),
+                    u.suspended_reason.as_deref().unwrap_or("")
+                ),
+                None => println!("status         ok"),
+            }
+            println!("files sent     {}", act.files_sent);
+            println!("files received {}", act.files_received);
+            println!("opens          {}", act.opens);
+            println!("pending        {} approval requests", act.pending_approvals);
+            println!("active keys    {}", act.active_keys);
+        }
+        Cmd::Suspend { who, reason } => {
+            let u = account(&db, &who).await?;
+            if reason.trim().is_empty() {
+                bail!("give a reason (--reason)");
+            }
+            if admin_ops::suspend(&db, &u.org_id, reason.trim()).await? {
+                println!("suspended {} ({})", u.email, u.org_id);
+            } else {
+                println!("{} was already suspended", u.email);
+            }
+        }
+        Cmd::Unsuspend { who } => {
+            let u = account(&db, &who).await?;
+            if admin_ops::unsuspend(&db, &u.org_id).await? {
+                println!("{} ({}) can use SVX again", u.email, u.org_id);
+            } else {
+                println!("{} was not suspended", u.email);
+            }
+        }
+        Cmd::Delete { who, yes } => {
+            let u = account(&db, &who).await?;
+            if !yes {
+                bail!(
+                    "this erases {} ({}) and every file they sent, for good; add --yes to confirm",
+                    u.email,
+                    u.org_id
+                );
+            }
+            if admin_ops::erase(&db, &u.org_id).await? {
+                println!("erased {} ({})", u.email, u.org_id);
+            } else {
+                bail!("{} disappeared before it could be erased", u.email);
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn dates() {
+        assert_eq!(super::civil(0), (1970, 1, 1));
+        assert_eq!(super::civil(20_731), (2026, 10, 5));
+        assert_eq!(super::civil(11_016), (2000, 2, 29));
+    }
+}

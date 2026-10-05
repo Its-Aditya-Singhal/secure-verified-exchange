@@ -40,6 +40,8 @@ pub mod event {
     pub const SHARE_REQUESTED: &str = "share_requested";
     pub const SHARE_GRANTED: &str = "share_granted";
     pub const SHARE_DECLINED: &str = "share_declined";
+    pub const ACCOUNT_SUSPENDED: &str = "account_suspended";
+    pub const ACCOUNT_UNSUSPENDED: &str = "account_unsuspended";
 }
 
 /// One event to append.

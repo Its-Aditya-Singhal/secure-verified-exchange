@@ -8,7 +8,7 @@
 
 use axum::Json;
 use axum::body::Bytes;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Extension, Path, Query, State};
 use axum::http::{HeaderMap, Method, Uri};
 use serde::Deserialize;
 use sqlx::FromRow;
@@ -30,6 +30,7 @@ use svx_protocol::{
 use super::public::signed_org_record;
 use super::release::verified_head;
 use crate::error::{ApiError, ApiResult, is_unique_violation};
+use crate::limits::{ClientIp, DAY, HOUR, MINUTE, TOO_MANY_ACCOUNT, account_allows, check_ip};
 use crate::notify::{self, Email};
 use crate::{AppState, audit, db};
 
@@ -41,9 +42,21 @@ pub const APPROVAL_TTL_SECS: i64 = 24 * 3600;
 pub const ONE_TIME_RETRY_SECS: i64 = 600;
 /// Directory lookups per account per minute.
 const DIRECTORY_PER_MINUTE: u32 = 30;
+/// Shown to the owner of a suspended account.
+pub(crate) const SUSPENDED: &str =
+    "this account is suspended; contact support if you think this is a mistake";
 
 fn deny(r: DenyReason) -> ApiError {
     ApiError::Deny(r)
+}
+
+/// Release endpoints answer without detail: a suspended account is
+/// simply not authorized.
+fn quiet(e: ApiError) -> ApiError {
+    match e {
+        ApiError::Conflict(_) => ApiError::Unauthorized,
+        e => e,
+    }
 }
 
 fn bad(msg: &str) -> ApiError {
@@ -83,6 +96,19 @@ async fn account_by_org(st: &AppState, org_id: &str) -> ApiResult<Option<Persona
     .await?)
 }
 
+/// Whether `svx-admin suspend` suspended this account.
+pub(crate) async fn is_suspended(db: impl sqlx::PgExecutor<'_>, org_id: &str) -> ApiResult<bool> {
+    Ok(
+        sqlx::query_scalar::<_, bool>(
+            "SELECT suspended_at IS NOT NULL FROM orgs WHERE org_id = $1",
+        )
+        .bind(org_id)
+        .fetch_optional(db)
+        .await?
+        .unwrap_or(false),
+    )
+}
+
 async fn email_of(st: &AppState, org_id: &str) -> ApiResult<Option<String>> {
     Ok(account_by_org(st, org_id).await?.map(|a| a.email))
 }
@@ -116,6 +142,9 @@ pub(crate) async fn authenticate(
     if auth.verify(&key, method.as_str(), path, body, now).is_err() {
         return Err(ApiError::Unauthorized);
     }
+    if is_suspended(&st.db, &account.org_id).await? {
+        return Err(ApiError::Conflict(SUSPENDED.into()));
+    }
     // Each signed request is accepted once.
     sqlx::query("DELETE FROM request_nonces WHERE at < $1")
         .bind(now - 600)
@@ -148,6 +177,7 @@ pub(crate) async fn authenticate(
 /// `POST /v1/accounts`: sign up, or register this device's keys.
 pub async fn sign_up(
     State(st): State<AppState>,
+    ip: Option<Extension<ClientIp>>,
     Json(req): Json<SignUpRequest>,
 ) -> ApiResult<Json<Account>> {
     let idp = st
@@ -189,6 +219,7 @@ pub async fn sign_up(
         &kem,
         req.reset,
         Existing::Allow,
+        ip.map(|e| e.0),
     )
     .await?;
     Ok(Json(account.to_wire()))
@@ -229,6 +260,7 @@ pub(crate) async fn bind_device(
     kem: &KemPublicKey,
     reset: bool,
     existing_ok: Existing,
+    ip: Option<ClientIp>,
 ) -> ApiResult<PersonalAccount> {
     let now = unix_now();
     let mut tx = st.db.begin().await?;
@@ -249,6 +281,7 @@ pub(crate) async fn bind_device(
             return Err(bad("wrong email address, password or code"));
         }
         None => {
+            check_ip(st, ip, "accounts", st.limits.accounts_per_ip_per_day, DAY)?;
             let taken: bool = sqlx::query_scalar(
                 "SELECT EXISTS (SELECT 1 FROM personal_accounts WHERE lower(email) = lower($1))",
             )
@@ -331,6 +364,9 @@ pub(crate) async fn bind_device(
             ));
         }
         Some(a) => {
+            if is_suspended(&mut *tx, &a.org_id).await? {
+                return Err(ApiError::Conflict(SUSPENDED.into()));
+            }
             let active: Vec<Vec<u8>> = sqlx::query_scalar(
                 "SELECT key_id FROM org_keys WHERE org_id = $1 AND status = 'active'",
             )
@@ -715,6 +751,10 @@ pub async fn register_file(
     body: Bytes,
 ) -> ApiResult<Json<FileStatus>> {
     let me = authenticate(&st, &method, &uri, &headers, &body).await?;
+    let lim = st.limits.files_per_account_per_day;
+    if !account_allows(&st, &me.org_id, "files", lim, DAY) {
+        return Err(ApiError::TooMany(TOO_MANY_ACCOUNT.into()));
+    }
     let req: RegisterFileRequest =
         serde_json::from_slice(&body).map_err(|e| bad(&format!("invalid request: {e}")))?;
     let head = verified_head(&st, &req.header_region, &req.trailer).await?;
@@ -959,7 +999,14 @@ pub async fn release(
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult<Json<PersonalReleaseResponse>> {
-    let me = authenticate(&st, &method, &uri, &headers, &body).await?;
+    // Release errors carry no detail.
+    let me = authenticate(&st, &method, &uri, &headers, &body)
+        .await
+        .map_err(quiet)?;
+    let lim = st.limits.releases_per_account_per_min;
+    if !account_allows(&st, &me.org_id, "release", lim, MINUTE) {
+        return Err(deny(DenyReason::Unavailable));
+    }
     let req: PersonalReleaseRequest =
         serde_json::from_slice(&body).map_err(|_| deny(DenyReason::InvalidRequest))?;
     let client_key = parse_client_key(&req.client_key).ok_or(deny(DenyReason::InvalidRequest))?;
@@ -1241,7 +1288,9 @@ pub async fn opened(
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult<Json<serde_json::Value>> {
-    let me = authenticate(&st, &method, &uri, &headers, &body).await?;
+    let me = authenticate(&st, &method, &uri, &headers, &body)
+        .await
+        .map_err(quiet)?;
     let r: OpenedReceipt =
         serde_json::from_slice(&body).map_err(|e| bad(&format!("invalid request: {e}")))?;
     sqlx::query(
@@ -1414,6 +1463,10 @@ pub async fn share_request(
     body: Bytes,
 ) -> ApiResult<Json<ShareStatus>> {
     let me = authenticate(&st, &method, &uri, &headers, &body).await?;
+    let lim = st.limits.shares_per_account_per_hour;
+    if !account_allows(&st, &me.org_id, "share", lim, HOUR) {
+        return Err(ApiError::TooMany(TOO_MANY_ACCOUNT.into()));
+    }
     let f = received_file(&st, &me, &artifact_hex).await?;
     let now = unix_now();
     let state = share_state(&st, &f, &me.org_id, now).await?;

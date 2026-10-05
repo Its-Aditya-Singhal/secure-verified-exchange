@@ -1,14 +1,20 @@
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Extension, Path, State};
 use svx_protocol::{
     OrgRecord, PROTOCOL_VERSION, ServiceInfo, ServiceRecord, SignedOrgRecord, SignedServiceRecord,
     unix_now,
 };
+use tokio::sync::Semaphore;
 
 use svx_protocol::personal::OrgKind;
 
 use crate::error::{ApiError, ApiResult};
+use crate::limits::{ClientIp, MINUTE, check_ip};
 use crate::{AppState, db};
+
+/// At most two SLH-DSA record signatures at once, so a burst of lookups
+/// can't occupy every CPU.
+static SIGNING: Semaphore = Semaphore::const_new(2);
 
 pub async fn service_info(State(st): State<AppState>) -> Json<ServiceInfo> {
     let registry = st.keys.registry_public();
@@ -42,6 +48,16 @@ where
     {
         return Ok(signed);
     }
+    let _permit = SIGNING
+        .acquire()
+        .await
+        .map_err(|e| ApiError::Internal(e.to_string()))?;
+    // Another request may have signed it while this one waited.
+    if let Some(bytes) = st.records.get(&cache_key, &content, now)
+        && let Ok(signed) = serde_json::from_slice(&bytes)
+    {
+        return Ok(signed);
+    }
     let keys = st.keys.clone();
     let signed = tokio::task::spawn_blocking(move || sign(keys.as_ref(), &record))
         .await
@@ -53,7 +69,12 @@ where
 }
 
 /// The service's public keys, signed by the registry key.
-pub async fn service_record(State(st): State<AppState>) -> ApiResult<Json<SignedServiceRecord>> {
+pub async fn service_record(
+    State(st): State<AppState>,
+    ip: Option<Extension<ClientIp>>,
+) -> ApiResult<Json<SignedServiceRecord>> {
+    let lim = st.limits.registry_per_ip_per_min;
+    check_ip(&st, ip.map(|e| e.0), "registry", lim, MINUTE)?;
     let now = unix_now();
     let record = ServiceRecord {
         v: PROTOCOL_VERSION,
@@ -77,8 +98,11 @@ pub async fn service_record(State(st): State<AppState>) -> ApiResult<Json<Signed
 /// The signed registry record of a verified organization.
 pub async fn org_record(
     State(st): State<AppState>,
+    ip: Option<Extension<ClientIp>>,
     Path(org): Path<String>,
 ) -> ApiResult<Json<SignedOrgRecord>> {
+    let lim = st.limits.registry_per_ip_per_min;
+    check_ip(&st, ip.map(|e| e.0), "registry", lim, MINUTE)?;
     Ok(Json(signed_org_record(&st, &org).await?))
 }
 

@@ -21,6 +21,8 @@ pub struct OrgRow {
     pub verified_at: Option<i64>,
     /// `company` or `personal`.
     pub kind: String,
+    /// Set by `svx-admin suspend`.
+    pub suspended_at: Option<i64>,
 }
 
 impl OrgRow {
@@ -62,8 +64,13 @@ pub async fn org(db: &PgPool, org_id: &str) -> Result<Option<OrgRow>, sqlx::Erro
         .await
 }
 
+/// An organization in good standing: verified and not suspended. A
+/// suspended one has no registry record, its signing keys are not trusted
+/// (so files it sent stop opening) and its admins are refused.
 pub async fn verified_org(db: &PgPool, org_id: &str) -> Result<Option<OrgRow>, sqlx::Error> {
-    Ok(org(db, org_id).await?.filter(|o| o.verified_at.is_some()))
+    Ok(org(db, org_id)
+        .await?
+        .filter(|o| o.verified_at.is_some() && o.suspended_at.is_none()))
 }
 
 pub async fn keys(db: &PgPool, org_id: &str) -> Result<Vec<KeyRow>, sqlx::Error> {

@@ -76,6 +76,10 @@ pub fn router(state: AppState) -> Router {
         )
         .route("/v1/updates/files/{name}", get(updates::file))
         .layer(DefaultBodyLimit::max(MAX_BODY))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::limits::per_ip,
+        ))
         .with_state(state)
 }
 
