@@ -24,7 +24,10 @@ step "supply chain (cargo-deny)"; cargo deny check
 # built. RUSTSEC-2023-0071 (rsa, timing) is only reachable through
 # sqlx-mysql: sqlx's lockfile entries name every driver, but only Postgres
 # is compiled (`cargo tree -i rsa --target all` prints nothing).
-step "advisories (cargo-audit)"; cargo audit --ignore RUSTSEC-2023-0071
+# RUSTSEC-2024-0429 (glib 0.18, unsound VariantStrIter) comes with Tauri's
+# GTK3 backend on Linux only; nothing here uses that iterator. Revisit when
+# Tauri moves off GTK3 (same as RUSTSEC-2024-0370 in deny.toml).
+step "advisories (cargo-audit)"; cargo audit --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2024-0429
 step "no hand-written unsafe in the FFI crates"
 if grep -rnw unsafe crates/svx-py/src crates/svx-node/src; then exit 1; fi
 step "test vectors reproducible"

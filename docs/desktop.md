@@ -106,6 +106,7 @@ All administration happens here (there is no web portal). Sign in with your comp
 
 - The web view loads only the bundled UI under a strict Content Security Policy (no remote content, no inline script). All values are rendered as text, never as HTML.
 - The UI has no file-system or shell permissions of its own. File pickers, **Show in Finder** and **Open** are app commands, and the last two only accept paths the app itself produced in this session. Commands that write files (key export, audit export) open their own save dialog; the UI never supplies a path to write to.
+- Each window may call only the commands granted to it: every app command has a permission (`build.rs`), the main window gets them all (`capabilities/default.json`), and a view-only viewer window only its own `view_*` commands and Show in Finder (`capabilities/viewer.json`).
 - Signing keys created in the app live in the OS keychain and are used inside the Rust layer; they never reach the UI.
 - Sign-in uses the system browser with a loopback redirect (RFC 8252) and a nonce bound to a fresh one-time MLKEM1024-P384 key per open, exactly as in the CLI. Connections to the service and key agent use post-quantum TLS (X25519MLKEM768).
 - Development mode (local stacks only) allows plain http and test users; the app shows a **dev** badge. Never use it with real data.

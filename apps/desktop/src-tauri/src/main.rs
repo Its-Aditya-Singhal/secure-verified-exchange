@@ -651,8 +651,11 @@ async fn set_output_dir(handle: AppHandle, app: State<'_, App>) -> Result<Option
 }
 
 #[tauri::command]
-fn sign_out(app: State<'_, App>) -> Result<()> {
-    app.sign_out()
+fn sign_out(handle: AppHandle, app: State<'_, App>, views: State<'_, viewer::Views>) -> Result<()> {
+    app.sign_out()?;
+    // The open views carry this account's watermark: they end with it.
+    close_views(&handle, &views);
+    Ok(())
 }
 
 // ----- Onboarding (Phase 5b) -----
@@ -1075,5 +1078,61 @@ mod tests {
     #[test]
     fn only_macos_has_the_rule() {
         assert_eq!(symlinked_location(std::path::Path::new("/tmp/x")), None);
+    }
+}
+
+#[cfg(test)]
+mod permissions {
+    /// Names between `start` and the closing `]` that follows it.
+    fn names(src: &str, start: &str) -> Vec<String> {
+        let rest = &src[src.find(start).expect("list start") + start.len()..];
+        rest[..rest.find(']').expect("list end")]
+            .split(',')
+            .map(|s| s.trim().trim_matches('"').to_owned())
+            .filter(|s| !s.is_empty())
+            .collect()
+    }
+
+    fn capability(json: &str) -> Vec<String> {
+        let v: serde_json::Value = serde_json::from_str(json).unwrap();
+        v["permissions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p.as_str().unwrap().to_owned())
+            .collect()
+    }
+
+    /// A command missing from build.rs would get no permission and be
+    /// callable from every window, the viewer's included. Every gated
+    /// command must be granted to some window, or it could never be called.
+    #[test]
+    fn every_command_is_gated() {
+        let mut handled = names(include_str!("main.rs"), "generate_handler![");
+        let mut gated = names(include_str!("../build.rs"), "const COMMANDS: &[&str] = &[");
+        handled.sort();
+        gated.sort();
+        assert_eq!(handled, gated);
+        let mut granted = capability(include_str!("../capabilities/default.json"));
+        granted.extend(capability(include_str!("../capabilities/viewer.json")));
+        for cmd in &gated {
+            let p = format!("allow-{}", cmd.replace('_', "-"));
+            assert!(granted.contains(&p), "{p} is granted to no window");
+        }
+    }
+
+    /// A viewer window gets its own commands and nothing else.
+    #[test]
+    fn the_viewer_can_only_view() {
+        let viewer = capability(include_str!("../capabilities/viewer.json"));
+        for p in &viewer {
+            let cmd = p.strip_prefix("allow-").expect("only allow- permissions");
+            assert!(cmd.starts_with("view-") || cmd == "reveal", "{p}");
+            assert!(cmd != "view-open" && cmd != "view-check", "{p}");
+        }
+        let main = capability(include_str!("../capabilities/default.json"));
+        for cmd in ["send", "approve", "sign-out", "open", "view-open"] {
+            assert!(main.contains(&format!("allow-{cmd}")), "{cmd}");
+        }
     }
 }
