@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Download the beta · SVX</title>
+<meta name="description" content="Download the SVX beta for macOS, Windows and Linux, with checksums and first-launch instructions.">
+<meta name="theme-color" content="#16171B">
+<meta property="og:title" content="Download the beta · SVX">
+<meta property="og:description" content="Download the SVX beta for macOS, Windows and Linux, with checksums and first-launch instructions.">
+<meta property="og:type" content="website">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preload" href="assets/fonts/unbounded-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/plex-sans-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/css/site.css">
+<script src="assets/js/boot.js"></script>
+<script src="assets/vendor/gsap.min.js" defer></script>
+<script src="assets/vendor/ScrollTrigger.min.js" defer></script>
+<script type="module" src="assets/js/site.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap nav__in">
+    <a class="nav__logo" href="index.html" aria-label="SVX home">
+      <img class="logo-d" src="assets/brand/logo-lockup-dark.svg" alt="SVX" width="133" height="30">
+      <img class="logo-l" src="assets/brand/logo-lockup.svg" alt="SVX" width="133" height="30">
+    </a>
+    <nav aria-label="Main">
+      <ul class="nav__links" id="nav-links">
+        <li><a href="security.html">How it works</a></li>
+        <li><a href="security.html#technical">Security</a></li>
+        <li><a href="download.html" aria-current="page">Download</a></li>
+        <li><a href="docs.html">Docs &amp; FAQ</a></li>
+      </ul>
+    </nav>
+    <div class="nav__tools">
+      <button class="icon-btn" type="button" data-theme-toggle aria-pressed="false" aria-label="Switch to light theme">
+        <svg class="theme-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>
+        <svg class="theme-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></svg>
+      </button>
+      <a class="btn btn--primary btn--sm nav__cta" href="download.html" data-magnetic><span class="when-live">Download</span><span class="when-soon">Get the beta</span> <span class="beta">Beta</span></a>
+      <button class="icon-btn nav__menu" type="button" aria-expanded="false" aria-controls="nav-links" aria-label="Menu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 8h16M4 16h16"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+<main id="main">
+
+<section class="page-hero">
+  <div class="wrap">
+    <p class="eyebrow" data-r>Download · Beta</p>
+    <h1 class="h1" data-split>Get SVX for your desktop.</h1>
+    <p class="lead when-live" data-r style="--d:.3s">SVX is in beta on macOS, Windows and Linux. Read the note below before you install: your computer will warn you the first time.</p>
+    <p class="lead when-soon" data-r style="--d:.3s">The beta for macOS, Windows and Linux opens soon. The download links will appear on this page, with a checksum for each file. Here is what to expect when you install.</p>
+  </div>
+</section>
+<section class="section--tight" style="padding-top:0" aria-label="Downloads">
+  <div class="wrap">
+    <div class="dl" data-r>
+      
+      <article class="dl__card" id="mac" data-os="mac">
+        <div class="dl__top"><span class="beta">Beta</span><span class="dl__yours">Your system</span></div>
+        <h2>macOS</h2>
+        <p class="dl__meta">SVX-beta-macOS.dmg</p>
+        <a class="btn btn--primary btn--lg when-live" href="downloads/SVX-beta-macOS.dmg" download data-magnetic>Download for macOS <span class="beta">Beta</span></a>
+        <span class="btn btn--lg btn--off when-soon" aria-disabled="true">Coming soon</span>
+        <div class="sum when-live">
+          <span class="sum__label" id="sum-mac-l">SHA-256</span>
+          <div class="sum__box"><code id="sum-mac" aria-labelledby="sum-mac-l">Published with the build</code><button class="copy" type="button" data-copy="sum-mac" aria-label="Copy macOS checksum">Copy</button></div>
+        </div>
+      </article>
+      
+      <article class="dl__card" id="win" data-os="win">
+        <div class="dl__top"><span class="beta">Beta</span><span class="dl__yours">Your system</span></div>
+        <h2>Windows</h2>
+        <p class="dl__meta">SVX-beta-Windows.msi</p>
+        <a class="btn btn--primary btn--lg when-live" href="downloads/SVX-beta-Windows.msi" download data-magnetic>Download for Windows <span class="beta">Beta</span></a>
+        <span class="btn btn--lg btn--off when-soon" aria-disabled="true">Coming soon</span>
+        <div class="sum when-live">
+          <span class="sum__label" id="sum-win-l">SHA-256</span>
+          <div class="sum__box"><code id="sum-win" aria-labelledby="sum-win-l">Published with the build</code><button class="copy" type="button" data-copy="sum-win" aria-label="Copy Windows checksum">Copy</button></div>
+        </div>
+      </article>
+      
+      <article class="dl__card" id="linux" data-os="linux">
+        <div class="dl__top"><span class="beta">Beta</span><span class="dl__yours">Your system</span></div>
+        <h2>Linux</h2>
+        <p class="dl__meta">SVX-beta-Linux.deb</p>
+        <a class="btn btn--primary btn--lg when-live" href="downloads/SVX-beta-Linux.deb" download data-magnetic>Download for Linux <span class="beta">Beta</span></a>
+        <span class="btn btn--lg btn--off when-soon" aria-disabled="true">Coming soon</span>
+        <div class="sum when-live">
+          <span class="sum__label" id="sum-linux-l">SHA-256</span>
+          <div class="sum__box"><code id="sum-linux" aria-labelledby="sum-linux-l">Published with the build</code><button class="copy" type="button" data-copy="sum-linux" aria-label="Copy Linux checksum">Copy</button></div>
+        </div>
+      </article>
+    </div>
+    <p class="callout" data-r style="margin-top:24px">Once installed, SVX updates itself. Every update is checked against our own signing key before it installs, so a tampered update is refused.</p>
+  </div>
+</section>
+
+<section class="section rule" id="first-launch" aria-labelledby="fl-title">
+  <div class="wrap grid-2">
+    <div>
+      <p class="eyebrow" data-r>An honest note</p>
+      <h2 class="h2" id="fl-title" data-split>Why you'll see a warning.</h2>
+      <div class="prose" data-r style="margin-top:1.6rem">
+        <p>Beta builds of SVX are <strong>not yet signed by Apple or Microsoft</strong>. So the first time you open SVX, macOS says it's from an <strong>unidentified developer</strong> and Windows shows a <strong>SmartScreen</strong> warning.</p>
+        <p>That warning means the operating system doesn't recognise the publisher yet. It's a good moment to check the file is the one we published: compare its checksum with the one on this page before you continue.</p>
+      </div>
+    </div>
+    <div data-r style="--d:.15s">
+      <div class="os-tabs" role="tablist" aria-label="First launch instructions">
+        <button role="tab" id="t-mac" data-tab="mac" aria-controls="p-mac" aria-selected="true">macOS</button>
+        <button role="tab" id="t-win" data-tab="win" aria-controls="p-win" aria-selected="false" tabindex="-1">Windows</button>
+        <button role="tab" id="t-linux" data-tab="linux" aria-controls="p-linux" aria-selected="false" tabindex="-1">Linux</button>
+      </div>
+      <div class="panel" role="tabpanel" id="p-mac" aria-labelledby="t-mac" tabindex="0">
+        <ol class="steps-list">
+          <li>Open the .dmg and drag SVX into Applications.</li>
+          <li>Open SVX. macOS says it can't verify the developer. Close the message.</li>
+          <li>Open System Settings → Privacy &amp; Security. Scroll down and click <strong>Open Anyway</strong> next to SVX, then confirm.</li>
+          <li>On older macOS versions: Control-click SVX in Applications, choose <strong>Open</strong>, then <strong>Open</strong> again.</li>
+          <li>You only need to do this once.</li>
+        </ol>
+      </div>
+      <div class="panel" role="tabpanel" id="p-win" aria-labelledby="t-win" tabindex="0" hidden>
+        <ol class="steps-list">
+          <li>Run the installer.</li>
+          <li>Windows shows “Windows protected your PC”. Click <strong>More info</strong>.</li>
+          <li>Check the publisher details, then click <strong>Run anyway</strong>.</li>
+          <li>You only need to do this once.</li>
+        </ol>
+      </div>
+      <div class="panel" role="tabpanel" id="p-linux" aria-labelledby="t-linux" tabindex="0" hidden>
+        <ol class="steps-list">
+          <li>Install the package, for example: <code>sudo apt install ./SVX-beta-Linux.deb</code></li>
+          <li>Open SVX from your applications menu.</li>
+          <li>Note: SVX on Linux refuses to show view-only files, because Linux has no reliable way to keep a window out of screenshots.</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section rule when-live" id="checksums" aria-labelledby="ck-title">
+  <div class="wrap grid-2">
+    <div>
+      <p class="eyebrow" data-r>Verify your download</p>
+      <h2 class="h2" id="ck-title" data-split>Check the checksum.</h2>
+      <p class="lead" data-r style="margin-top:1.6rem">Run the command for your system in the folder where you saved the file. The result should match the SHA-256 shown on the download card exactly.</p>
+    </div>
+    <div class="stack" data-r style="--d:.15s">
+      <p class="sum__label">macOS · Terminal</p>
+      <pre class="term"><code>shasum -a 256 SVX-beta-macOS.dmg</code></pre>
+      <p class="sum__label">Windows · PowerShell</p>
+      <pre class="term"><code>Get-FileHash .\SVX-beta-Windows.msi -Algorithm SHA256</code></pre>
+      <p class="sum__label">Linux · Terminal</p>
+      <pre class="term"><code>sha256sum SVX-beta-Linux.deb</code></pre>
+      <p class="mut" style="font-size:.92rem">If it doesn't match, don't open the file. Download it again from this page.</p>
+    </div>
+  </div>
+</section>
+</main>
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot__top">
+      <div class="foot__brand">
+        <img class="logo-d" src="assets/brand/logo-lockup-dark.svg" alt="SVX" width="150" height="34">
+        <img class="logo-l" src="assets/brand/logo-lockup.svg" alt="SVX" width="150" height="34">
+        <p>Secure Verified Exchange. A desktop app for sending files only the people you choose can open, and staying in control after you send them.</p>
+      </div>
+      <div>
+        <h2>Product</h2>
+        <ul>
+          <li><a href="security.html">How it works</a></li>
+          <li><a href="security.html#technical">Security</a></li>
+          <li><a href="security.html#threat-model">Threat model &amp; limits</a></li>
+          <li><a href="download.html">Download</a></li>
+          <li><a href="docs.html">Docs &amp; FAQ</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>About this site</h2>
+        <ul>
+          <li><a href="privacy.html">Privacy</a></li>
+          <li><a href="terms.html">Terms</a></li>
+          <li><button class="btn btn--sm" type="button" data-theme-toggle aria-pressed="false">Toggle theme</button></li>
+        </ul>
+      </div>
+    </div>
+    <div class="foot__bottom">
+      <span>© <span data-year>2026</span> SVX</span>
+      <span>No accounts. No tracking. This website never handles your files.</span>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Privacy · SVX</title>
+<meta name="description" content="Privacy information for the SVX website.">
+<meta name="theme-color" content="#16171B">
+<meta property="og:title" content="Privacy · SVX">
+<meta property="og:description" content="Privacy information for the SVX website.">
+<meta property="og:type" content="website">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preload" href="assets/fonts/unbounded-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/plex-sans-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/css/site.css">
+<script src="assets/js/boot.js"></script>
+<script src="assets/vendor/gsap.min.js" defer></script>
+<script src="assets/vendor/ScrollTrigger.min.js" defer></script>
+<script type="module" src="assets/js/site.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap nav__in">
+    <a class="nav__logo" href="index.html" aria-label="SVX home">
+      <img class="logo-d" src="assets/brand/logo-lockup-dark.svg" alt="SVX" width="133" height="30">
+      <img class="logo-l" src="assets/brand/logo-lockup.svg" alt="SVX" width="133" height="30">
+    </a>
+    <nav aria-label="Main">
+      <ul class="nav__links" id="nav-links">
+        <li><a href="security.html">How it works</a></li>
+        <li><a href="security.html#technical">Security</a></li>
+        <li><a href="download.html">Download</a></li>
+        <li><a href="docs.html">Docs &amp; FAQ</a></li>
+      </ul>
+    </nav>
+    <div class="nav__tools">
+      <button class="icon-btn" type="button" data-theme-toggle aria-pressed="false" aria-label="Switch to light theme">
+        <svg class="theme-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>
+        <svg class="theme-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></svg>
+      </button>
+      <a class="btn btn--primary btn--sm nav__cta" href="download.html" data-magnetic><span class="when-live">Download</span><span class="when-soon">Get the beta</span> <span class="beta">Beta</span></a>
+      <button class="icon-btn nav__menu" type="button" aria-expanded="false" aria-controls="nav-links" aria-label="Menu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 8h16M4 16h16"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+<main id="main">
+
+<section class="page-hero">
+  <div class="wrap">
+    <p class="eyebrow" data-r>Legal</p>
+    <h1 class="h1" data-split>Privacy.</h1>
+    <p class="lead" data-r style="--d:.3s">What this website and the SVX service do with your data, and what they never see.</p>
+  </div>
+</section>
+<section class="section--tight rule">
+  <div class="wrap prose">
+    <p class="placeholder-note">Draft, written to match how SVX works today. Have it reviewed and fill in the bracketed contact details before launch.</p>
+    <p>Last updated: [date of launch].</p>
+
+    <h2>This website</h2>
+    <ul>
+      <li>No accounts, sign-up or login.</li>
+      <li>No analytics, no advertising and no tracking cookies.</li>
+      <li>No files are uploaded to, or handled by, this website.</li>
+      <li>Fonts and scripts are served from this site, not from third parties.</li>
+      <li>If you switch between light and dark theme, the choice is saved in your browser's local storage, on your device only.</li>
+    </ul>
+
+    <h2>Hosting</h2>
+    <p>This website is hosted on Cloudflare Pages. Like any web host, Cloudflare processes your IP address and request details to deliver pages and protect the site from abuse. We don't add any tracking on top of that.</p>
+
+    <h2>The SVX app and service</h2>
+    <p>SVX is designed so that the service can't read your files. Files are encrypted on your computer and sent however you choose; the service never receives a file or its name. To make sign-in, approval, one-time limits and revocation work, the SVX service stores:</p>
+    <ul>
+      <li><strong>Your account:</strong> your email address and name, and the sign-in provider's account identifier (Google, or your email address for email accounts). For email accounts, a password hash, never the password itself.</li>
+      <li><strong>Public keys</strong> for your devices. Private keys stay in your device's keychain, and your backup is encrypted with a password only you know.</li>
+      <li><strong>For each file you send:</strong> a random file ID, a fingerprint of its header, who it was sent to, and the rules you chose (approval, one-time, expiry, view-only).</li>
+      <li><strong>Activity:</strong> approval requests and decisions, when a file was opened, revoked or expired, and an audit trail of these events.</li>
+      <li><strong>Emails we send you:</strong> sign-in codes and approval notices. They name the person asking, never the file.</li>
+    </ul>
+    <p>File names and your sending history are kept only in the app on your computer.</p>
+
+    <h2>Company accounts</h2>
+    <p>If you use SVX through your company, your company's identity provider signs you in, and your company's administrators can see the audit trail for its organisation.</p>
+
+    <h2>How long we keep it</h2>
+    <p>Your account and its records are kept until you ask us to delete your account. Sign-in codes expire after 10 minutes and are removed within a day; we store only a fingerprint of each code, never the code. Request counts used to stop abuse (by network address and account) are kept in memory for at most a day.</p>
+    <p>When an account is deleted we erase its email address and name, keys, password hash, every file it sent (those files can no longer be opened), its place on other people's files, its requests, the emails sent to it or naming it, and its own activity log. One thing stays: entries in other people's activity logs that mention it, for example that it asked to open a file they sent, because those are part of that sender's own record.</p>
+
+    <h2>Your choices</h2>
+    <p>You can ask for a copy of your account data or for your account to be deleted at <a href="mailto:support@getsvx.me">support@getsvx.me</a>. We may suspend an account that is used for abuse.</p>
+
+    <h2>Contact</h2>
+    <p>[Name of the operator, postal address and contact email for privacy questions.]</p>
+  </div>
+</section>
+</main>
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot__top">
+      <div class="foot__brand">
+        <img class="logo-d" src="assets/brand/logo-lockup-dark.svg" alt="SVX" width="150" height="34">
+        <img class="logo-l" src="assets/brand/logo-lockup.svg" alt="SVX" width="150" height="34">
+        <p>Secure Verified Exchange. A desktop app for sending files only the people you choose can open, and staying in control after you send them.</p>
+      </div>
+      <div>
+        <h2>Product</h2>
+        <ul>
+          <li><a href="security.html">How it works</a></li>
+          <li><a href="security.html#technical">Security</a></li>
+          <li><a href="security.html#threat-model">Threat model &amp; limits</a></li>
+          <li><a href="download.html">Download</a></li>
+          <li><a href="docs.html">Docs &amp; FAQ</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>About this site</h2>
+        <ul>
+          <li><a href="privacy.html">Privacy</a></li>
+          <li><a href="terms.html">Terms</a></li>
+          <li><button class="btn btn--sm" type="button" data-theme-toggle aria-pressed="false">Toggle theme</button></li>
+        </ul>
+      </div>
+    </div>
+    <div class="foot__bottom">
+      <span>© <span data-year>2026</span> SVX</span>
+      <span>No accounts. No tracking. This website never handles your files.</span>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

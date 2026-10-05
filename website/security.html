@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>How it works &amp; security · SVX</title>
+<meta name="description" content="How SVX works in plain language, the technical design for security teams, and its threat model and limits.">
+<meta name="theme-color" content="#16171B">
+<meta property="og:title" content="How it works &amp; security · SVX">
+<meta property="og:description" content="How SVX works in plain language, the technical design for security teams, and its threat model and limits.">
+<meta property="og:type" content="website">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preload" href="assets/fonts/unbounded-700.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/plex-sans-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/css/site.css">
+<script src="assets/js/boot.js"></script>
+<script src="assets/vendor/gsap.min.js" defer></script>
+<script src="assets/vendor/ScrollTrigger.min.js" defer></script>
+<script type="module" src="assets/js/site.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap nav__in">
+    <a class="nav__logo" href="index.html" aria-label="SVX home">
+      <img class="logo-d" src="assets/brand/logo-lockup-dark.svg" alt="SVX" width="133" height="30">
+      <img class="logo-l" src="assets/brand/logo-lockup.svg" alt="SVX" width="133" height="30">
+    </a>
+    <nav aria-label="Main">
+      <ul class="nav__links" id="nav-links">
+        <li><a href="security.html" aria-current="page">How it works</a></li>
+        <li><a href="security.html#technical">Security</a></li>
+        <li><a href="download.html">Download</a></li>
+        <li><a href="docs.html">Docs &amp; FAQ</a></li>
+      </ul>
+    </nav>
+    <div class="nav__tools">
+      <button class="icon-btn" type="button" data-theme-toggle aria-pressed="false" aria-label="Switch to light theme">
+        <svg class="theme-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>
+        <svg class="theme-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></svg>
+      </button>
+      <a class="btn btn--primary btn--sm nav__cta" href="download.html" data-magnetic><span class="when-live">Download</span><span class="when-soon">Get the beta</span> <span class="beta">Beta</span></a>
+      <button class="icon-btn nav__menu" type="button" aria-expanded="false" aria-controls="nav-links" aria-label="Menu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 8h16M4 16h16"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+<main id="main">
+
+<section class="page-hero">
+  <div class="wrap">
+    <p class="eyebrow" data-r>How it works · Security</p>
+    <h1 class="h1" data-split>What SVX does, and where it stops.</h1>
+    <p class="lead" data-r style="--d:.3s">First in plain language, then in detail for security teams. Then the limits, because they matter as much as the features.</p>
+    <div class="btn-row" data-r style="--d:.45s;margin-top:2rem">
+      <a class="btn" href="#plain">Plain language</a>
+      <a class="btn" href="#technical">For security teams</a>
+      <a class="btn" href="#threat-model">Threat model &amp; limits</a>
+    </div>
+  </div>
+</section>
+
+<section class="section--tight rule" id="plain" aria-labelledby="plain-title">
+  <div class="wrap">
+    <p class="eyebrow" data-r>In plain language</p>
+    <h2 class="h2" id="plain-title" data-split>Sending a file with SVX.</h2>
+    <div class="cards cards--3" style="margin-top:clamp(40px,5vw,80px)" data-r>
+      <article class="card"><div class="card__k"><span>01</span><span class="card__ic" aria-hidden="true"><i></i></span></div><h3 class="h3">You seal it</h3><p>You pick a file and who can open it. SVX locks it for those people and signs it so they know it's from you.</p></article>
+      <article class="card"><div class="card__k"><span>02</span><span class="card__ic" aria-hidden="true"><i></i></span></div><h3 class="h3">The key is in two halves</h3><p>One half is kept by the SVX service, the other by the recipient's side. The file only opens when both agree.</p></article>
+      <article class="card"><div class="card__k"><span>03</span><span class="card__ic" aria-hidden="true"><i></i></span></div><h3 class="h3">They prove who they are</h3><p>When the recipient tries to open it, SVX checks it's really them.</p></article>
+      <article class="card"><div class="card__k"><span>04</span><span class="card__ic" aria-hidden="true"><i></i></span></div><h3 class="h3">You say yes</h3><p>Approval is on by default: nothing opens until you approve in your app. If you decline, it stays sealed.</p></article>
+      <article class="card"><div class="card__k"><span>05</span><span class="card__ic" aria-hidden="true"><i></i></span></div><h3 class="h3">You can change your mind</h3><p>Revoke access and the file won't open for that person again. Anything they already opened, they've already seen.</p></article>
+      <article class="card"><div class="card__k"><span>06</span><span class="card__ic" aria-hidden="true"><i></i></span></div><h3 class="h3">No browser involved</h3><p>Everything happens in the desktop app. This website is only here to explain SVX and offer the download.</p></article>
+    </div>
+  </div>
+</section>
+
+<section class="section rule" id="technical" aria-labelledby="tech-title">
+  <div class="wrap">
+    <p class="eyebrow" data-r>For security teams</p>
+    <h2 class="h2" id="tech-title" data-split>The technical picture.</h2>
+    <p class="lead" data-r style="margin:1.6rem 0 clamp(40px,5vw,72px)">A summary of the design. If something here matters to your evaluation, read the threat model below too.</p>
+    <div class="spec" data-r>
+      <div class="spec__row"><div><span class="k">ENCRYPTION</span><h3>Post-quantum hybrid</h3></div><div><p>Each file is encrypted with ChaCha20-Poly1305 in a streaming construction under a fresh random key. That key is wrapped with HPKE using a hybrid KEM, ML-KEM-1024 combined with P-384, with HKDF-SHA512. An attacker has to break both the post-quantum and the classical half, including with a future quantum computer.</p></div></div>
+      <div class="spec__row"><div><span class="k">INTEGRITY</span><h3>Three signatures on every file</h3></div><div><p>The sender signs every file with Ed25519, ML-DSA-87 and SLH-DSA-SHA2-256s, and all three must verify. Headers and contents are bound with SHA-512. A tampered, forged or misaddressed file is refused before anyone signs in.</p></div></div>
+      <div class="spec__row"><div><span class="k">KEY CUSTODY</span><h3>A split key, two parties</h3></div><div><p>The file key is split in two. One share is sealed to the SVX service, the other to the recipient's side: the person's own device for personal accounts, or their company's key agent for company accounts. Both must release their share, so neither the service nor a stolen copy of the file is enough.</p><p>That release is where verification, sender approval, one-time limits, expiry and revocation are enforced.</p></div></div>
+      <div class="spec__row"><div><span class="k">SIGN-IN</span><h3>Bound to this open</h3></div><div><p>Every open uses a fresh one-time key, bound to the recipient's company sign-in or to their device's signature, so a stolen or cached login can't be replayed to decrypt a file. Device keys live in the system keychain, and on Mac and Windows SVX asks for Touch ID or Windows Hello before using them.</p></div></div>
+      <div class="spec__row"><div><span class="k">TRUST</span><h3>No typed keys, pinned registry</h3></div><div><p>Senders never handle keys. They pick a person or an organisation, and SVX fetches the keys from records signed by a registry key that is pinned when the app is set up. Connections to the service use TLS with a post-quantum key exchange.</p></div></div>
+      <div class="spec__row"><div><span class="k">ENVIRONMENT</span><h3>Desktop only</h3></div><div><p>Files and keys never touch a browser. Sealing, verifying and opening happen in the SVX desktop app on macOS, Windows and Linux. Opened files are written only after full verification, readable only by you. This website is static: no accounts, no uploads, no file handling.</p></div></div>
+      <div class="spec__row"><div><span class="k">FORMAT</span><h3>A specified format</h3></div><div><p>The .svx container has a written specification and deterministic test vectors, so it can be reviewed and checked independently of the app.</p></div></div>
+      <div class="spec__row"><div><span class="k">UPDATES</span><h3>Verified with our own keys</h3></div><div><p>Every update is signed offline with our own release key and checked by the app before it installs. Older versions are never offered. During the beta, the installers themselves aren't yet signed by Apple or Microsoft.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<section class="section rule" id="threat-model" aria-labelledby="tm-title">
+  <div class="wrap">
+    <p class="eyebrow" data-r>Threat model &amp; limits</p>
+    <h2 class="h2" id="tm-title" data-split>What it protects against. What it can't.</h2>
+    <div class="two-col-list" style="margin-top:clamp(40px,5vw,72px)" data-r>
+      <div class="box">
+        <h3>Designed to protect against</h3>
+        <ul>
+          <li>Someone intercepting the file in transit or finding it later. Eve gets a sealed file she can't open.</li>
+          <li>A forwarded copy reaching someone you didn't choose.</li>
+          <li>A file being altered or forged. The signature check fails.</li>
+          <li>One side acting alone. Neither the service's half nor the recipient's half opens the file by itself.</li>
+          <li>Access continuing after you revoke it, after the file expires, or after a one-time open.</li>
+          <li>A stolen or cached login being reused to open a file.</li>
+        </ul>
+      </div>
+      <div class="box box--acc">
+        <h3>Limits you should know</h3>
+        <ul>
+          <li>View-only blocks saving, copying and screenshots in the app. It cannot stop someone photographing their screen.</li>
+          <li>Screenshot blocking is not yet tested on Windows. Linux refuses to show view-only files.</li>
+          <li>Revocation stops future access. It cannot take back a file someone already opened.</li>
+          <li>A recipient you approve can read what you sent. If their device is compromised while the file is open, so is what's on screen.</li>
+          <li>You have to trust the SVX service to enforce approval, one-time limits and revocation. It can't read your files on its own, but it decides when its half of the key is released.</li>
+          <li>Malware on a recipient's computer, or a modified copy of the app, can ignore view-only rules.</li>
+          <li>Beta builds aren't signed by Apple or Microsoft yet. Verify the checksum before you install.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="btn-row" data-r style="margin-top:40px">
+      <a class="btn btn--primary" href="download.html" data-magnetic><span class="when-live">Download</span><span class="when-soon">Beta coming soon</span> <span class="arr" aria-hidden="true">→</span></a>
+      <a class="btn" href="docs.html">Read the docs <span class="arr" aria-hidden="true">→</span></a>
+    </div>
+  </div>
+</section>
+</main>
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot__top">
+      <div class="foot__brand">
+        <img class="logo-d" src="assets/brand/logo-lockup-dark.svg" alt="SVX" width="150" height="34">
+        <img class="logo-l" src="assets/brand/logo-lockup.svg" alt="SVX" width="150" height="34">
+        <p>Secure Verified Exchange. A desktop app for sending files only the people you choose can open, and staying in control after you send them.</p>
+      </div>
+      <div>
+        <h2>Product</h2>
+        <ul>
+          <li><a href="security.html">How it works</a></li>
+          <li><a href="security.html#technical">Security</a></li>
+          <li><a href="security.html#threat-model">Threat model &amp; limits</a></li>
+          <li><a href="download.html">Download</a></li>
+          <li><a href="docs.html">Docs &amp; FAQ</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2>About this site</h2>
+        <ul>
+          <li><a href="privacy.html">Privacy</a></li>
+          <li><a href="terms.html">Terms</a></li>
+          <li><button class="btn btn--sm" type="button" data-theme-toggle aria-pressed="false">Toggle theme</button></li>
+        </ul>
+      </div>
+    </div>
+    <div class="foot__bottom">
+      <span>© <span data-year>2026</span> SVX</span>
+      <span>No accounts. No tracking. This website never handles your files.</span>
+    </div>
+  </div>
+</footer>
+</body>
+</html>
