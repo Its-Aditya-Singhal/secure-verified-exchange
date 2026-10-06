@@ -12,7 +12,7 @@
 mod viewer;
 
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use serde::Deserialize;
 use svx_app::{
@@ -26,7 +26,7 @@ use svx_client::keyadmin::{ExportedKemKey, NewSigningKey};
 use svx_client::login::system_browser;
 use svx_client::onboard::{OnboardRequest, PendingOrg};
 use svx_client::personal::{AccountInfo, Contact, SendResult};
-use svx_client::presence::SystemPresence;
+use svx_client::presence::{SystemPresence, UserPresence};
 use svx_client::setup::SetupPreview;
 use svx_client::update::AvailableUpdate;
 use svx_protocol::admin::AuditPage;
@@ -920,12 +920,33 @@ fn open_document(handle: AppHandle, app: State<'_, App>, path: PathBuf) -> Resul
         .map_err(|e| AppError::other(e.to_string()))
 }
 
+/// The system prompt, announced to the window. Windows Hello opens its
+/// prompt behind the app (bringing it to the front needs an `unsafe` COM
+/// call, which this project doesn't allow), so the window says where to look
+/// while event `presence` is `true`.
+struct AnnouncedPresence(Arc<OnceLock<AppHandle>>);
+
+impl UserPresence for AnnouncedPresence {
+    fn confirm(&self, reason: &str) -> svx_client::Result<()> {
+        let tell = |waiting: bool| {
+            if let Some(h) = self.0.get() {
+                let _ = h.emit("presence", waiting);
+            }
+        };
+        tell(true);
+        let r = SystemPresence.confirm(reason);
+        tell(false);
+        r
+    }
+}
+
 fn main() {
     svx_protocol::install_tls_provider();
+    let handle_slot: Arc<OnceLock<AppHandle>> = Arc::default();
     let app = match App::new(None) {
         // Touch ID / the Mac's password / Windows Hello before the keys
         // are used (the client enforces it; off on development services).
-        Ok(a) => a.with_presence(std::sync::Arc::new(SystemPresence)),
+        Ok(a) => a.with_presence(Arc::new(AnnouncedPresence(handle_slot.clone()))),
         Err(e) => {
             eprintln!("Secure Verified Exchange: {e}");
             std::process::exit(2);
@@ -956,7 +977,8 @@ fn main() {
                 window.state::<viewer::Views>().remove(id);
             }
         })
-        .setup(|a| {
+        .setup(move |a| {
+            let _ = handle_slot.set(a.handle().clone());
             let argv: Vec<String> = std::env::args().collect();
             let cwd = std::env::current_dir().unwrap_or_default();
             hand_over(a.handle(), file_args(&argv, &cwd));

@@ -33,7 +33,7 @@ pub const MAX_ORIGINAL_BYTES: u64 = 256 << 20;
 
 /// Extensions the viewer can draw.
 pub const DISPLAY_EXTENSIONS: [&str; 7] = ["pdf", "png", "jpg", "jpeg", "gif", "webp", "txt"];
-/// Extensions converted to PDF with LibreOffice.
+/// Extensions converted to PDF (Microsoft Office or LibreOffice).
 pub const OFFICE_EXTENSIONS: [&str; 10] = [
     "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "rtf",
 ];
@@ -62,7 +62,7 @@ fn extension(name: &str) -> Option<String> {
 }
 
 /// Whether a file can be view-only, from its name; the reason if not.
-/// Office files also need LibreOffice (see [`convert::find_office`]).
+/// Office files also need a converter (see [`convert::find_converter`]).
 pub fn plan_for(name: &str) -> std::result::Result<Plan, String> {
     match extension(name).as_deref() {
         Some(e) if DISPLAY_EXTENSIONS.contains(&e) => Ok(Plan::Direct),
@@ -109,11 +109,12 @@ pub fn prepare(input: &Path) -> Result<ViewParts> {
             })
         }
         Plan::Office => {
-            let office = convert::find_office()
+            let ext = extension(&name).unwrap_or_default();
+            let converter = convert::find_converter(&ext)
                 .ok_or_else(|| ClientError::Invalid(convert::LIBREOFFICE_MISSING.into()))?;
             Ok(ViewParts {
                 display_name: "display.pdf".into(),
-                display: convert::to_pdf(&office, input)?,
+                display: convert::convert(&converter, input)?,
                 original: Some((name, std::fs::read(input)?)),
             })
         }

@@ -61,7 +61,11 @@ pub fn view_check(path: &Path) -> ViewCheck {
             ),
         );
     }
-    if office && convert::find_office().is_none() {
+    let ext = name
+        .rsplit_once('.')
+        .map(|(_, e)| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    if office && convert::find_converter(&ext).is_none() {
         return ViewCheck::no(true, convert::LIBREOFFICE_MISSING);
     }
     ViewCheck {
@@ -135,7 +139,7 @@ mod tests {
         let c = view_check(&docx);
         assert!(c.office);
         // With LibreOffice it passes, without it the reason says to install it.
-        assert_eq!(c.ok, convert::find_office().is_some());
+        assert_eq!(c.ok, convert::find_converter("docx").is_some());
         if !c.ok {
             assert!(c.reason.unwrap().contains("LibreOffice"));
         }

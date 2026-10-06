@@ -375,3 +375,23 @@ input[type="email"], input[type="password"] {
 /* Never print the viewer (the OS print dialog would otherwise capture it). */
 @media print { body { display: none !important; } }
 .stack-tight { display: flex; flex-direction: column; gap: 8px; }
+
+/* Windows Hello opens behind the window; this says where to look. */
+.presence-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  background: var(--info-soft);
+  color: var(--text);
+  border: 1px solid var(--info);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.2);
+}
+.presence-hint[hidden] { display: none; }

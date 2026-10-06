@@ -71,7 +71,7 @@ Opened files go to `~/SVX` by default (Settings → **Change folder…**), owner
 
 ## View-only files
 
-A personal account can send a file **view only** (see [Personal accounts](personal.md#view-only-files-phase-7)): the Send screen has a **View only** switch, checked in Rust for the chosen file (type, size, LibreOffice for Office files), with **Let them ask to keep a copy** and one honest line about what it can't stop.
+A personal account can send a file **view only** (see [Personal accounts](personal.md#view-only-files-phase-7)): the Send screen has a **View only** switch, checked in Rust for the chosen file (type, size, Microsoft Office on Windows or LibreOffice for Office files), with **Let them ask to keep a copy** and one honest line about what it can't stop.
 
 When a recipient opens one, the Open screen says it's view-only and **View securely** runs the usual timeline, then opens a **separate protected window** (title "(view only)"):
 

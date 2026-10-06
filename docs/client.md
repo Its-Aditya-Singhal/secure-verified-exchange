@@ -95,7 +95,7 @@ A view-only file is shown only in the desktop app. In the CLI and SDKs, `open` o
 | `svx policy list\|show NAME\|set NAME --file F` | Manage your organization's policies. Admin. |
 | `svx audit [--limit N] [--json]` | Your organization's audit log, with hash-chain verification. Admin. |
 | `svx organizations show ORG` | A verified registry record |
-| `svx send FILE --to EMAIL [--view-only [--allow-share-requests]] …` | Personal account: encrypt for people by email. `--view-only`: they can view it in the desktop app but not save it (PDF, images, text, Office via LibreOffice). |
+| `svx send FILE --to EMAIL [--view-only [--allow-share-requests]] …` | Personal account: encrypt for people by email. `--view-only`: they can view it in the desktop app but not save it (PDF, images, text, Office via Microsoft Office on Windows, or LibreOffice). |
 | `svx keep FILE\|ID [--wait]` | Personal account: ask the sender to let you keep a copy of a view-only file, and show where the request stands |
 | `svx file ID [--view-only on\|off] [--share-requests on\|off] …` | Personal account: a sent file's rules |
 | `svx keygen`, `svx inspect`, `svx verify [--trust F \| --registry]` | Offline tools |
