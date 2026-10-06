@@ -94,6 +94,21 @@ No card needed: we skipped Cloudflare Tunnel (Zero Trust wants a card) and use t
   - [ ] about 1 month before **Oct 5, 2027**: the domain's free year ends (renew or move it to Cloudflare) and the Azure credit ends (move or pay for the server)
   - [ ] about 9 months from now: GitHub student status needs re-verifying
 
+## Requested features (later, not started)
+
+Asked for on 2026-10-06; plan first when picked up.
+
+- [ ] **Logs page in the admin page:** recent service activity (sign-ups,
+      sends, opens, refusals, admin actions) with filters. Never file names
+      or contents (the service doesn't have them).
+- [ ] **Announcements from the admin page:** write an email (for example a
+      new release and its features) and send it to all users or to chosen
+      ones, with optional attachments (files, documents). Needs: the daily
+      email budget (Gmail ~500/day: send in batches over several days, or
+      move to a bulk email service), an unsubscribe option and a line in
+      the privacy policy, attachment size limits, and a preview/test send
+      to yourself first.
+
 ## Cost
 
 Now: about ₹0 (student offers). After the free periods: about ₹600–1,500 a
