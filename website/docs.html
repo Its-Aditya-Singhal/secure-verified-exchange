@@ -69,7 +69,7 @@
     <div>
       <div class="prose">
         <h2 id="install" style="margin-top:0">Install</h2>
-        <p>Download SVX for <a href="download.html">macOS, Windows or Linux</a>. Check the SHA-256 checksum, then follow the first-launch steps for your system, since beta builds aren't yet signed by Apple or Microsoft. Then create your account in the app with Google or an email and password. There is nothing to sign up for on this website.</p>
+        <p>Download SVX for <a href="download.html">macOS on a Mac with an Apple chip</a> (Windows and Linux are coming). Check the SHA-256 checksum, then follow the first-launch steps, since the beta isn't signed by Apple. Then create your account in the app with your email address and a password. There is nothing to sign up for on this website.</p>
         <h2 id="send">Send a file</h2>
         <ol>
           <li>Open SVX and choose the file you want to send.</li>
@@ -84,8 +84,8 @@
         <h2 id="viewonly">View-only files</h2>
         <p><strong>View-only blocks saving, copying and screenshots in the app. It cannot stop someone photographing their screen.</strong></p>
         <ul>
-          <li>macOS: built in, final testing in progress.</li>
-          <li>Windows: screenshot blocking is not yet tested.</li>
+          <li>macOS: built in and tested.</li>
+          <li>Windows: not available yet; screenshot blocking will be tested before the Windows version is released.</li>
           <li>Linux: SVX refuses to show view-only files.</li>
         </ul>
         <h2 id="faq">FAQ</h2>
@@ -96,8 +96,8 @@
         <details><summary>Can someone open an SVX file without the app?</summary><div class="a"><p>No. Opening needs SVX software, the recipient's verified sign-in and both halves of the key. Without all three, a copy of the file is just encrypted data.</p></div></details>
         <details><summary>Does the person I send to need SVX too?</summary><div class="a"><p>Yes. They install SVX and create an account with the email address you send to. That account is how SVX checks it's really them.</p></div></details>
         <details><summary>What happens if I revoke access after someone has opened the file?</summary><div class="a"><p>Revocation stops future access. It cannot take back a file someone already opened, so they've already seen what they saw.</p></div></details>
-        <details><summary>Does view-only stop screenshots?</summary><div class="a"><p>View-only blocks saving, copying and screenshots in the app. It cannot stop someone photographing their screen.</p><p>Screenshot blocking isn't yet tested on Windows, and SVX on Linux refuses to show view-only files.</p></div></details>
-        <details><summary>Why does my computer warn me when I first open SVX?</summary><div class="a"><p>Beta builds aren't signed by Apple or Microsoft yet, so macOS reports an unidentified developer and Windows shows SmartScreen. <a href="download.html#first-launch">See the steps to continue.</a></p></div></details>
+        <details><summary>Does view-only stop screenshots?</summary><div class="a"><p>View-only blocks saving, copying and screenshots in the app. It cannot stop someone photographing their screen.</p><p>On macOS it is built in and tested. The Windows version isn't out yet, and SVX on Linux will refuse to show view-only files.</p></div></details>
+        <details><summary>Why does my computer warn me when I first open SVX?</summary><div class="a"><p>The beta isn't signed by Apple (that costs $99 a year), so macOS treats it as from an unidentified developer. The one-line Terminal install on the download page avoids the warning. <a href="download.html#first-launch">See the steps to continue.</a></p></div></details>
         <details><summary>How do I know my download is genuine?</summary><div class="a"><p>Compare the file's SHA-256 checksum with the one on the <a href="download.html#checksums">download page</a>. After installing, updates are verified with our own signing keys.</p></div></details>
         <details><summary>What is post-quantum hybrid encryption?</summary><div class="a"><p>It combines a well-established encryption method with a newer one designed to resist future quantum computers. Someone would have to break both to read your file.</p></div></details>
         <details><summary>Is the file format documented?</summary><div class="a"><p>Yes. The .svx container has a written specification and test vectors, so it can be reviewed independently of the app.</p></div></details>
