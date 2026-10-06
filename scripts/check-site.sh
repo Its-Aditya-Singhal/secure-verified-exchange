@@ -49,6 +49,11 @@ cc=$(curl -sSI -m 30 "$BASE/assets/js/boot.js" | tr -d '\r' | grep -i '^cache-co
 echo "$cc" | grep -qi immutable && bad "boot.js is cached as immutable: $cc" || ok "scripts are not cached as immutable"
 curl -fsS -m 30 "$BASE/assets/js/boot.js" | grep -q "RELEASE='live'" && ok "release switch is live" || bad "release switch is not live (the Download button is hidden)"
 
+echo "Link preview"
+curl -fsS -m 30 -L "$BASE/" | grep -q 'property="og:image" content="https://getsvx.me/assets/brand/share.png"' && ok "pages name a preview image" || bad "og:image missing"
+ct=$(curl -sS -m 30 -o /dev/null -w '%{http_code} %{content_type}' "$BASE/assets/brand/share.png" || echo 000)
+[ "$ct" = "200 image/png" ] && ok "preview image is served ($ct)" || bad "preview image: $ct"
+
 echo "Contact"
 [ "$(code .well-known/security.txt)" = 200 ] && curl -fsSL -m 30 "$BASE/.well-known/security.txt" | grep -q "^Contact: mailto:security@getsvx.me" && ok "/.well-known/security.txt" || bad "security.txt missing or wrong"
 curl -fsS -m 30 -L "$BASE/" | grep -q 'support@getsvx.me' && ok "support address in the footer" || bad "support address missing"

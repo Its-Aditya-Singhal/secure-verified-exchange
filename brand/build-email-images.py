@@ -5,6 +5,8 @@ brand change: python3 brand/build-email-images.py
 banner.png  1200x400: the app icon, "SVX" and "Secure Verified Exchange" on
             the dark surface, with a thin signal-bright line (brand/README.md).
 icon.png    96x96 app icon for the small headings.
+../../website/assets/brand/share.png  1200x630 preview card for links shared in
+            WhatsApp, iMessage and the like (og:image on every page).
 Needs Pillow and a macOS system font."""
 from pathlib import Path
 
@@ -45,6 +47,25 @@ def banner():
     im.save(OUT / "banner.png", optimize=True)
 
 
+def share():
+    w, h = 1200, 630
+    im = Image.new("RGB", (w, h), DARK)
+    d = ImageDraw.Draw(im)
+    for x in range(0, w, 60):
+        d.line([(x, 0), (x, h)], fill="#1C1E23")
+    for y in range(0, h, 60):
+        d.line([(0, y), (w, y)], fill="#1C1E23")
+    icon = Image.open(ICON).convert("RGBA").resize((220, 220), Image.LANCZOS)
+    im.paste(icon, (100, 110), icon)
+    d.text((370, 100), "SVX", font=font(150, bold=True), fill=BONE)
+    d.text((376, 290), "Secure Verified Exchange", font=font(46), fill=MUTED)
+    d.text((100, 440), "Send it. Stay in control.", font=font(64, bold=True), fill=BONE)
+    d.text((100, 530), "Free beta for Windows and Mac  \u00b7  getsvx.me", font=font(36), fill=MUTED)
+    d.rectangle([(0, h - 10), (w, h)], fill=SIGNAL)
+    out = ROOT / "website" / "assets" / "brand"
+    im.save(out / "share.png", optimize=True)
+
+
 def small_icon():
     icon = Image.open(ICON).convert("RGBA").resize((96, 96), Image.LANCZOS)
     icon.save(OUT / "icon.png", optimize=True)
@@ -54,5 +75,6 @@ if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)
     banner()
     small_icon()
-    for f in sorted(OUT.glob("*.png")):
+    share()
+    for f in sorted([*OUT.glob("*.png"), ROOT / "website" / "assets" / "brand" / "share.png"]):
         print(f"{f.relative_to(ROOT)}  {f.stat().st_size // 1024} KB")
