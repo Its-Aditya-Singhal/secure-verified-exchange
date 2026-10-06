@@ -10,7 +10,7 @@ BASE=${1:-https://getsvx.me}
 fail=0
 ok()  { printf '  ok    %s\n' "$1"; }
 bad() { printf '  FAIL  %s\n' "$1"; fail=1; }
-code() { curl -sS -m 30 -o /dev/null -w '%{http_code}' "$BASE/$1" 2>/dev/null || echo 000; }
+code() { curl -sS -m 30 -L -o /dev/null -w '%{http_code}' "$BASE/$1" 2>/dev/null || echo 000; }
 
 echo "Pages"
 for p in "" security download docs privacy terms; do
@@ -36,7 +36,7 @@ curl -fsS -m 30 -L "$BASE/download" | grep -q 'curl -fsSL https://getsvx.me/inst
 curl -fsS -m 30 "$BASE/install.sh" | head -1 | grep -q '^#!/bin/sh' && ok "install.sh starts with a shell line (not an HTML error page)" || bad "install.sh is not a script"
 
 echo "Contact"
-[ "$(code .well-known/security.txt)" = 200 ] && ok "/.well-known/security.txt" || bad "security.txt missing"
+[ "$(code .well-known/security.txt)" = 200 ] && curl -fsSL -m 30 "$BASE/.well-known/security.txt" | grep -q "^Contact: mailto:security@getsvx.me" && ok "/.well-known/security.txt" || bad "security.txt missing or wrong"
 curl -fsS -m 30 -L "$BASE/" | grep -q 'support@getsvx.me' && ok "support address in the footer" || bad "support address missing"
 
 echo "Service"

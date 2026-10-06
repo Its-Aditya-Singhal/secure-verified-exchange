@@ -1,0 +1,3 @@
+# The standard place for security.txt (RFC 9116) points at the file, which
+# lives at the top level because the dashboard uploader skips dot-folders.
+/.well-known/security.txt /security.txt 301
