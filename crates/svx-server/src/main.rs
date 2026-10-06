@@ -130,6 +130,10 @@ async fn main() -> Result<()> {
         registry_fingerprint = %hex::encode(keys.registry_public().fingerprint()),
         "registry key loaded"
     );
+    let smtp = match (&a.smtp_url, &a.smtp_from) {
+        (Some(url), Some(from)) => Some(Arc::new(SmtpNotifier::new(url, from)?)),
+        _ => None,
+    };
     let state = AppState {
         db,
         service_id: Identifier::new(&a.service_id).context("invalid service id")?,
@@ -137,9 +141,9 @@ async fn main() -> Result<()> {
         oidc: Arc::new(Validator::new(a.dev)?),
         dns: Arc::new(SystemDns::new()?),
         personal_idps: Arc::new(a.personal_idps),
-        notifier: match (&a.smtp_url, &a.smtp_from) {
-            (Some(url), Some(from)) => Arc::new(SmtpNotifier::new(url, from)?),
-            _ => {
+        notifier: match &smtp {
+            Some(s) => s.clone(),
+            None => {
                 tracing::warn!("no SMTP configured: approval emails are only logged");
                 Arc::new(LogNotifier)
             }
@@ -154,7 +158,12 @@ async fn main() -> Result<()> {
         updates: a.updates_dir.map(Arc::new),
         dev: a.dev,
     };
+    let db = state.db.clone();
     let router = app(state).await?;
+    // Announcements from the operator go out through the same mail account.
+    if let Some(s) = smtp {
+        tokio::spawn(svx_server::announce::run(db, s));
+    }
     tracing::info!(listen = %a.listen, tls = a.tls_cert.is_some(), "svx-server starting");
     let service = router.into_make_service_with_connect_info::<SocketAddr>();
     match (a.tls_cert, a.tls_key) {

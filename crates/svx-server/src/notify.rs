@@ -17,6 +17,14 @@ pub struct Email {
     pub body: String,
 }
 
+/// A file attached to an email (announcements).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Attachment {
+    pub name: String,
+    pub content_type: String,
+    pub data: Vec<u8>,
+}
+
 /// Delivers emails. Implementations must not block: send in the background.
 pub trait Notifier: Send + Sync {
     fn deliver(&self, email: Email);
@@ -35,31 +43,51 @@ impl Notifier for LogNotifier {
 /// tells the operator whether the account's owner was emailed.
 #[async_trait]
 pub trait SendNow: Send + Sync {
-    async fn send_now(&self, email: Email) -> anyhow::Result<()>;
+    async fn send_now(&self, email: Email) -> anyhow::Result<()> {
+        self.send_with_files(email, &[]).await
+    }
+    async fn send_with_files(&self, email: Email, files: &[Attachment]) -> anyhow::Result<()>;
 }
 
 /// Tests and the demo: keep emails in memory.
 #[derive(Default)]
 pub struct MemoryNotifier {
     sent: Mutex<Vec<Email>>,
+    files: Mutex<Vec<Vec<Attachment>>>,
 }
 
 impl MemoryNotifier {
     pub fn sent(&self) -> Vec<Email> {
         self.sent.lock().expect("notifier lock").clone()
     }
+
+    /// The attachments of each email in [`MemoryNotifier::sent`] (empty for
+    /// emails sent without any).
+    pub fn sent_files(&self) -> Vec<Vec<Attachment>> {
+        let n = self.sent.lock().expect("notifier lock").len();
+        let mut f = self.files.lock().expect("notifier lock").clone();
+        f.resize(n, Vec::new());
+        f
+    }
 }
 
 impl Notifier for MemoryNotifier {
     fn deliver(&self, email: Email) {
-        self.sent.lock().expect("notifier lock").push(email);
+        let mut sent = self.sent.lock().expect("notifier lock");
+        let mut files = self.files.lock().expect("notifier lock");
+        files.resize(sent.len(), Vec::new());
+        sent.push(email);
+        files.push(Vec::new());
     }
 }
 
 #[async_trait]
 impl SendNow for MemoryNotifier {
-    async fn send_now(&self, email: Email) -> anyhow::Result<()> {
+    async fn send_with_files(&self, email: Email, files: &[Attachment]) -> anyhow::Result<()> {
         self.deliver(email);
+        if let Some(last) = self.files.lock().expect("notifier lock").last_mut() {
+            *last = files.to_vec();
+        }
         Ok(())
     }
 }
@@ -84,22 +112,39 @@ impl SmtpNotifier {
 
 impl SmtpNotifier {
     fn message(&self, email: Email) -> anyhow::Result<Message> {
+        self.message_with(email, &[])
+    }
+
+    fn message_with(&self, email: Email, files: &[Attachment]) -> anyhow::Result<Message> {
+        use lettre::message::header::ContentType;
+        use lettre::message::{MultiPart, SinglePart};
         let to: Mailbox = email
             .to
             .parse()
             .map_err(|e| anyhow::anyhow!("invalid address: {e}"))?;
-        Ok(Message::builder()
+        let builder = Message::builder()
             .from(self.from.clone())
             .to(to)
-            .subject(email.subject)
-            .body(email.body)?)
+            .subject(email.subject);
+        if files.is_empty() {
+            return Ok(builder.body(email.body)?);
+        }
+        let mut parts = MultiPart::mixed().singlepart(SinglePart::plain(email.body));
+        for f in files {
+            let kind = ContentType::parse(&f.content_type)
+                .unwrap_or(ContentType::parse("application/octet-stream")?);
+            parts = parts.singlepart(
+                lettre::message::Attachment::new(f.name.clone()).body(f.data.clone(), kind),
+            );
+        }
+        Ok(builder.multipart(parts)?)
     }
 }
 
 #[async_trait]
 impl SendNow for SmtpNotifier {
-    async fn send_now(&self, email: Email) -> anyhow::Result<()> {
-        let message = self.message(email)?;
+    async fn send_with_files(&self, email: Email, files: &[Attachment]) -> anyhow::Result<()> {
+        let message = self.message_with(email, files)?;
         self.transport.send(message).await?;
         Ok(())
     }
@@ -139,7 +184,7 @@ pub async fn queue(st: &AppState, dedupe_key: &str, email: Email) {
     .await;
     match inserted {
         Ok(r) if r.rows_affected() == 1 => {
-            if crate::limits::email_budget(st) {
+            if crate::limits::email_budget(st, crate::limits::MailKind::Notice).await {
                 st.notifier.deliver(email);
             } else {
                 // Over today's budget: keep it, marked unsent. The app

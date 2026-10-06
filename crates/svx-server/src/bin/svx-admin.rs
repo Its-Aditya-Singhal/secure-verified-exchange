@@ -97,11 +97,23 @@ fn journal(msg: &str) {
 type Mail = Option<std::sync::Arc<dyn SendNow>>;
 
 /// Email the account's owner and say whether it worked.
-async fn tell(mail: &Mail, notice: Notice, u: &User, reason: Option<&str>) {
+async fn tell(db: &PgPool, mail: &Mail, notice: Notice, u: &User, reason: Option<&str>) {
     let Some(mail) = mail else {
         println!("no email sent: SVX_SMTP_URL and SVX_SMTP_FROM aren't set");
         return;
     };
+    use svx_server::limits::{MAIL_DAILY, MailKind, take_email};
+    match take_email(db, MailKind::Admin, MAIL_DAILY).await {
+        Ok(true) => {}
+        Ok(false) => {
+            println!("no email sent: today's email allowance is used up");
+            return;
+        }
+        Err(e) => {
+            println!("no email sent: couldn't count today's emails: {e}");
+            return;
+        }
+    }
     match mail
         .send_now(admin_ops::notice_email(notice, u, reason))
         .await
@@ -250,7 +262,7 @@ async fn main() -> Result<()> {
             let reason = given(&reason);
             if admin_ops::suspend(&db, &u.org_id, reason).await? {
                 println!("suspended {} ({})", u.email, u.org_id);
-                tell(&mail, Notice::Suspended, &u, reason).await;
+                tell(&db, &mail, Notice::Suspended, &u, reason).await;
             } else {
                 println!("{} was already suspended", u.email);
             }
@@ -259,7 +271,7 @@ async fn main() -> Result<()> {
             let u = account(&db, &who).await?;
             if admin_ops::unsuspend(&db, &u.org_id).await? {
                 println!("{} ({}) can use SVX again", u.email, u.org_id);
-                tell(&mail, Notice::Unsuspended, &u, None).await;
+                tell(&db, &mail, Notice::Unsuspended, &u, None).await;
             } else {
                 println!("{} was not suspended", u.email);
             }
@@ -275,7 +287,7 @@ async fn main() -> Result<()> {
             }
             if admin_ops::erase(&db, &u.org_id).await? {
                 println!("erased {} ({})", u.email, u.org_id);
-                tell(&mail, Notice::Erased, &u, given(&reason)).await;
+                tell(&db, &mail, Notice::Erased, &u, given(&reason)).await;
             } else {
                 bail!("{} disappeared before it could be erased", u.email);
             }

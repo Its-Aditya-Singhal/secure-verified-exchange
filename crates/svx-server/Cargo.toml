@@ -13,6 +13,7 @@ svx-oidc = { path = "../svx-oidc", version = "0.1.0" }
 svx-protocol = { path = "../svx-protocol", version = "0.1.0" }
 anyhow = "1"
 async-trait = "0.1"
+base64 = "0.22"
 axum = "0.8"
 axum-server = { version = "0.8", features = ["tls-rustls"] }
 clap = { version = "4", features = ["derive", "env"] }

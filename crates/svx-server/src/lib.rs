@@ -16,6 +16,7 @@
 
 pub mod admin_ops;
 pub mod admin_web;
+pub mod announce;
 pub mod audit;
 pub mod db;
 pub mod dns;

@@ -192,3 +192,96 @@ async fn the_admin_page_logs_in_once_and_refuses_strangers() {
     );
     w.cleanup().await.unwrap();
 }
+
+#[tokio::test]
+async fn logs_and_announcements_need_the_session_and_the_page() {
+    let Some(w) = World::with_options(&WorldOptions::default()).await else {
+        return;
+    };
+    let mail = Arc::new(MemoryNotifier::default());
+    let app = AdminWeb::new(w.db.clone(), TOKEN, |_| {}, Some(mail.clone()))
+        .unwrap()
+        .router();
+    for path in ["/api/logs", "/api/email-usage", "/api/announcements"] {
+        assert_eq!(
+            send(&app, get(path, None)).await.0,
+            StatusCode::UNAUTHORIZED,
+            "{path}"
+        );
+    }
+    let (_, cookie, _) = send(&app, get(&format!("/login?t={TOKEN}"), None)).await;
+    let cookie = cookie.unwrap();
+    let alice = w.sign_up("alice").await;
+
+    let (status, _, usage) = send(&app, get("/api/email-usage", Some(&cookie))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(usage["limit"], 500);
+    assert_eq!(usage["announce_room"], 400);
+
+    // "hello" in base64.
+    let body = json!({
+        "subject": "SVX 0.2",
+        "body": "Hello,\n\nnew things.",
+        "files": [{ "name": "notes.txt", "content_type": "text/plain", "data": "aGVsbG8=" }],
+        "accounts": [alice.account],
+        "queue_rest": false,
+    });
+    // Not from the page: refused.
+    let forged = Request::post("/api/announcements")
+        .header(header::HOST, HOST)
+        .header(header::COOKIE, &cookie)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    assert_eq!(send(&app, forged).await.0, StatusCode::FORBIDDEN);
+    let bad = json!({ "subject": " ", "body": "x", "accounts": [alice.account] });
+    assert_eq!(
+        send(&app, post("/api/announcements", &cookie, bad)).await.0,
+        StatusCode::BAD_REQUEST
+    );
+
+    // A test goes out at once, with the file.
+    let mut test = body.clone();
+    test["to"] = json!("operator@example.com");
+    let (status, _, done) = send(&app, post("/api/announcements/test", &cookie, test)).await;
+    assert_eq!(status, StatusCode::OK, "{done}");
+    assert_eq!(mail.sent()[0].to, "operator@example.com");
+    assert_eq!(mail.sent_files()[0][0].data, b"hello");
+
+    let (status, _, created) = send(&app, post("/api/announcements", &cookie, body)).await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    assert_eq!(created["recipients"], 1);
+    let (_, _, list) = send(&app, get("/api/announcements", Some(&cookie))).await;
+    assert_eq!(list[0]["pending"], 1);
+    let path = format!("/api/announcements/{}/stop", created["id"]);
+    let (_, _, done) = send(&app, post(&path, &cookie, json!({}))).await;
+    assert_eq!(done["changed"], true);
+
+    // Unsubscribe from the account's page; the logs show both.
+    let opt = format!("/api/user/{}/announcements", alice.account);
+    let (_, _, done) = send(&app, post(&opt, &cookie, json!({ "off": true }))).await;
+    assert_eq!(done["changed"], true);
+    let (_, _, user) = send(
+        &app,
+        get(&format!("/api/user/{}", alice.account), Some(&cookie)),
+    )
+    .await;
+    assert_eq!(user["user"]["announcements_off"], true);
+    let (status, _, logs) = send(&app, get("/api/logs?problems=false", Some(&cookie))).await;
+    assert_eq!(status, StatusCode::OK);
+    let events: Vec<&str> = logs["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["event"].as_str().unwrap())
+        .collect();
+    for e in [
+        "announcements_off",
+        "announcement_stopped",
+        "announcement",
+        "announcement_test",
+    ] {
+        assert!(events.contains(&e), "{e} in {events:?}");
+    }
+    w.cleanup().await.unwrap();
+}

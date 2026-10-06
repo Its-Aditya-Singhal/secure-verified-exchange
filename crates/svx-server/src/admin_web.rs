@@ -15,7 +15,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use axum::extract::{Path, Query, Request, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, Request, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -27,12 +27,16 @@ use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use svx_core::crypto::random_bytes;
 
-use crate::admin_ops::{self, Activity, Notice, Stats, User};
-use crate::notify::SendNow;
+use crate::admin_ops::{self, Activity, EmailUsage, LogEntry, LogFilter, Notice, Stats, User};
+use crate::announce::{self, Created, Draft, Summary};
+use crate::notify::{Attachment, SendNow};
 
 const COOKIE: &str = "svx_admin";
 const CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; \
                    connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+
+/// Announcements carry attachments (10 MB, as base64 in JSON).
+const UPLOAD_LIMIT: usize = 16 * 1024 * 1024;
 
 /// Shortest accepted login token: 32 random bytes as hex.
 pub const MIN_TOKEN_LEN: usize = 64;
@@ -97,6 +101,20 @@ impl AdminWeb {
             .route("/api/suspend", post(suspend))
             .route("/api/unsuspend", post(unsuspend))
             .route("/api/delete", post(delete))
+            .route("/api/email-usage", get(email_usage))
+            .route("/api/logs", get(logs))
+            .route(
+                "/api/announcements",
+                get(announcements)
+                    .post(announce_create)
+                    .layer(DefaultBodyLimit::max(UPLOAD_LIMIT)),
+            )
+            .route(
+                "/api/announcements/test",
+                post(announce_test).layer(DefaultBodyLimit::max(UPLOAD_LIMIT)),
+            )
+            .route("/api/announcements/{id}/stop", post(announce_stop))
+            .route("/api/user/{id}/announcements", post(set_announcements))
             .layer(middleware::from_fn_with_state(self.clone(), guard))
             .with_state(self.clone())
     }
@@ -249,6 +267,7 @@ struct UserView {
     last_active: Option<i64>,
     suspended_at: Option<i64>,
     suspended_reason: Option<String>,
+    announcements_off: bool,
 }
 
 impl From<&User> for UserView {
@@ -262,6 +281,7 @@ impl From<&User> for UserView {
             last_active: u.last_active,
             suspended_at: u.suspended_at,
             suspended_reason: u.suspended_reason.clone(),
+            announcements_off: u.announcements_off,
         }
     }
 }
@@ -336,6 +356,15 @@ async fn tell(app: &AdminWeb, notice: Notice, u: &User, reason: Option<&str>) ->
     let Some(mail) = &app.0.mail else {
         return " No email was sent: email isn't set up on the server.";
     };
+    use crate::limits::{MAIL_DAILY, MailKind, take_email};
+    match take_email(&app.0.db, MailKind::Admin, MAIL_DAILY).await {
+        Ok(true) => {}
+        Ok(false) => return " No email was sent: today's email allowance is used up.",
+        Err(e) => {
+            tracing::error!(error = %e, "admin web: counting an email");
+            return " No email was sent: today's email count couldn't be read.";
+        }
+    }
     match mail
         .send_now(admin_ops::notice_email(notice, u, reason))
         .await
@@ -421,5 +450,222 @@ async fn delete(State(app): State<AdminWeb>, Json(a): Json<Action>) -> Result<Js
     Ok(Json(Done {
         changed,
         message: format!("{} has been erased.{told}", u.email),
+    }))
+}
+
+async fn email_usage(State(app): State<AdminWeb>) -> Result<Json<EmailUsage>, Fail> {
+    admin_ops::email_usage(&app.0.db)
+        .await
+        .map(Json)
+        .map_err(db_error)
+}
+
+#[derive(Deserialize)]
+struct LogsQuery {
+    search: Option<String>,
+    event: Option<String>,
+    #[serde(default)]
+    problems: bool,
+    #[serde(default)]
+    page: i64,
+}
+
+#[derive(Serialize)]
+struct LogsPage {
+    entries: Vec<LogEntry>,
+    more: bool,
+}
+
+const LOG_PAGE: i64 = 100;
+
+async fn logs(
+    State(app): State<AdminWeb>,
+    Query(q): Query<LogsQuery>,
+) -> Result<Json<LogsPage>, Fail> {
+    let mut entries = admin_ops::logs(
+        &app.0.db,
+        &LogFilter {
+            search: q.search,
+            event: q.event,
+            problems_only: q.problems,
+            offset: q.page.clamp(0, 10_000) * LOG_PAGE,
+            limit: LOG_PAGE + 1,
+        },
+    )
+    .await
+    .map_err(db_error)?;
+    let more = entries.len() as i64 > LOG_PAGE;
+    entries.truncate(LOG_PAGE as usize);
+    Ok(Json(LogsPage { entries, more }))
+}
+
+async fn announcements(State(app): State<AdminWeb>) -> Result<Json<Vec<Summary>>, Fail> {
+    announce::list(&app.0.db, 50)
+        .await
+        .map(Json)
+        .map_err(db_error)
+}
+
+#[derive(Deserialize)]
+struct FileIn {
+    name: String,
+    #[serde(default)]
+    content_type: String,
+    /// Base64.
+    data: String,
+}
+
+#[derive(Deserialize)]
+struct DraftIn {
+    subject: String,
+    body: String,
+    #[serde(default)]
+    files: Vec<FileIn>,
+}
+
+impl DraftIn {
+    fn draft(self) -> Result<Draft, Fail> {
+        use base64::Engine as _;
+        if self.files.len() > announce::MAX_FILES {
+            return Err(fail(StatusCode::BAD_REQUEST, "attach at most 5 files"));
+        }
+        let mut files = Vec::with_capacity(self.files.len());
+        for f in self.files {
+            let data = base64::engine::general_purpose::STANDARD
+                .decode(f.data.as_bytes())
+                .map_err(|_| fail(StatusCode::BAD_REQUEST, "an attachment couldn't be read"))?;
+            files.push(Attachment {
+                name: f.name,
+                content_type: f.content_type,
+                data,
+            });
+        }
+        Draft {
+            subject: self.subject,
+            body: self.body,
+            files,
+        }
+        .check()
+        .map_err(|m| fail(StatusCode::BAD_REQUEST, m))
+    }
+}
+
+#[derive(Deserialize)]
+struct CreateIn {
+    #[serde(flatten)]
+    draft: DraftIn,
+    accounts: Vec<String>,
+    #[serde(default)]
+    queue_rest: bool,
+}
+
+async fn announce_create(
+    State(app): State<AdminWeb>,
+    Json(c): Json<CreateIn>,
+) -> Result<Json<Created>, Fail> {
+    if c.accounts.is_empty() || c.accounts.len() > 100_000 {
+        return Err(fail(StatusCode::BAD_REQUEST, "choose who gets it"));
+    }
+    let draft = c.draft.draft()?;
+    let subject = draft.subject.clone();
+    let created = announce::create(&app.0.db, draft, &c.accounts, c.queue_rest)
+        .await
+        .map_err(|e| {
+            let m = e.to_string();
+            if m.starts_with("no announcement emails can go out today") {
+                fail(StatusCode::BAD_REQUEST, "no announcement emails can go out today: try again tomorrow, or tick \"queue the rest\"")
+            } else if m.starts_with("none of the chosen people") {
+                fail(StatusCode::BAD_REQUEST, "none of the chosen people can get announcements (suspended or opted out)")
+            } else {
+                tracing::error!(error = %e, "admin web: creating an announcement");
+                fail(StatusCode::INTERNAL_SERVER_ERROR, "couldn't save the announcement; see the Terminal window")
+            }
+        })?;
+    (app.0.log)(&format!(
+        "admin web: announcement #{} to {} people: {subject}",
+        created.id, created.recipients
+    ));
+    Ok(Json(created))
+}
+
+#[derive(Deserialize)]
+struct TestIn {
+    #[serde(flatten)]
+    draft: DraftIn,
+    to: String,
+}
+
+async fn announce_test(
+    State(app): State<AdminWeb>,
+    Json(t): Json<TestIn>,
+) -> Result<Json<Done>, Fail> {
+    let to = t.to.trim().to_owned();
+    if to.parse::<lettre::Address>().is_err() {
+        return Err(fail(
+            StatusCode::BAD_REQUEST,
+            "type the address to send the test to",
+        ));
+    }
+    let draft = t.draft.draft()?;
+    let Some(mail) = &app.0.mail else {
+        return Err(fail(
+            StatusCode::BAD_REQUEST,
+            "email isn't set up on the server",
+        ));
+    };
+    match announce::send_test(&app.0.db, mail.as_ref(), &draft, &to).await {
+        Ok(()) => Ok(Json(Done {
+            changed: true,
+            message: format!("A test was sent to {to}."),
+        })),
+        Err(e) => {
+            (app.0.log)(&format!("admin web: test announcement failed: {e}"));
+            Err(fail(
+                StatusCode::BAD_GATEWAY,
+                "the test email couldn't be sent (see the Terminal window)",
+            ))
+        }
+    }
+}
+
+async fn announce_stop(
+    State(app): State<AdminWeb>,
+    Path(id): Path<i64>,
+) -> Result<Json<Done>, Fail> {
+    let changed = announce::stop(&app.0.db, id).await.map_err(db_error)?;
+    if changed {
+        (app.0.log)(&format!("admin web: stopped announcement #{id}"));
+    }
+    Ok(Json(Done {
+        changed,
+        message: if changed {
+            "Stopped: nobody else will get it.".into()
+        } else {
+            "It had already finished.".into()
+        },
+    }))
+}
+
+#[derive(Deserialize)]
+struct OptOut {
+    off: bool,
+}
+
+async fn set_announcements(
+    State(app): State<AdminWeb>,
+    Path(id): Path<String>,
+    Json(o): Json<OptOut>,
+) -> Result<Json<Done>, Fail> {
+    let u = by_id(&app, &id).await?;
+    let changed = admin_ops::set_announcements_off(&app.0.db, &u.org_id, o.off)
+        .await
+        .map_err(db_error)?;
+    Ok(Json(Done {
+        changed,
+        message: if o.off {
+            format!("{} won't get announcements.", u.email)
+        } else {
+            format!("{} will get announcements again.", u.email)
+        },
     }))
 }

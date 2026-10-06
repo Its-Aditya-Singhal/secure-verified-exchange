@@ -42,8 +42,9 @@ pub struct Limits {
     pub releases_per_account_per_min: u32,
     /// Share requests by one account, per hour.
     pub shares_per_account_per_hour: u32,
-    /// Emails the service sends in a day (codes and notifications), kept
-    /// under the mail provider's daily limit (Gmail: about 500).
+    /// Emails (of every kind, last 24 hours) after which the service stops
+    /// sending codes and notifications, under the mail account's daily
+    /// allowance ([`MAIL_DAILY`]).
     pub emails_per_day: u32,
 }
 
@@ -58,7 +59,7 @@ impl Default for Limits {
             files_per_account_per_day: 200,
             releases_per_account_per_min: 60,
             shares_per_account_per_hour: 20,
-            emails_per_day: 450,
+            emails_per_day: 480,
         }
     }
 }
@@ -152,9 +153,82 @@ pub(crate) fn account_allows(
         .allow_in(&format!("{what}:{org_id}"), limit, window)
 }
 
-/// Take one email from today's budget; `false` once it is used up.
-pub(crate) fn email_budget(st: &AppState) -> bool {
-    st.limiter.allow_in("emails", st.limits.emails_per_day, DAY)
+/// The mail account's allowance (Gmail: about 500 emails per rolling 24
+/// hours), shown to the operator.
+pub const MAIL_DAILY: i64 = 500;
+/// Announcements stop once this many emails of any kind went out in the
+/// last 24 hours, so sign-up codes and approval emails always have room.
+pub const ANNOUNCE_CEILING: i64 = 400;
+
+/// What an email is, in `email_sends`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MailKind {
+    Code,
+    Notice,
+    Admin,
+    Announcement,
+    Test,
+}
+
+impl MailKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MailKind::Code => "code",
+            MailKind::Notice => "notice",
+            MailKind::Admin => "admin",
+            MailKind::Announcement => "announcement",
+            MailKind::Test => "test",
+        }
+    }
+}
+
+/// Take one email from the shared allowance if fewer than `ceiling` went
+/// out in the last 24 hours (counted in the database, so the service and
+/// the operator's tools share it). Serialized with an advisory lock.
+pub async fn take_email(db: &sqlx::PgPool, kind: MailKind, ceiling: i64) -> sqlx::Result<bool> {
+    let now = svx_protocol::unix_now();
+    let mut tx = db.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('svx email allowance'))")
+        .execute(&mut *tx)
+        .await?;
+    let used: i64 = sqlx::query_scalar("SELECT count(*) FROM email_sends WHERE at > $1")
+        .bind(now - DAY)
+        .fetch_one(&mut *tx)
+        .await?;
+    if used >= ceiling {
+        return Ok(false);
+    }
+    sqlx::query("INSERT INTO email_sends (at, kind) VALUES ($1, $2)")
+        .bind(now)
+        .bind(kind.as_str())
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(true)
+}
+
+/// Emails sent in the last 24 hours: (all, announcements).
+pub async fn emails_last_day(db: &sqlx::PgPool) -> sqlx::Result<(i64, i64)> {
+    let since = svx_protocol::unix_now() - DAY;
+    sqlx::query_as(
+        "SELECT count(*), count(*) FILTER (WHERE kind = 'announcement') \
+         FROM email_sends WHERE at > $1",
+    )
+    .bind(since)
+    .fetch_one(db)
+    .await
+}
+
+/// Take one code or notification email from the allowance; `false` once
+/// it is used up (or the count can't be read: fail closed).
+pub(crate) async fn email_budget(st: &AppState, kind: MailKind) -> bool {
+    match take_email(&st.db, kind, i64::from(st.limits.emails_per_day)).await {
+        Ok(ok) => ok,
+        Err(e) => {
+            tracing::error!(error = %e, "couldn't count today's emails");
+            false
+        }
+    }
 }
 
 #[cfg(test)]

@@ -47,7 +47,7 @@ memory, reset on restart:
 | Files registered by one account | 200 a day |
 | Opens and approval polling by one account | 60 a minute |
 | Share requests by one account | 20 an hour |
-| Emails sent by the service | 450 a day (`--max-emails-per-day`), under Gmail's ~500 |
+| Emails sent (every kind, last 24 hours, counted in the database) | codes and notices stop at 480 (`--max-emails-per-day`), announcements at 400, under Gmail's ~500 |
 
 Over a limit the service answers HTTP 429 with a reason the app shows
 (release requests: a plain "unavailable"). When the email budget is used
@@ -103,6 +103,27 @@ accepts only a loopback `Host`, and changes need the page's own header and
 origin (`crates/svx-server/src/admin_web.rs`). Actions are written to the
 journal (`journalctl -t svx-admin`); suspend and unsuspend also go to the
 account's audit log.
+
+The page has three tabs:
+
+- **Accounts:** counts, the account list, details, suspend, unsuspend,
+  delete, and "No announcement emails" for someone who replied
+  "unsubscribe".
+- **Logs:** every account's activity log and the operator's own actions
+  (`admin_log`: account IDs only, never addresses), newest first, with a
+  search, an event filter and "problems only". No file names exist on the
+  service; files show as short IDs.
+- **Announcements:** write a subject, a plain-text message and up to 5
+  attachments (10 MB in total), choose people (Select all, then untick),
+  send a test to yourself, then Send. The service's worker
+  (`crates/svx-server/src/announce.rs`) sends one email per person, a few
+  every 15 seconds. Every email ends with an unsubscribe line. The counter
+  shows emails of every kind in the last 24 hours against Gmail's ~500:
+  announcements stop at 400, so sign-up codes always get through. Without
+  "queue the rest", only the people who fit today are added; with it, the
+  rest go out over the next days. Suspended and unsubscribed people are
+  skipped. Attachments are deleted from the database once it's done or
+  stopped.
 
 SSH must allow this one forward and nothing else. In
 `/etc/ssh/sshd_config.d/10-svx.conf`, instead of `AllowTcpForwarding no`:

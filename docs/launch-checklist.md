@@ -98,16 +98,18 @@ No card needed: we skipped Cloudflare Tunnel (Zero Trust wants a card) and use t
 
 Asked for on 2026-10-06; plan first when picked up.
 
-- [ ] **Logs page in the admin page:** recent service activity (sign-ups,
+- [x] ~~**Logs page in the admin page:** recent service activity (sign-ups,
       sends, opens, refusals, admin actions) with filters. Never file names
-      or contents (the service doesn't have them).
-- [ ] **Announcements from the admin page:** write an email (for example a
+      or contents (the service doesn't have them).~~ Built 2026-10-06 (Logs tab).
+- [x] ~~**Announcements from the admin page:** write an email (for example a
       new release and its features) and send it to all users or to chosen
       ones, with optional attachments (files, documents). Needs: the daily
       email budget (Gmail ~500/day: send in batches over several days, or
       move to a bulk email service), an unsubscribe option and a line in
       the privacy policy, attachment size limits, and a preview/test send
-      to yourself first.
+      to yourself first.~~ Built 2026-10-06 (Announcements tab, shared
+      email counter in `email_sends`, 400/day for announcements, optional
+      queue, reply-to-unsubscribe).
 
 ## Cost
 

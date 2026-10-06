@@ -28,7 +28,7 @@ use tokio::sync::Semaphore;
 
 use super::personal::{Existing, Identity, authenticate, bind_device, valid_email};
 use crate::error::{ApiError, ApiResult};
-use crate::limits::{ClientIp, HOUR, check_ip, email_budget};
+use crate::limits::{ClientIp, HOUR, MailKind, check_ip, email_budget};
 use crate::notify::Email;
 use crate::{AppState, audit};
 
@@ -134,7 +134,7 @@ pub async fn send_code(
     }
     // Counted whether or not this address gets the email, so the answer
     // still doesn't tell who has an account.
-    if !email_budget(&st) {
+    if !email_budget(&st, MailKind::Code).await {
         return Err(ApiError::TooMany(
             "the service has sent too many emails today; try again tomorrow".into(),
         ));

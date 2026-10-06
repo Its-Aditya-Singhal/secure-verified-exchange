@@ -23,24 +23,119 @@
 <main>
   <div id="banner" class="banner" hidden></div>
 
-  <section>
-    <h2>Overview</h2>
-    <div id="stats" class="cards"></div>
-  </section>
+  <nav class="tabs" role="tablist">
+    <button type="button" class="tab is-on" data-tab="accounts" role="tab">Accounts</button>
+    <button type="button" class="tab" data-tab="logs" role="tab">Logs</button>
+    <button type="button" class="tab" data-tab="announce" role="tab">Announcements</button>
+  </nav>
 
-  <section>
-    <div class="row-head">
-      <h2>Accounts</h2>
-      <input id="search" type="search" placeholder="Search email, name or account ID" autocomplete="off" spellcheck="false">
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Email</th><th>Name</th><th>Sign-in</th><th>Created</th><th>Last active</th><th>Status</th></tr></thead>
-        <tbody id="users"></tbody>
-      </table>
-    </div>
-    <p id="count" class="muted"></p>
-  </section>
+  <div id="tab-accounts" class="tabpane">
+    <section>
+      <h2>Overview</h2>
+      <div id="stats" class="cards"></div>
+    </section>
+
+    <section>
+      <div class="row-head">
+        <h2>Accounts</h2>
+        <input id="search" type="search" placeholder="Search email, name or account ID" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Email</th><th>Name</th><th>Sign-in</th><th>Created</th><th>Last active</th><th>Status</th></tr></thead>
+          <tbody id="users"></tbody>
+        </table>
+      </div>
+      <p id="count" class="muted"></p>
+    </section>
+  </div>
+
+  <div id="tab-logs" class="tabpane" hidden>
+    <section>
+      <div class="row-head">
+        <h2>Logs</h2>
+        <div class="filters">
+          <input id="log-search" type="search" placeholder="Email or account ID" autocomplete="off" spellcheck="false">
+          <select id="log-event" aria-label="Event"></select>
+          <label class="check"><input id="log-problems" type="checkbox"> Problems only</label>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>When</th><th>Account</th><th>What happened</th><th>With</th><th>File</th><th>Details</th></tr></thead>
+          <tbody id="logs"></tbody>
+        </table>
+      </div>
+      <div class="pager">
+        <button id="log-newer" class="ghost" type="button" disabled>Newer</button>
+        <span id="log-page" class="muted"></span>
+        <button id="log-older" class="ghost" type="button" disabled>Older</button>
+      </div>
+      <p class="muted foot">Each account's own activity log, plus what you did here. File names never reach the service, so files show as short IDs.</p>
+    </section>
+  </div>
+
+  <div id="tab-announce" class="tabpane" hidden>
+    <section>
+      <h2>New announcement</h2>
+      <div id="usage" class="usage"></div>
+      <div class="compose">
+        <label class="field">Subject
+          <input id="a-subject" type="text" maxlength="200" placeholder="SVX 0.2 is here">
+        </label>
+        <label class="field">Message
+          <textarea id="a-body" rows="10" maxlength="20000" placeholder="Hello,&#10;&#10;What's new…"></textarea>
+        </label>
+        <p class="muted small">Plain text. Every email ends with: "You get this because you have an SVX account. Don't want these emails? Reply "unsubscribe" or write to support@getsvx.me."</p>
+        <div class="field">Attachments <span class="muted small">(up to 5 files, 10 MB in total)</span>
+          <div class="inline">
+            <input id="a-files" type="file" multiple>
+          </div>
+          <ul id="a-filelist" class="filelist"></ul>
+        </div>
+      </div>
+
+      <div class="row-head">
+        <h3>Who gets it</h3>
+        <div class="filters">
+          <input id="r-search" type="search" placeholder="Search" autocomplete="off" spellcheck="false">
+          <button id="r-all" class="ghost" type="button">Select all</button>
+          <button id="r-none" class="ghost" type="button">Clear</button>
+        </div>
+      </div>
+      <div class="table-wrap picker">
+        <table>
+          <thead><tr><th></th><th>Email</th><th>Name</th><th>Note</th></tr></thead>
+          <tbody id="recipients"></tbody>
+        </table>
+      </div>
+      <p id="r-count" class="muted"></p>
+
+      <div class="send-box">
+        <p id="a-plan"></p>
+        <label class="check"><input id="a-queue" type="checkbox"> Queue the rest for the next days if today's allowance runs out</label>
+        <div class="inline">
+          <input id="a-test-to" type="email" placeholder="your address, for a test" autocomplete="off" spellcheck="false">
+          <button id="a-test" class="ghost" type="button">Send a test</button>
+        </div>
+        <div class="actions">
+          <button id="a-send" type="button" disabled>Send</button>
+        </div>
+        <div id="a-msg" class="banner" hidden></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Sent announcements</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>When</th><th>Subject</th><th>Status</th><th>Sent</th><th>Waiting</th><th>Failed</th><th>Skipped</th><th></th></tr></thead>
+          <tbody id="history"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
   <p class="muted foot">File names and contents never reach the service, so they can't appear here. Close the Terminal window (or press Ctrl-C there) to end this session.</p>
 </main>
 
@@ -68,6 +163,11 @@
     <h4>Lift the suspension</h4>
     <p class="muted">Everything works again for them, including files they sent. They get an email saying so.</p>
     <button id="d-unsuspend-btn" type="button">Unsuspend</button>
+  </div>
+
+  <div class="action">
+    <h4>Announcements</h4>
+    <label class="check"><input id="d-annoff" type="checkbox"> No announcement emails (they asked to unsubscribe)</label>
   </div>
 
   <div class="action danger-zone">

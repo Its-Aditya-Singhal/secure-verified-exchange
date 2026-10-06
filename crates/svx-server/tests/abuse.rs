@@ -8,8 +8,18 @@ use svx_server::admin_ops;
 use svx_server::limits::Limits;
 use svx_testkit::*;
 
+/// The per-minute limits count per calendar minute: start a test early in
+/// one, so it doesn't straddle two (the tests take a few seconds).
+async fn early_in_a_minute() {
+    let s = svx_protocol::unix_now().rem_euclid(60);
+    if s > 45 {
+        tokio::time::sleep(std::time::Duration::from_secs((61 - s) as u64)).await;
+    }
+}
+
 macro_rules! world {
-    ($limits:expr) => {
+    ($limits:expr) => {{
+        early_in_a_minute().await;
         match World::with_options(&WorldOptions {
             limits: Some($limits),
             ..Default::default()
@@ -19,7 +29,7 @@ macro_rules! world {
             Some(w) => w,
             None => return,
         }
-    };
+    }};
 }
 
 const NO_APPROVAL: FileRules = FileRules {

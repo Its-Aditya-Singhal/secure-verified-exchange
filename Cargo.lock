@@ -6633,6 +6633,7 @@ dependencies = [
  "async-trait",
  "axum",
  "axum-server",
+ "base64 0.22.1",
  "clap",
  "hex",
  "hickory-resolver",

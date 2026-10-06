@@ -125,6 +125,8 @@ pub struct User {
     pub suspended_reason: Option<String>,
     /// Latest file sent or opened.
     pub last_active: Option<i64>,
+    /// The person asked not to get announcement emails.
+    pub announcements_off: bool,
 }
 
 impl User {
@@ -145,7 +147,7 @@ impl User {
 }
 
 const USER_SELECT: &str = "SELECT p.org_id, p.email, p.first_name, p.last_name, p.issuer, \
-     p.created_at, o.suspended_at, o.suspended_reason, \
+     p.created_at, o.suspended_at, o.suspended_reason, p.announcements_off, \
      GREATEST((SELECT max(registered_at) FROM personal_files WHERE sender = p.org_id), \
               (SELECT max(last_released_at) FROM opens WHERE recipient = p.org_id)) AS last_active \
      FROM personal_accounts p JOIN orgs o ON o.org_id = p.org_id";
@@ -228,6 +230,7 @@ pub async fn suspend(db: &PgPool, org_id: &str, reason: Option<&str>) -> sqlx::R
     .rows_affected()
         == 1;
     if changed {
+        log_action(db, "suspended", Some(org_id), reason).await?;
         audit::append(
             db,
             org_id,
@@ -254,6 +257,7 @@ pub async fn unsuspend(db: &PgPool, org_id: &str) -> sqlx::Result<bool> {
     .rows_affected()
         == 1;
     if changed {
+        log_action(db, "unsuspended", Some(org_id), None).await?;
         audit::append(
             db,
             org_id,
@@ -302,6 +306,7 @@ pub async fn erase(db: &PgPool, org_id: &str) -> sqlx::Result<bool> {
         "DELETE FROM revocations WHERE revoked_by_org = $1",
         "DELETE FROM release_txns WHERE org_id = $1",
         "DELETE FROM audit WHERE org_id = $1",
+        "DELETE FROM announcement_recipients WHERE org_id = $1",
         // Cascades to personal_accounts, email_accounts, org_keys,
         // org_admins and policies.
         "DELETE FROM orgs WHERE org_id = $1 AND kind = 'personal'",
@@ -321,8 +326,162 @@ pub async fn erase(db: &PgPool, org_id: &str) -> sqlx::Result<bool> {
         .bind(&email)
         .execute(&mut *tx)
         .await?;
+    sqlx::query("INSERT INTO admin_log (at, action, org_id) VALUES ($1, 'erased', $2)")
+        .bind(unix_now())
+        .bind(org_id)
+        .execute(&mut *tx)
+        .await?;
     tx.commit().await?;
     Ok(true)
+}
+
+/// Record something the operator did (account IDs only, never addresses).
+pub async fn log_action(
+    db: &PgPool,
+    action: &str,
+    org_id: Option<&str>,
+    detail: Option<&str>,
+) -> sqlx::Result<()> {
+    sqlx::query("INSERT INTO admin_log (at, action, org_id, detail) VALUES ($1, $2, $3, $4)")
+        .bind(unix_now())
+        .bind(action)
+        .bind(org_id)
+        .bind(detail)
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
+/// Turn announcement emails off or on for an account (it replied
+/// "unsubscribe", or changed its mind). Returns `false` if nothing changed.
+pub async fn set_announcements_off(db: &PgPool, org_id: &str, off: bool) -> sqlx::Result<bool> {
+    let changed = sqlx::query(
+        "UPDATE personal_accounts SET announcements_off = $2 \
+         WHERE org_id = $1 AND announcements_off <> $2",
+    )
+    .bind(org_id)
+    .bind(off)
+    .execute(db)
+    .await?
+    .rows_affected()
+        == 1;
+    if changed {
+        let action = if off {
+            "announcements_off"
+        } else {
+            "announcements_on"
+        };
+        log_action(db, action, Some(org_id), None).await?;
+    }
+    Ok(changed)
+}
+
+/// Emails in the last 24 hours, against the mail account's allowance.
+#[derive(Debug, serde::Serialize)]
+pub struct EmailUsage {
+    pub used: i64,
+    pub announcements: i64,
+    /// The mail account's allowance.
+    pub limit: i64,
+    /// Announcements stop at this many emails of any kind.
+    pub announce_ceiling: i64,
+    /// How many announcement emails could go out right now.
+    pub announce_room: i64,
+}
+
+pub async fn email_usage(db: &PgPool) -> sqlx::Result<EmailUsage> {
+    use crate::limits::{ANNOUNCE_CEILING, MAIL_DAILY, emails_last_day};
+    let (used, announcements) = emails_last_day(db).await?;
+    Ok(EmailUsage {
+        used,
+        announcements,
+        limit: MAIL_DAILY,
+        announce_ceiling: ANNOUNCE_CEILING,
+        announce_room: (ANNOUNCE_CEILING - used).max(0),
+    })
+}
+
+/// One line of the operator's logs page: an event from an account's audit
+/// log, or something the operator did. No file names exist on the service.
+#[derive(Debug, serde::Serialize, FromRow)]
+pub struct LogEntry {
+    pub at: i64,
+    /// `account` (the account's own log) or `admin` (the operator).
+    pub source: String,
+    pub account: Option<String>,
+    /// `None` once the account is erased.
+    pub email: Option<String>,
+    pub event: String,
+    /// The other person, for events about someone else.
+    pub subject: Option<String>,
+    pub artifact_id: Option<String>,
+    pub reason: Option<String>,
+}
+
+/// Events shown with "problems only".
+pub const PROBLEM_EVENTS: &[&str] = &[
+    audit::event::AUTHN_FAILURE,
+    audit::event::AUTHZ_FAILURE,
+    audit::event::SIGNATURE_FAILURE,
+    audit::event::ARTIFACT_EXPIRED,
+    audit::event::REVOKED_ACCESS,
+    audit::event::REPLAY,
+    audit::event::KEY_RELEASE_FAILURE,
+    audit::event::SUSPICIOUS,
+    audit::event::ADMIN_AUTH_FAILURE,
+    audit::event::APPROVAL_DECLINED,
+    audit::event::SHARE_DECLINED,
+    audit::event::ACCOUNT_SUSPENDED,
+];
+
+#[derive(Debug, Default, Clone)]
+pub struct LogFilter {
+    /// Part of an email address or account ID.
+    pub search: Option<String>,
+    pub event: Option<String>,
+    pub problems_only: bool,
+    pub offset: i64,
+    pub limit: i64,
+}
+
+/// Newest first: every account's audit log and the operator's actions.
+pub async fn logs(db: &PgPool, f: &LogFilter) -> sqlx::Result<Vec<LogEntry>> {
+    let search = f
+        .search
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            let e = s
+                .replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_");
+            format!("%{}%", e.to_lowercase())
+        });
+    let problems: Vec<String> = PROBLEM_EVENTS.iter().map(|s| s.to_string()).collect();
+    sqlx::query_as::<_, LogEntry>(
+        "SELECT x.at, x.source, x.org_id AS account, p.email, x.event, x.subject, \
+                x.artifact_id, x.reason \
+         FROM ( \
+           SELECT at, 'account' AS source, org_id, event, subject, artifact_id, reason, seq AS n \
+           FROM audit \
+           UNION ALL \
+           SELECT at, 'admin', org_id, action, NULL, NULL, detail, id FROM admin_log \
+         ) x LEFT JOIN personal_accounts p ON p.org_id = x.org_id \
+         WHERE ($1::text IS NULL OR lower(coalesce(p.email, '')) LIKE $1 \
+                OR coalesce(x.org_id, '') LIKE $1 OR lower(coalesce(x.subject, '')) LIKE $1) \
+           AND ($2::text IS NULL OR x.event = $2) \
+           AND (NOT $3 OR x.event = ANY($4)) \
+         ORDER BY x.at DESC, x.source, x.n DESC LIMIT $5 OFFSET $6",
+    )
+    .bind(search)
+    .bind(f.event.as_deref().filter(|e| !e.is_empty()))
+    .bind(f.problems_only)
+    .bind(&problems)
+    .bind(f.limit.clamp(1, 500))
+    .bind(f.offset.max(0))
+    .fetch_all(db)
+    .await
 }
 
 /// What the operator did to an account, for the email to its owner.
@@ -394,6 +553,7 @@ mod tests {
             suspended_at: None,
             suspended_reason: None,
             last_active: None,
+            announcements_off: false,
         }
     }
 
