@@ -232,6 +232,12 @@ async fn a_suspended_account_is_shut_out_until_lifted() {
             .await,
     );
     assert!(d.contains("suspended"), "{d}");
+    // Her own lookups get the exact refusal the app shows as "your account
+    // is suspended" (not as a problem with the person she looks up).
+    assert_eq!(
+        invalid(w.lookup(&alice, &bob.email).await),
+        svx_protocol::personal::ACCOUNT_SUSPENDED
+    );
     // Nobody finds her, and what she sent no longer opens.
     assert!(w.lookup(&bob, &alice.email).await.is_err());
     assert!(w.open_personal(&bob, &file).await.is_err());

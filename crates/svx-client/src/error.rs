@@ -35,6 +35,11 @@ pub enum ClientError {
         "this account already has keys on another device: restore your backup, or reset your keys"
     )]
     AccountExists,
+    /// The user's own account is suspended by the service's operator.
+    #[error(
+        "your SVX account is suspended; write to support@getsvx.me if you think this is a mistake"
+    )]
+    Suspended,
     /// The user stopped waiting (for example for the sender's approval).
     #[error("cancelled")]
     Cancelled,
@@ -69,6 +74,7 @@ pub enum ErrorKind {
     OutputExists,
     Invalid,
     AccountExists,
+    Suspended,
     Cancelled,
     NotConfirmed,
     ViewUnsupported,
@@ -90,6 +96,7 @@ impl ErrorKind {
             ErrorKind::OutputExists => "output_exists",
             ErrorKind::Invalid => "invalid",
             ErrorKind::AccountExists => "account_exists",
+            ErrorKind::Suspended => "suspended",
             ErrorKind::Cancelled => "cancelled",
             ErrorKind::NotConfirmed => "not_confirmed",
             ErrorKind::ViewUnsupported => "view_unsupported",
@@ -113,6 +120,7 @@ impl ClientError {
             ClientError::OutputExists(_) => ErrorKind::OutputExists,
             ClientError::Invalid(_) => ErrorKind::Invalid,
             ClientError::AccountExists => ErrorKind::AccountExists,
+            ClientError::Suspended => ErrorKind::Suspended,
             ClientError::Cancelled => ErrorKind::Cancelled,
             ClientError::NotConfirmed => ErrorKind::NotConfirmed,
             ClientError::ViewUnsupported => ErrorKind::ViewUnsupported,
@@ -143,7 +151,8 @@ impl ClientError {
             ClientError::Rejected(_)
             | ClientError::NotRecipient { .. }
             | ClientError::Expired
-            | ClientError::Denied(_) => 1,
+            | ClientError::Denied(_)
+            | ClientError::Suspended => 1,
             ClientError::Unavailable(_) => 3,
             _ => 2,
         }
@@ -160,11 +169,30 @@ impl From<ProtocolError> for ClientError {
             ProtocolError::Invalid(d) if d == svx_protocol::personal::KEYS_ON_ANOTHER_DEVICE => {
                 ClientError::AccountExists
             }
+            ProtocolError::Invalid(d) if d == svx_protocol::personal::ACCOUNT_SUSPENDED => {
+                ClientError::Suspended
+            }
             ProtocolError::Invalid(d) => ClientError::Invalid(d),
             ProtocolError::Http(e) => ClientError::Unavailable(e.to_string()),
             ProtocolError::Status(s) if s >= 500 => ClientError::Unavailable(format!("HTTP {s}")),
             ProtocolError::InsecureUrl(u) => ClientError::Config(format!("insecure URL {u}")),
             other => ClientError::Other(other.to_string()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_suspended_account_has_its_own_kind() {
+        let e = ClientError::from(ProtocolError::Invalid(
+            svx_protocol::personal::ACCOUNT_SUSPENDED.into(),
+        ));
+        assert_eq!(e.kind().as_str(), "suspended");
+        assert_eq!(e.exit_code(), 1);
+        let other = ClientError::from(ProtocolError::Invalid("no such account".into()));
+        assert_eq!(other.kind().as_str(), "invalid");
     }
 }

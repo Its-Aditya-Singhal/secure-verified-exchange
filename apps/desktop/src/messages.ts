@@ -136,6 +136,13 @@ export function explain(e: AppError): Explained {
         body: "Restore your backup to use it here, or reset your keys (files sent to your old keys can't be opened after a reset).",
         retry: false,
       };
+    case "suspended":
+      return {
+        tone: "stop",
+        title: "Your SVX account is suspended",
+        body: "You can't send or open files, and files you sent can't be opened, until the suspension is lifted. Check your email for details, or write to support@getsvx.me if you think this is a mistake.",
+        retry: false,
+      };
     case "cancelled":
       return { tone: "info", title: "Stopped waiting", body: "Nothing was decrypted. You can open the file again later; if the sender approves in the meantime, it opens straight away.", retry: true };
     case "not_confirmed":

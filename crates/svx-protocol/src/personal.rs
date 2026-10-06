@@ -66,6 +66,11 @@ pub struct SignUpRequest {
 pub const KEYS_ON_ANOTHER_DEVICE: &str =
     "this account already has keys on another device: restore your backup, or reset your keys";
 
+/// The refusal for every request from a suspended account (the client
+/// shows "your account is suspended", never as a problem with a recipient).
+pub const ACCOUNT_SUSPENDED: &str =
+    "your SVX account is suspended; write to support@getsvx.me if you think this is a mistake";
+
 /// A personal account.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

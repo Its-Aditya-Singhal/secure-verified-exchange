@@ -25,6 +25,8 @@ interface Chip {
 export function personalSendScreen(ctx: Ctx, root: HTMLElement, arg: { to?: string[] } | null): void {
   let input: string | null = null;
   const chips: Chip[] = [];
+  // Problems with the user's own account (not with a recipient) show here.
+  const accountProblem = h("div", {});
   const view = h("div", { class: "stack" });
   root.appendChild(view);
 
@@ -77,7 +79,9 @@ export function personalSendScreen(ctx: Ctx, root: HTMLElement, arg: { to?: stri
         (contact) => { c.contact = contact; renderChip(c); },
         (err) => {
           const x = asAppError(err);
-          c.problem = x.kind === "invalid" ? x.message : x.kind === "config" ? "Not an email address" : "Couldn't check right now";
+          if (x.kind === "suspended" && !accountProblem.firstChild) accountProblem.appendChild(errorPanel(x));
+          c.problem = x.kind === "suspended" ? "Couldn't check: your own account is suspended"
+            : x.kind === "invalid" ? x.message : x.kind === "config" ? "Not an email address" : "Couldn't check right now";
           renderChip(c);
         },
       );
@@ -100,6 +104,7 @@ export function personalSendScreen(ctx: Ctx, root: HTMLElement, arg: { to?: stri
   for (const e of arg?.to ?? []) add(e);
   const who = card(
     "Who can open it?",
+    accountProblem,
     field("Email addresses", h("div", { class: "email-input" }, chipBox, email),
       "Press Enter after each one. They need an SVX account; the app checks each address and finds their keys."),
   );

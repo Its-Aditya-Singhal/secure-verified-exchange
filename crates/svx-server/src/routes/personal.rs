@@ -43,8 +43,7 @@ pub const ONE_TIME_RETRY_SECS: i64 = 600;
 /// Directory lookups per account per minute.
 const DIRECTORY_PER_MINUTE: u32 = 30;
 /// Shown to the owner of a suspended account.
-pub(crate) const SUSPENDED: &str =
-    "this account is suspended; contact support if you think this is a mistake";
+pub(crate) const SUSPENDED: &str = svx_protocol::personal::ACCOUNT_SUSPENDED;
 
 fn deny(r: DenyReason) -> ApiError {
     ApiError::Deny(r)
