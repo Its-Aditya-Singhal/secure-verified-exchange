@@ -35,6 +35,10 @@ fi
 curl -fsS -m 30 -L "$BASE/download" | grep -q 'curl -fsSL https://getsvx.me/install.sh | sh' && ok "download page shows the install command" || bad "install command missing from the download page"
 curl -fsS -m 30 "$BASE/install.sh" | head -1 | grep -q '^#!/bin/sh' && ok "install.sh starts with a shell line (not an HTML error page)" || bad "install.sh is not a script"
 
+cc=$(curl -sSI -m 30 "$BASE/assets/js/boot.js" | tr -d '\r' | grep -i '^cache-control' || true)
+echo "$cc" | grep -qi immutable && bad "boot.js is cached as immutable: $cc" || ok "scripts are not cached as immutable"
+curl -fsS -m 30 "$BASE/assets/js/boot.js" | grep -q "RELEASE='live'" && ok "release switch is live" || bad "release switch is not live (the Download button is hidden)"
+
 echo "Contact"
 [ "$(code .well-known/security.txt)" = 200 ] && curl -fsSL -m 30 "$BASE/.well-known/security.txt" | grep -q "^Contact: mailto:security@getsvx.me" && ok "/.well-known/security.txt" || bad "security.txt missing or wrong"
 curl -fsS -m 30 -L "$BASE/" | grep -q 'support@getsvx.me' && ok "support address in the footer" || bad "support address missing"

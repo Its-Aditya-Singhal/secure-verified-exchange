@@ -6,14 +6,28 @@
   Cross-Origin-Opener-Policy: same-origin
   Strict-Transport-Security: max-age=31536000
 
-/assets/*
+# Fonts, pictures, video and vendor libraries never change under the same
+# name, so they can be cached for a year. The site's own scripts and styles
+# keep their names between versions: browsers must check them every time
+# (a cheap "unchanged" answer when they are the same). Rules in this file
+# add up when several match, so no catch-all /assets/* rule here.
+/assets/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/assets/media/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/assets/brand/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/assets/vendor/*
   Cache-Control: public, max-age=31536000, immutable
 
 /assets/js/*
-  Cache-Control: public, max-age=3600
+  Cache-Control: no-cache
 
 /assets/css/*
-  Cache-Control: public, max-age=3600
+  Cache-Control: no-cache
 
 /security.txt
   Content-Type: text/plain; charset=utf-8
