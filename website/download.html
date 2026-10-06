@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Download the beta · SVX</title>
-<meta name="description" content="Download the SVX beta for Macs with an Apple chip, with its checksum and first-launch instructions. Windows and Linux are coming.">
+<meta name="description" content="Download the SVX beta for Windows and for Macs with an Apple chip, with checksums and first-launch instructions. Linux is coming.">
 <meta name="theme-color" content="#16171B">
 <meta property="og:title" content="Download the beta · SVX">
-<meta property="og:description" content="Download the SVX beta for Macs with an Apple chip, with its checksum and first-launch instructions. Windows and Linux are coming.">
+<meta property="og:description" content="Download the SVX beta for Windows and for Macs with an Apple chip, with checksums and first-launch instructions. Linux is coming.">
 <meta property="og:type" content="website">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="preload" href="assets/fonts/unbounded-700.woff2" as="font" type="font/woff2" crossorigin>
@@ -62,7 +62,7 @@
   <div class="wrap">
     <p class="eyebrow" data-r>Download · Beta</p>
     <h1 class="h1" data-split>Get SVX for your desktop.</h1>
-    <p class="lead when-live" data-r style="--d:.3s">SVX is in beta for Macs with an Apple chip (M1 or newer). Windows and Linux are coming. Because the beta isn't signed by Apple, macOS asks you to confirm the first time; the steps are below.</p>
+    <p class="lead when-live" data-r style="--d:.3s">SVX is in beta for Windows 10 and 11 (64-bit) and for Macs with an Apple chip (M1 or newer). Linux is coming. Because the beta isn't signed by Apple or Microsoft, your computer asks you to confirm the first time; the steps are below.</p>
     <p class="lead when-soon" data-r style="--d:.3s">The beta for Macs with an Apple chip opens soon, with Windows and Linux to follow. The download links will appear on this page, with a checksum for each file. Here is what to expect when you install.</p>
   </div>
 </section>
@@ -78,7 +78,7 @@
         <span class="btn btn--lg btn--off when-soon" aria-disabled="true">Coming soon</span>
         <div class="sum when-live">
           <span class="sum__label" id="sum-mac-l">SHA-256</span>
-          <div class="sum__box"><code id="sum-mac" aria-labelledby="sum-mac-l">e4e6ac49099b58834abca1ca9f0926f9d6f3f286b803598f4e58ee5ce15c0c44</code><button class="copy" type="button" data-copy="sum-mac" aria-label="Copy macOS checksum">Copy</button></div>
+          <div class="sum__box"><code id="sum-mac" aria-labelledby="sum-mac-l">9f9bbbc09c3d0e9f7cdd72007e2e6224fe08d1b8aff3e663717fa8e8c450e1d0</code><button class="copy" type="button" data-copy="sum-mac" aria-label="Copy macOS checksum">Copy</button></div>
         </div>
         <div class="sum when-live">
           <span class="sum__label" id="sum-mac-t">Or install from Terminal (no warning)</span>
@@ -89,8 +89,13 @@
       <article class="dl__card" id="win" data-os="win">
         <div class="dl__top"><span class="beta">Beta</span><span class="dl__yours">Your system</span></div>
         <h2>Windows</h2>
-        <p class="dl__meta">Not available yet</p>
-        <span class="btn btn--lg btn--off" aria-disabled="true">Coming soon</span>
+        <p class="dl__meta">SVX-beta-Windows.exe · Windows 10 and 11, 64-bit</p>
+        <a class="btn btn--primary btn--lg when-live" href="downloads/SVX-beta-Windows.exe" download data-magnetic>Download for Windows <span class="beta">Beta</span></a>
+        <span class="btn btn--lg btn--off when-soon" aria-disabled="true">Coming soon</span>
+        <div class="sum when-live">
+          <span class="sum__label" id="sum-win-l">SHA-256</span>
+          <div class="sum__box"><code id="sum-win" aria-labelledby="sum-win-l">4acef67bb6a6e8c348c70829db859cb752cfc39c6b050b1c578fcc22c785bb3f</code><button class="copy" type="button" data-copy="sum-win" aria-label="Copy Windows checksum">Copy</button></div>
+        </div>
       </article>
       
       <article class="dl__card" id="linux" data-os="linux">
@@ -110,12 +115,12 @@
       <p class="eyebrow" data-r>An honest note</p>
       <h2 class="h2" id="fl-title" data-split>Why you'll see a warning.</h2>
       <div class="prose" data-r style="margin-top:1.6rem">
-        <p>Apple charges developers $99 a year to sign and approve apps, and SVX is a free beta, so it is <strong>not signed by Apple</strong>. If you download the file with your browser, macOS asks you to confirm the first time you open it. If you use the Terminal command above, macOS has nothing to ask: the app is the same, but it is not marked as downloaded from the internet.</p>
+        <p>Apple charges developers $99 a year to sign and approve apps, and Microsoft's code-signing certificates cost money too. SVX is a free beta, so it is <strong>not signed by Apple or Microsoft</strong>. If you download the file with your browser, your computer asks you to confirm the first time you open it. On a Mac, if you use the Terminal command above, macOS has nothing to ask: the app is the same, but it is not marked as downloaded from the internet.</p>
         <p>The warning means the system doesn't recognise the publisher. It's a good moment to check the file is the one we published: compare its checksum with the one on this page before you continue.</p>
       </div>
     </div>
     <div data-r style="--d:.15s">
-      <p class="mut" style="margin-bottom:14px">Only the macOS beta is available. The Windows and Linux tabs show what to expect once those builds exist.</p>
+      <p class="mut" style="margin-bottom:14px">The macOS and Windows betas are available. The Linux tab shows what to expect once that build exists.</p>
       <div class="os-tabs" role="tablist" aria-label="First launch instructions">
         <button role="tab" id="t-mac" data-tab="mac" aria-controls="p-mac" aria-selected="true">macOS</button>
         <button role="tab" id="t-win" data-tab="win" aria-controls="p-win" aria-selected="false" tabindex="-1">Windows</button>
@@ -133,10 +138,13 @@
       </div>
       <div class="panel" role="tabpanel" id="p-win" aria-labelledby="t-win" tabindex="0" hidden>
         <ol class="steps-list">
-          <li>Run the installer.</li>
+          <li>Open <strong>SVX-beta-Windows.exe</strong> from your Downloads folder.</li>
           <li>Windows shows “Windows protected your PC”. Click <strong>More info</strong>.</li>
-          <li>Check the publisher details, then click <strong>Run anyway</strong>.</li>
-          <li>You only need to do this once.</li>
+          <li>It says “Unknown publisher”, because the beta isn't signed. Click <strong>Run anyway</strong>, then follow the installer. It installs for your user only and doesn't need an administrator.</li>
+          <li>Your browser may also warn that the file isn't commonly downloaded. Choose <strong>Keep</strong> (in Edge: the <strong>…</strong> menu, then <strong>Keep</strong>).</li>
+          <li>SVX confirms it's you with <strong>Windows Hello</strong> (face, fingerprint or PIN). If you have none, set up a PIN in Settings → Accounts → Sign-in options.</li>
+          <li>The Windows Hello prompt can open behind the SVX window. If you don't see it, click <strong>Windows Security</strong> in the taskbar.</li>
+          <li>You only need to do the warning steps once. SVX updates itself after that.</li>
         </ol>
       </div>
       <div class="panel" role="tabpanel" id="p-linux" aria-labelledby="t-linux" tabindex="0" hidden>
@@ -160,6 +168,8 @@
     <div class="stack" data-r style="--d:.15s">
       <p class="sum__label">macOS · Terminal</p>
       <pre class="term"><code>shasum -a 256 SVX-beta-macOS.dmg</code></pre>
+      <p class="sum__label">Windows · PowerShell</p>
+      <pre class="term"><code>Get-FileHash .\SVX-beta-Windows.exe -Algorithm SHA256</code></pre>
       <p class="mut" style="font-size:.92rem">If it doesn't match, don't open the file. Download it again from this page.</p>
     </div>
   </div>

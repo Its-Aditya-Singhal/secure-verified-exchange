@@ -36,7 +36,7 @@ No card needed: we skipped Cloudflare Tunnel (Zero Trust wants a card) and use t
 | [x] | ~~A3. Public hostname: `api` A record (proxied) → server, SSL mode Full, service listens on `0.0.0.0:8443`, server firewall (ufw) allows 8443 only from Cloudflare's ranges, Azure inbound rule `cloudflare-8443`~~ |
 | [ ] | A4. SSH (port 22) closed to the internet or limited to your IP (keep a recovery path: Azure serial console). Optional for the beta: key-only login is already enforced |
 | [x] | ~~A5. Gmail account `<notification-mailbox>` with an app password in `/etc/svx/smtp.env` (set by a command you ran; never in chat). Test code email arrived (2026-10-06); first mails may land in spam, so the app and the docs say "check Spam, mark Not spam"~~ |
-| [ ] | A6. Optional: Google OAuth client for Google sign-in (`--personal-idp`). Email sign-up works without it. **Decided 2026-10-06: later**, once the beta has real users (code is ready; needs a Google Cloud OAuth "Desktop app" client, consent-screen branding and Google's free review; no new app version) |
+| [x] | ~~A6. Google OAuth client for Google sign-in (`--personal-idp`)~~ Done 2026-10-06: project "Secure Verified Exchange", Desktop client, scopes openid + email, secret in `/etc/svx/google.env`; published (out of Testing) once the Windows and Mac tests passed. Google accounts give their name in the app (`PUT /v1/me/name`) |
 | [x] | ~~A7. `https://api.getsvx.me:8443/v1/service` answers `200` from outside the server~~ (optional: open it once on your phone's mobile data) |
 
 ## B. Make it safe to open to everyone
@@ -119,8 +119,8 @@ year for the domain, and about $7–8 a month for the server if kept on Azure.
 ## Known limits to keep stating honestly
 
 - View-only blocks saving, copying and screenshots in the app; it cannot stop a photo of the screen
-- Windows screenshot blocking is untested; Linux refuses to show view-only files
+- Screenshot blocking tested on macOS and Windows (2026-10-06); Linux refuses to show view-only files
 - Revocation stops future access; it cannot recall a file already opened
 - Installers are unsigned: the first launch shows an "unidentified developer" warning
 - The service is trusted to enforce approval, one-time limits and revocation; it cannot decrypt a file alone
-- Windows and Linux installers need a build machine (GitHub's automated build) and testing; launch with macOS only
+- Windows installer (since 0.1.6) is cross-built on the Mac (`scripts/build-windows.sh`) and tested on a real Windows laptop; Linux still needs a build and testing

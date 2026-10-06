@@ -24,6 +24,7 @@ sdk/node/native.js
 /dist-release
 .DS_Store
 /website/downloads/*.dmg
+/website/downloads/*.exe
 /dist-site
 
 # Original brand videos (large; the website uses its own encode in website/assets/media)

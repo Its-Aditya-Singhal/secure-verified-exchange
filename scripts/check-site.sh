@@ -32,6 +32,16 @@ if curl -fsS -m 120 "$BASE/downloads/SVX-beta-macOS.dmg" -o "$tmp/d.dmg" 2>/dev/
 else
   bad "could not fetch the disk image or its checksum"
 fi
+if curl -fsS -m 120 "$BASE/downloads/SVX-beta-Windows.exe" -o "$tmp/w.exe" 2>/dev/null &&
+   expected=$(curl -fsS -m 30 "$BASE/downloads/SVX-beta-Windows.exe.sha256" | tr -d '[:space:]'); then
+  actual=$(shasum -a 256 "$tmp/w.exe" | cut -d' ' -f1)
+  [ "$expected" = "$actual" ] && ok "checksum file matches the Windows installer" || bad "Windows checksum file ($expected) differs from the installer ($actual)"
+  page=$(curl -fsS -m 30 -L "$BASE/download" | grep -o 'id="sum-win"[^>]*>[0-9a-f]\{64\}' | grep -o '[0-9a-f]\{64\}$')
+  [ "$page" = "$actual" ] && ok "download page shows the Windows checksum" || bad "download page shows '${page:-nothing}' for Windows"
+  [ "$(head -c 2 "$tmp/w.exe")" = MZ ] && ok "Windows installer is a program (not an HTML error page)" || bad "Windows installer is not a program"
+else
+  bad "could not fetch the Windows installer or its checksum"
+fi
 curl -fsS -m 30 -L "$BASE/download" | grep -q 'curl -fsSL https://getsvx.me/install.sh | sh' && ok "download page shows the install command" || bad "install command missing from the download page"
 curl -fsS -m 30 "$BASE/install.sh" | head -1 | grep -q '^#!/bin/sh' && ok "install.sh starts with a shell line (not an HTML error page)" || bad "install.sh is not a script"
 

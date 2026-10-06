@@ -18,7 +18,7 @@ Elements marked `when-live` / `when-soon` follow it. Without JavaScript the site
 ## Before going live
 
 - The SVX service must be online and the installers must be built with it (`SVX_OFFICIAL_*`), or downloaded apps can't connect.
-- Put the installers in `downloads/` (`SVX-beta-macOS.dmg`, `SVX-beta-Windows.msi`, `SVX-beta-Linux.deb`) or change the `href`s in `download.html`.
+- Put the installers in `downloads/` (`SVX-beta-macOS.dmg`, `SVX-beta-Windows.exe`, `SVX-beta-Linux.deb`; `scripts/prepare-download.sh` makes the first two) or change the `href`s in `download.html`.
 - Replace each "Published with the build" (`#sum-mac`, `#sum-win`, `#sum-linux`) with the real SHA-256.
 - Fill in the bracketed parts of `privacy.html` and `terms.html` (operator, contact, retention, governing law) and have them reviewed. Then remove the dashed draft notes.
 - When the macOS capture test passes, change the macOS view-only status from "In testing" (`index.html`, `docs.html`).
@@ -26,7 +26,7 @@ Elements marked `when-live` / `when-soon` follow it. Without JavaScript the site
 
 ## Copy rules
 
-Every claim on the site must be true of the shipped app. In particular: view-only can't stop a photo of the screen; Windows capture blocking is untested; Linux refuses view-only files; revocation can't recall an opened file; approval and one-time are defaults, not guarantees; the service is trusted to enforce rules but can't decrypt alone. Example people and companies are fictional (Alice, Bob, Carol, Eve, Acme Security, Example Corp).
+Every claim on the site must be true of the shipped app. In particular: view-only can't stop a photo of the screen; Windows capture blocking was tested on a real Windows laptop (2026-10-06); Linux refuses view-only files; revocation can't recall an opened file; approval and one-time are defaults, not guarantees; the service is trusted to enforce rules but can't decrypt alone. Example people and companies are fictional (Alice, Bob, Carol, Eve, Acme Security, Example Corp).
 
 ## Structure
 
