@@ -168,6 +168,8 @@ pub enum MailKind {
     Admin,
     Announcement,
     Test,
+    /// The server's health check (`svx-check`, writes its own rows).
+    Alert,
 }
 
 impl MailKind {
@@ -178,6 +180,7 @@ impl MailKind {
             MailKind::Admin => "admin",
             MailKind::Announcement => "announcement",
             MailKind::Test => "test",
+            MailKind::Alert => "alert",
         }
     }
 }
@@ -216,6 +219,18 @@ pub async fn emails_last_day(db: &sqlx::PgPool) -> sqlx::Result<(i64, i64)> {
     )
     .bind(since)
     .fetch_one(db)
+    .await
+}
+
+/// Emails sent in the last 24 hours, per kind (`code`, `notice`, `admin`,
+/// `announcement`, `test`, `alert`).
+pub async fn emails_by_kind(db: &sqlx::PgPool) -> sqlx::Result<Vec<(String, i64)>> {
+    let since = svx_protocol::unix_now() - DAY;
+    sqlx::query_as(
+        "SELECT kind, count(*) FROM email_sends WHERE at > $1 GROUP BY kind ORDER BY kind",
+    )
+    .bind(since)
+    .fetch_all(db)
     .await
 }
 

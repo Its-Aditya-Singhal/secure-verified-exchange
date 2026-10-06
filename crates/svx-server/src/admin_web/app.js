@@ -50,8 +50,23 @@ function el(tag, cls, text) {
   return e;
 }
 
+const KINDS = [
+  ['code', 'sign-in, sign-up and password-reset codes'],
+  ['notice', 'approval and copy requests'],
+  ['admin', 'suspended, restored or deleted notices'],
+  ['announcement', 'announcements'],
+  ['test', 'test announcements'],
+  ['alert', 'server health alerts'],
+];
+
+/** "12 sign-in… codes · 3 approval…", only kinds sent in the last 24 h. */
+function breakdown(u) {
+  const parts = KINDS.filter(([k]) => u.by_kind[k]).map(([k, label]) => `${u.by_kind[k]} ${label}`);
+  return parts.length ? parts.join(' · ') : 'none yet';
+}
+
 async function loadStats() {
-  const s = await api('/api/stats');
+  const [s, u] = await Promise.all([api('/api/stats'), api('/api/email-usage')]);
   const cards = [
     ['Accounts', s.accounts, `${s.accounts_7d} new this week · ${s.accounts_30d} this month`],
     ['Sign-in', `${s.email_accounts} / ${s.google_accounts}`, 'email / Google'],
@@ -60,14 +75,16 @@ async function loadStats() {
     ['Opens', s.opens_7d, 'in the last 7 days'],
     ['Waiting for approval', s.pending_approvals, ''],
     ['Database', `${(s.database_bytes / 1e6).toFixed(1)} MB`, ''],
+    ['Emails, last 24 hours', `${u.used} / ${u.limit}`, `${u.limit - u.used} left in Gmail's daily limit`],
   ];
   const box = $('stats');
+  const mailNote = el('p', 'muted small mail-note', `Emails in the last 24 hours: ${breakdown(u)}.`);
   box.replaceChildren(...cards.map(([k, v, sub]) => {
     const c = el('div', 'card');
     c.append(el('div', 'v', String(v)), el('div', 'k', k));
     if (sub) c.append(el('div', 's', sub));
     return c;
-  }));
+  }), mailNote);
 }
 
 function status(u) {
@@ -281,9 +298,10 @@ function drawUsage() {
   const ann = el('span', 'm-ann'); ann.style.width = `${Math.min(100, (u.announcements / u.limit) * 100)}%`;
   meter.append(other, ann);
   box.replaceChildren(
-    el('strong', '', `Emails in the last 24 hours: ${u.used} / ${u.limit}`),
-    el('div', 'muted small', `${u.announcements} announcements, ${u.used - u.announcements} sign-up codes and notices. Announcements stop at ${u.announce_ceiling} so new users always get their codes: ${u.announce_room} more can go out now.`),
+    el('strong', '', `Emails in the last 24 hours: ${u.used} / ${u.limit} (${u.limit - u.used} left)`),
+    el('div', 'muted small', `Every email SVX sent: ${breakdown(u)}.`),
     meter,
+    el('div', 'muted small', `Announcements stop at ${u.announce_ceiling}, so new users always get their codes: ${u.announce_room} more announcement emails can go out now. Emails you send yourself from the Gmail account also count towards Gmail's limit but aren't shown here.`),
   );
 }
 

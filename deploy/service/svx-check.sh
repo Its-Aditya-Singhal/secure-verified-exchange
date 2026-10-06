@@ -37,7 +37,12 @@ send() { # subject, body
   from_addr=$(printf '%s' "$SVX_SMTP_FROM" | sed -E 's/.*<(.*)>.*/\1/')
   printf 'From: %s\r\nTo: %s\r\nSubject: %s\r\n\r\n%s\r\n' "$SVX_SMTP_FROM" "$ALERT_TO" "$1" "$2" |
     curl -sf -m 30 --ssl-reqd "smtps://$host" --mail-from "$from_addr" --mail-rcpt "$ALERT_TO" \
-      --user "$(printf '%s' "$user" | sed 's/%40/@/'):$pass" -T - >/dev/null
+      --user "$(printf '%s' "$user" | sed 's/%40/@/'):$pass" -T - >/dev/null || return 1
+  # Count it in the mail account's daily allowance (shown in the admin
+  # page). Best effort: the database may be the problem being reported.
+  runuser -u postgres -- psql -qX -d svx \
+    -c "INSERT INTO email_sends (at, kind) VALUES (extract(epoch from now())::bigint, 'alert')" \
+    >/dev/null 2>&1 || true
 }
 
 last="$STATE/last"

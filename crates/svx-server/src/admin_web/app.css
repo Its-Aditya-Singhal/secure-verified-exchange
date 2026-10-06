@@ -117,3 +117,4 @@ textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 .send-box p { margin: 0; }
 .actions { display: flex; gap: 8px; }
 h3 { font-size: 15px; margin: 0; }
+.mail-note { grid-column: 1 / -1; margin: 0; }

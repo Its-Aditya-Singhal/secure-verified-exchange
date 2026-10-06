@@ -217,6 +217,7 @@ async fn logs_and_announcements_need_the_session_and_the_page() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(usage["limit"], 500);
     assert_eq!(usage["announce_room"], 400);
+    assert!(usage["by_kind"].as_object().unwrap().is_empty());
 
     // "hello" in base64.
     let body = json!({
@@ -247,6 +248,17 @@ async fn logs_and_announcements_need_the_session_and_the_page() {
     assert_eq!(status, StatusCode::OK, "{done}");
     assert_eq!(mail.sent()[0].to, "operator@example.com");
     assert_eq!(mail.sent_files()[0][0].data, b"hello");
+    // A health-check alert (written by svx-check) counts too.
+    sqlx::query(
+        "INSERT INTO email_sends (at, kind) VALUES (extract(epoch from now())::bigint, 'alert')",
+    )
+    .execute(&w.db)
+    .await
+    .unwrap();
+    let (_, _, usage) = send(&app, get("/api/email-usage", Some(&cookie))).await;
+    assert_eq!(usage["used"], 2);
+    assert_eq!(usage["by_kind"]["test"], 1);
+    assert_eq!(usage["by_kind"]["alert"], 1);
 
     let (status, _, created) = send(&app, post("/api/announcements", &cookie, body)).await;
     assert_eq!(status, StatusCode::OK, "{created}");

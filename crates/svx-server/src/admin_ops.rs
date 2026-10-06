@@ -387,10 +387,15 @@ pub struct EmailUsage {
     pub announce_ceiling: i64,
     /// How many announcement emails could go out right now.
     pub announce_room: i64,
+    /// Every email of the last 24 hours by kind: `code` (sign-up, sign-in,
+    /// new device and password-reset codes), `notice` (approval and copy
+    /// requests), `admin` (suspended, restored, deleted), `announcement`,
+    /// `test`, `alert` (server health check).
+    pub by_kind: std::collections::BTreeMap<String, i64>,
 }
 
 pub async fn email_usage(db: &PgPool) -> sqlx::Result<EmailUsage> {
-    use crate::limits::{ANNOUNCE_CEILING, MAIL_DAILY, emails_last_day};
+    use crate::limits::{ANNOUNCE_CEILING, MAIL_DAILY, emails_by_kind, emails_last_day};
     let (used, announcements) = emails_last_day(db).await?;
     Ok(EmailUsage {
         used,
@@ -398,6 +403,7 @@ pub async fn email_usage(db: &PgPool) -> sqlx::Result<EmailUsage> {
         limit: MAIL_DAILY,
         announce_ceiling: ANNOUNCE_CEILING,
         announce_room: (ANNOUNCE_CEILING - used).max(0),
+        by_kind: emails_by_kind(db).await?.into_iter().collect(),
     })
 }
 
