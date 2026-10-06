@@ -100,7 +100,10 @@ function updatesCard(ctx: Ctx): HTMLElement | null {
         : note("You have the latest version.", "ok"));
       if (u) ctx.go("settings");
     } catch (e) {
-      out.appendChild(errorPanel(asAppError(e)));
+      const err = asAppError(e);
+      out.appendChild(note(err.kind === "unavailable"
+        ? "Couldn't reach the update server. Check your internet connection and try again."
+        : `Couldn't check for updates: ${err.message}`, "warn"));
     }
   }));
   return card("Updates",

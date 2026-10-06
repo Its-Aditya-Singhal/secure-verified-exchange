@@ -69,8 +69,14 @@ async fn signed_updates_newer_only_and_matching() {
     let key = SigningKey::generate_max(&mut os_rng());
     let src = source(&w, &key);
 
-    // Nothing published yet.
-    assert!(check(&src, "0.1.0", "darwin-aarch64").await.is_err());
+    // Nothing published yet: no update, and not an error (the app would
+    // otherwise show a refusal).
+    assert!(
+        check(&src, "0.1.0", "darwin-aarch64")
+            .await
+            .unwrap()
+            .is_none()
+    );
 
     publish(&w, &key, "0.2.0");
     let u = check(&src, "0.1.0", "darwin-aarch64")

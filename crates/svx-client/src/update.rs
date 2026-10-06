@@ -11,7 +11,7 @@
 use serde::Serialize;
 use sha2::{Digest, Sha512};
 use svx_protocol::update::{PlatformRelease, SignedReleaseManifest, parse_version};
-use svx_protocol::{ManagedClient, check_url};
+use svx_protocol::{ManagedClient, ProtocolError, check_url};
 
 use crate::error::{ClientError, Result};
 
@@ -103,7 +103,25 @@ pub async fn check(
     let current_v = parse_version(current)
         .ok_or_else(|| ClientError::Config(format!("invalid app version {current:?}")))?;
     let http = ManagedClient::new(src.dev)?;
-    let signed: SignedReleaseManifest = http.get_json(&src.base_url, "/manifest").await?;
+    check_url(&src.base_url, src.dev)?;
+    let resp = http
+        .http()
+        .get(src.manifest_url())
+        .send()
+        .await
+        .map_err(ProtocolError::from)?;
+    // No release published yet (a new service): there is nothing to update
+    // to. That is not an error, and must never read like a refusal.
+    if resp.status().as_u16() == 404 {
+        return Ok(None);
+    }
+    if !resp.status().is_success() {
+        return Err(ProtocolError::Status(resp.status().as_u16()).into());
+    }
+    let signed: SignedReleaseManifest = resp
+        .json()
+        .await
+        .map_err(|e| ProtocolError::BadResponse(e.to_string()))?;
     let m = signed
         .verify(&src.release_key)
         .map_err(|e| ClientError::Rejected(format!("update refused: {e}")))?;
