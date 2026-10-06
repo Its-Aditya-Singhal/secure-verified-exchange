@@ -1,0 +1,66 @@
+# The Windows installer, built only when started by hand:
+#
+#   gh workflow run windows.yml -f version=0.1.6
+#
+# (or scripts/fetch-windows-build.sh, which also downloads it). It never runs
+# on push or pull request, so it uses build minutes only when asked for. It
+# has no secrets: the values built in below are public, and the installer it
+# uploads is unsigned. scripts/release.sh --windows-package signs it for the
+# updater on the release Mac, where the keys live, and puts it in the signed
+# manifest.
+name: Windows build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build, major.minor.patch"
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Built into the app (the same values scripts/release.sh uses).
+  SVX_OFFICIAL_SERVICE_URL: https://api.getsvx.me:8443
+  SVX_OFFICIAL_REGISTRY_FINGERPRINT: 7e37ca3363edce95a7f823e9df8454bb0fa9af93b531ccdf8bae98cbf56948a0
+  SVX_UPDATE_URL: https://api.getsvx.me:8443/v1/updates
+  SVX_RELEASE_KEY: 2aff61166fa62af77e7f89d8b349cf1a9ee5fd1179619b1a93dd8f59c04b8bf6
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check the version
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: '[[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "version must be major.minor.patch"; exit 1; }'
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-installer
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Installer (NSIS)
+        shell: bash
+        working-directory: apps/desktop
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          npm ci
+          printf '{"version":"%s"}\n' "$VERSION" > "$RUNNER_TEMP/version.json"
+          npx tauri build --bundles nsis --config "$RUNNER_TEMP/version.json"
+          cd ../../target/release/bundle/nsis
+          ls -la
+          sha256sum ./*.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: svx-windows-${{ inputs.version }}
+          if-no-files-found: error
+          retention-days: 3
+          path: target/release/bundle/nsis/*-setup.exe

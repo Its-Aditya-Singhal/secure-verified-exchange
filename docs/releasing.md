@@ -40,10 +40,18 @@ svx-server … --updates-dir /srv/svx/updates
 svx release verify /srv/svx/updates/manifest.json --fingerprint <release key fingerprint>
 ```
 
-**Platforms.** Build each one on that platform:
-- On macOS the script makes the `.app.tar.gz` update package.
-- On Linux it makes the AppImage.
-- On Windows, build the `msi` or `nsis` bundle with the same environment variables, then add it with another `--platform windows-x86_64=…` to `svx release sign`.
+**Platforms.** The macOS package is built on the release Mac. Windows is built on GitHub and signed on the Mac:
+
+```sh
+git push                                        # GitHub builds the pushed branch
+scripts/fetch-windows-build.sh 0.2.0            # starts .github/workflows/windows.yml, waits, downloads
+scripts/release.sh 0.2.0 --update-url … --service-url … --registry-fingerprint … \
+  --windows-package "dist-release/0.2.0/windows/Secure Verified Exchange_0.2.0_x64-setup.exe"
+```
+
+- **The Windows workflow** runs only when started by hand (`workflow_dispatch`), never on a push. It holds no secrets: the values it builds in (service URL, registry and release key fingerprints) are public. It uploads the unsigned NSIS installer for 3 days.
+- **`--windows-package`** signs that installer with the Tauri key on the Mac, checks the signature names the version, and lists it as `windows-x86_64` in the same manifest. The updater on Windows runs it in passive mode; the install is per user and needs no administrator.
+- **Linux** has no release build yet; on Linux the script makes the AppImage.
 
 `manifest.json` lists every platform of a release, so sign once, after collecting all the packages.
 
@@ -77,6 +85,8 @@ To check that tampered updates are refused, change a byte of the package in `$T/
 ## Where the app must live
 
 On macOS the updater only works when the app's own path has no symbolic link in it. Running from `/tmp` fails because `/tmp` is a link to `/private/tmp`; the app then says "update failed: … goes through a symbolic link … Move the app to the Applications folder". Installed apps in `/Applications` or `~/Applications` are fine, and so are Linux and Windows.
+
+Windows installers aren't code-signed (that needs a paid certificate), so the first install shows "Windows protected your PC": **More info → Run anyway**. Updates after that are verified as above.
 
 ## What is not covered
 

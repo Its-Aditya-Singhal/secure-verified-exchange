@@ -28,14 +28,21 @@ zeroize = "1"
 # OS keychain for signing keys (macOS Keychain, Windows Credential Manager,
 # Linux Secret Service over pure-Rust D-Bus). Enabled by the desktop app.
 keyring = { version = "4", optional = true }
-# Touch ID / Windows Hello before sensitive key use (desktop app).
-robius-authentication = { version = "0.3", optional = true }
 # Folders: deflate only, no other codecs or encryption.
 zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [features]
 keychain = ["dep:keyring"]
-presence = ["dep:robius-authentication"]
+presence = ["dep:robius-authentication", "dep:windows"]
+
+# Touch ID before sensitive key use (desktop app). On Windows, robius asks for
+# the account password, which PIN-only and passwordless accounts can't give,
+# so Windows uses Windows Hello directly (face, fingerprint or PIN).
+[target.'cfg(target_os = "macos")'.dependencies]
+robius-authentication = { version = "0.3", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", optional = true, features = ["Security_Credentials_UI"] }
 
 [dev-dependencies]
 reqwest = { version = "0.13", default-features = false, features = ["rustls"] }

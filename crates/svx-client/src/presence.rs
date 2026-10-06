@@ -137,7 +137,7 @@ pub struct SystemPresence;
 #[cfg(feature = "presence")]
 impl UserPresence for SystemPresence {
     fn confirm(&self, reason: &str) -> Result<()> {
-        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        #[cfg(target_os = "macos")]
         {
             use robius_authentication::{
                 AndroidText, BiometricStrength, Context, PolicyBuilder, Text, WindowsText,
@@ -169,12 +169,67 @@ impl UserPresence for SystemPresence {
                 _ => Err(ClientError::NotConfirmed),
             }
         }
-        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        #[cfg(windows)]
+        {
+            windows_hello(reason)
+        }
+        #[cfg(not(any(target_os = "macos", windows)))]
         {
             let _ = reason;
             Ok(())
         }
     }
+}
+
+/// Windows Hello: face, fingerprint or the device PIN. Without Windows Hello
+/// set up there is no way to confirm, so this fails closed and says how to
+/// set it up.
+#[cfg(all(feature = "presence", windows))]
+fn windows_hello(reason: &str) -> Result<()> {
+    use windows::Security::Credentials::UI::{
+        UserConsentVerificationResult as R, UserConsentVerifier,
+        UserConsentVerifierAvailability as A,
+    };
+    let os = |e: windows::core::Error| {
+        ClientError::Other(format!("can't ask Windows Hello to confirm it's you: {e}"))
+    };
+    let available = UserConsentVerifier::CheckAvailabilityAsync()
+        .and_then(|op| op.join())
+        .map_err(os)?;
+    match available {
+        A::Available => {}
+        A::DeviceBusy => {
+            return Err(ClientError::Other(
+                "Windows Hello is busy; try again in a moment".into(),
+            ));
+        }
+        A::DisabledByPolicy => {
+            return Err(ClientError::Other(
+                "Windows Hello is turned off on this computer by its administrator, \
+                 so SVX can't confirm it's you"
+                    .into(),
+            ));
+        }
+        _ => return Err(ClientError::Other(windows_hello_setup().into())),
+    }
+    let message = windows::core::HSTRING::from(format!("Secure Verified Exchange: {reason}"));
+    let result = UserConsentVerifier::RequestVerificationAsync(&message)
+        .and_then(|op| op.join())
+        .map_err(os)?;
+    match result {
+        R::Verified => Ok(()),
+        R::DeviceNotPresent | R::NotConfiguredForUser => {
+            Err(ClientError::Other(windows_hello_setup().into()))
+        }
+        _ => Err(ClientError::NotConfirmed),
+    }
+}
+
+/// What to do when Windows Hello isn't set up.
+#[cfg_attr(not(all(feature = "presence", windows)), allow(dead_code))]
+fn windows_hello_setup() -> &'static str {
+    "SVX confirms it's you with Windows Hello, which isn't set up on this computer. \
+     Set up a PIN in Settings > Accounts > Sign-in options, then try again"
 }
 
 #[cfg(test)]

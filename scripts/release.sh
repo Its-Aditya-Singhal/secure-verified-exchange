@@ -3,6 +3,7 @@
 #
 #   scripts/release.sh VERSION --update-url URL [--service-url URL --registry-fingerprint HEX]
 #                      [--out DIR] [--notes TEXT] [--local] [--build-only]
+#                      [--windows-package FILE]
 #
 # VERSION      major.minor.patch, e.g. 0.2.0
 # --update-url the update server's base URL, built into the app and used for
@@ -18,6 +19,10 @@
 #              (svx-demo serve); never publish such a build
 # --build-only build the app with the update source built in, don't sign a
 #              release (for the version you install first when testing)
+# --windows-package
+#              also publish this Windows installer (*-setup.exe, the same
+#              VERSION, from scripts/fetch-windows-build.sh): it is signed for
+#              the updater here and listed in the same manifest
 #
 # Keys (never in the repository), in $SVX_RELEASE_KEYS (default ~/.svx-release):
 #   release.sign.key / .pub   SVX-2 release key: signs manifest.json
@@ -32,7 +37,7 @@ set -euo pipefail
 usage() { sed -n '2,20p' "$0"; exit 2; }
 [ $# -ge 1 ] || usage
 VERSION=$1; shift
-URL="" OUT="" NOTES="" LOCAL=0 BUILD_ONLY=0 SERVICE_URL="" REGISTRY_FP=""
+URL="" OUT="" NOTES="" LOCAL=0 BUILD_ONLY=0 SERVICE_URL="" REGISTRY_FP="" WIN_PKG=""
 while [ $# -gt 0 ]; do
   case $1 in
     --update-url) URL=$2; shift 2 ;;
@@ -42,11 +47,17 @@ while [ $# -gt 0 ]; do
     --notes) NOTES=$2; shift 2 ;;
     --local) LOCAL=1; shift ;;
     --build-only) BUILD_ONLY=1; shift ;;
+    --windows-package) WIN_PKG=$2; shift 2 ;;
     *) usage ;;
   esac
 done
 [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "VERSION must be major.minor.patch" >&2; exit 2; }
 [ -n "$URL" ] || { echo "--update-url is required" >&2; exit 2; }
+if [ -n "$WIN_PKG" ]; then
+  [[ $WIN_PKG == *-setup.exe && -f $WIN_PKG ]] || { echo "--windows-package must be an existing *-setup.exe" >&2; exit 2; }
+  [[ $(basename "$WIN_PKG") == *"_${VERSION}_"* ]] || { echo "$WIN_PKG isn't version $VERSION" >&2; exit 2; }
+  WIN_PKG=$(cd "$(dirname "$WIN_PKG")" && pwd)/$(basename "$WIN_PKG")
+fi
 URL=${URL%/}
 if [ -n "$SERVICE_URL" ] || [ -n "$REGISTRY_FP" ]; then
   [ -n "$SERVICE_URL" ] && [ -n "$REGISTRY_FP" ] || { echo "--service-url and --registry-fingerprint go together" >&2; exit 2; }
@@ -150,6 +161,17 @@ if [ "$BUILD_ONLY" = 1 ]; then
   exit 0
 fi
 
+PLATFORMS=(--platform "$PLATFORM=$PKG")
+if [ -n "$WIN_PKG" ]; then
+  # Built on GitHub without keys; signed for the updater here.
+  rm -f "$WIN_PKG.sig"
+  (cd "$ROOT/apps/desktop" && env -u TAURI_SIGNING_PRIVATE_KEY -u TAURI_SIGNING_PRIVATE_KEY_PASSWORD \
+    npx tauri signer sign -f "$KEYS/tauri.key" -p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" \
+      --app-version "$VERSION" "$WIN_PKG" >/dev/null)
+  base64 -d < "$WIN_PKG.sig" | grep -q "version:$VERSION\$" \
+    || { echo "the Windows update signature doesn't name version $VERSION" >&2; exit 1; }
+  PLATFORMS+=(--platform "windows-x86_64=$WIN_PKG")
+fi
 (cd "$ROOT" && $SVX release sign --key "$KEYS/release.sign.key" --version "$VERSION" \
-  --notes "$NOTES" --base-url "$URL/files" --platform "$PLATFORM=$PKG" --out "$OUT")
+  --notes "$NOTES" --base-url "$URL/files" "${PLATFORMS[@]}" --out "$OUT")
 echo "Published $VERSION to $OUT"
