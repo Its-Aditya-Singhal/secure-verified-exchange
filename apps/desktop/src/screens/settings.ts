@@ -1,5 +1,6 @@
 // Settings: current setup, output folder, change setup.
 
+import { getVersion } from "@tauri-apps/api/app";
 import { type AccountInfo, api, asAppError } from "../api";
 import { card, errorPanel, facts, note } from "../components";
 import { append, busy, button, clear, field, fmtTime, h } from "../dom";
@@ -77,7 +78,7 @@ export function settingsScreen(ctx: Ctx, root: HTMLElement): void {
     updatesCard(ctx),
     card(
       "About",
-      h("p", {}, "Secure Verified Exchange 0.1.0. All checks, sign-in binding and decryption run in the SVX client library on this device; this window only shows the results."),
+      aboutText("All checks, sign-in binding and decryption run in the SVX client library on this device; this window only shows the results."),
       h("p", { class: "muted small" }, "The svx command-line tool uses the same setup and sign-in session."),
     ),
   );
@@ -305,6 +306,13 @@ function personalSettings(ctx: Ctx, root: HTMLElement): void {
     presenceCard(ctx),
     updatesCard(ctx),
     card("About",
-      h("p", {}, "Secure Verified Exchange 0.1.0. All checks, key handling and decryption run in the SVX client library on this device; this window only shows the results.")),
+      aboutText("All checks, key handling and decryption run in the SVX client library on this device; this window only shows the results.")),
   );
+}
+
+/** "Secure Verified Exchange <version>. …", with the installed app's version. */
+function aboutText(rest: string): HTMLElement {
+  const p = h("p", {}, `Secure Verified Exchange. ${rest}`);
+  void getVersion().then((v) => { p.textContent = `Secure Verified Exchange ${v}. ${rest}`; }, () => {});
+  return p;
 }
