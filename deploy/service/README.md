@@ -77,6 +77,39 @@ sudo svx-admin delete alice@example.com --yes         # erase on request; cannot
   open your file"): they are the sender's own record. The address can sign
   up again.
 
+## Admin page (`scripts/admin.sh`)
+
+The same commands in a browser page, private to the operator's Mac. Run
+`scripts/admin.sh` (or double-click `scripts/SVX Admin.command`, which can be
+copied to the Desktop). It:
+
+1. makes a one-time login token with `openssl rand -hex 32`;
+2. connects with the SSH key, forwarding a free port on the Mac's 127.0.0.1
+   to the server's `127.0.0.1:9790`, and starts `sudo svx-admin web` there,
+   sending the token on stdin (never on a command line);
+3. opens `http://127.0.0.1:<port>/login?t=<token>` once, which sets a
+   session cookie and spends the token.
+
+The page shows the counts and the account list (search, details) and has
+Suspend, Unsuspend and Delete (Delete needs the email typed again). It
+stops when the Terminal window closes or after 30 minutes without use.
+Nothing listens on the internet: `svx-admin web` binds `127.0.0.1` only,
+accepts only a loopback `Host`, and changes need the page's own header and
+origin (`crates/svx-server/src/admin_web.rs`). Actions are written to the
+journal (`journalctl -t svx-admin`); suspend and unsuspend also go to the
+account's audit log.
+
+SSH must allow this one forward and nothing else. In
+`/etc/ssh/sshd_config.d/10-svx.conf`, instead of `AllowTcpForwarding no`:
+
+```
+AllowTcpForwarding local
+PermitOpen 127.0.0.1:9790
+PermitListen none
+```
+
+then `sudo sshd -t && sudo systemctl reload ssh`.
+
 ## Backups and health checks
 
 - **Nightly backup** ([`svx-backup.sh`](svx-backup.sh), `svx-backup.timer`, 03:30 India time): `pg_dump` of the database, encrypted with `age` to the public key in `/etc/svx-backup.pub`, kept as `/var/backups/svx/svx-<time>.dump.age` (newest 14). The private key (`db-backup-age.key`) exists only on the operator's computer, so a stolen server can't read old backups. The dump holds accounts, public keys, file rules and audit logs; it never holds files, file names or private keys.

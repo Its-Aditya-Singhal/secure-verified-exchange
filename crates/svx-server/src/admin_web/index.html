@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>SVX Admin</title>
+<link rel="stylesheet" href="/app.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="7" class="mark-bg"/><path d="M10 10 L22 22 M22 10 L10 22" class="mark-x"/></svg>
+    <span class="name">SVX</span><span class="divider"></span><span class="sub">Admin</span>
+  </div>
+  <div class="top-right">
+    <span class="private">Private: only on this Mac, through your SSH key</span>
+    <button id="refresh" class="ghost" type="button">Refresh</button>
+  </div>
+</header>
+
+<main>
+  <div id="banner" class="banner" hidden></div>
+
+  <section>
+    <h2>Overview</h2>
+    <div id="stats" class="cards"></div>
+  </section>
+
+  <section>
+    <div class="row-head">
+      <h2>Accounts</h2>
+      <input id="search" type="search" placeholder="Search email, name or account ID" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Email</th><th>Name</th><th>Sign-in</th><th>Created</th><th>Last active</th><th>Status</th></tr></thead>
+        <tbody id="users"></tbody>
+      </table>
+    </div>
+    <p id="count" class="muted"></p>
+  </section>
+  <p class="muted foot">File names and contents never reach the service, so they can't appear here. Close the Terminal window (or press Ctrl-C there) to end this session.</p>
+</main>
+
+<dialog id="detail">
+  <div class="dlg-head">
+    <div>
+      <h3 id="d-email"></h3>
+      <p id="d-name" class="muted"></p>
+    </div>
+    <button id="d-close" class="ghost" type="button" aria-label="Close">Close</button>
+  </div>
+  <dl id="d-facts" class="facts"></dl>
+  <div id="d-msg" class="banner" hidden></div>
+
+  <div id="d-suspend" class="action" hidden>
+    <h4>Suspend</h4>
+    <p class="muted">They can't sign in, nobody can send them files, and files they sent stop opening. You can undo this.</p>
+    <div class="inline">
+      <input id="d-reason" type="text" maxlength="200" placeholder="Reason (for example: spam reports)">
+      <button id="d-suspend-btn" type="button">Suspend</button>
+    </div>
+  </div>
+
+  <div id="d-unsuspend" class="action" hidden>
+    <h4>Lift the suspension</h4>
+    <p class="muted">Everything works again for them, including files they sent.</p>
+    <button id="d-unsuspend-btn" type="button">Unsuspend</button>
+  </div>
+
+  <div class="action danger-zone">
+    <h4>Delete account</h4>
+    <p class="muted">Erases the account, its keys, every file it sent and its own activity log. <strong>This cannot be undone.</strong> Type the email address to confirm.</p>
+    <div class="inline">
+      <input id="d-confirm" type="text" autocomplete="off" spellcheck="false" placeholder="email address">
+      <button id="d-delete-btn" class="danger" type="button" disabled>Delete for good</button>
+    </div>
+  </div>
+</dialog>
+</body>
+</html>

@@ -29,6 +29,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }
 rustls = { version = "0.23", default-features = false }
 svx-testkit = { path = "../svx-testkit", version = "0.1.0" }
 

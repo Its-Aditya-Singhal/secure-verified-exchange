@@ -7,6 +7,7 @@
 //! svx-admin suspend alice@example.com --reason "spam reports"
 //! svx-admin unsuspend alice@example.com
 //! svx-admin delete alice@example.com --yes
+//! svx-admin web [--port 9790]   # admin page; started by scripts/admin.sh
 //! ```
 //!
 //! Reads `DATABASE_URL`. Accounts are named by email address or account ID.
@@ -55,6 +56,64 @@ enum Cmd {
         #[arg(long)]
         yes: bool,
     },
+    /// Serve the private admin page on 127.0.0.1 for an SSH port forward.
+    /// Reads a one-time login token (64+ hex characters) from stdin and
+    /// stops when stdin closes or after 30 minutes without a request.
+    /// Started by `scripts/admin.sh` on the operator's Mac.
+    Web {
+        #[arg(long, default_value_t = 9790)]
+        port: u16,
+    },
+}
+
+const WEB_IDLE: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+/// Record an admin-page action in the system journal (best effort).
+fn journal(msg: &str) {
+    eprintln!("{msg}");
+    let _ = std::process::Command::new("logger")
+        .args(["-t", "svx-admin", "--", msg])
+        .status();
+}
+
+async fn web(db: PgPool, port: u16) -> Result<()> {
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+    let mut stdin = BufReader::new(tokio::io::stdin());
+    let mut token = String::new();
+    stdin
+        .read_line(&mut token)
+        .await
+        .context("reading the login token from stdin")?;
+    let app = svx_server::admin_web::AdminWeb::new(db, &token, journal)?;
+    token.clear();
+    let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))
+        .await
+        .with_context(|| format!("port {port} is busy (is another admin session open?)"))?;
+    // The script waits for this line before opening the browser.
+    println!("ready");
+    let idle = app.clone();
+    let stop = async move {
+        let stdin_closed = async {
+            let mut sink = [0u8; 256];
+            while matches!(stdin.read(&mut sink).await, Ok(n) if n > 0) {}
+        };
+        let idle_out = async {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+                if idle.idle_for() > WEB_IDLE {
+                    break;
+                }
+            }
+        };
+        tokio::select! {
+            _ = stdin_closed => eprintln!("session closed"),
+            _ = idle_out => eprintln!("no activity for 30 minutes: session closed"),
+        }
+    };
+    axum::serve(listener, app.router())
+        .with_graceful_shutdown(stop)
+        .await
+        .context("serving the admin page")
 }
 
 fn when(t: Option<i64>) -> String {
@@ -89,11 +148,12 @@ async fn account(db: &PgPool, who: &str) -> Result<User> {
 async fn main() -> Result<()> {
     let a = Args::parse();
     let db = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(2)
+        .max_connections(4)
         .connect(&a.database_url)
         .await
         .context("connecting to Postgres")?;
     match a.cmd {
+        Cmd::Web { port } => web(db, port).await?,
         Cmd::Stats => println!("{}", admin_ops::stats(&db).await?),
         Cmd::Users { search, limit } => {
             let list = admin_ops::users(&db, search.as_deref(), limit).await?;

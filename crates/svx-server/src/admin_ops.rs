@@ -1,7 +1,7 @@
 //! Operator commands behind `svx-admin`: counts, finding accounts,
 //! suspending them and erasing them on request. They work on the database
-//! directly and are run on the server (over SSH); nothing here is exposed
-//! over HTTP.
+//! directly and are run on the server (over SSH). The admin page
+//! ([`crate::admin_web`]) uses them too, on loopback only.
 
 use std::fmt;
 
@@ -11,7 +11,7 @@ use svx_protocol::unix_now;
 use crate::audit;
 
 /// Service-wide counts.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, serde::Serialize)]
 pub struct Stats {
     pub accounts: i64,
     pub accounts_7d: i64,
@@ -181,7 +181,7 @@ pub async fn find(db: &PgPool, who: &str) -> sqlx::Result<Option<User>> {
 }
 
 /// What an account has done, for `svx-admin user`.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, serde::Serialize)]
 pub struct Activity {
     pub files_sent: i64,
     pub files_received: i64,

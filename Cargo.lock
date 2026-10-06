@@ -6636,6 +6636,7 @@ dependencies = [
  "clap",
  "hex",
  "hickory-resolver",
+ "http-body-util",
  "lettre",
  "rustls",
  "serde",
@@ -6647,6 +6648,7 @@ dependencies = [
  "svx-protocol",
  "svx-testkit",
  "tokio",
+ "tower",
  "tracing",
  "tracing-subscriber",
 ]
