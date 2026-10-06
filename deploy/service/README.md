@@ -76,3 +76,11 @@ sudo svx-admin delete alice@example.com --yes         # erase on request; cannot
   in *other* people's activity logs stay (for example "alice@… asked to
   open your file"): they are the sender's own record. The address can sign
   up again.
+
+## Backups and health checks
+
+- **Nightly backup** ([`svx-backup.sh`](svx-backup.sh), `svx-backup.timer`, 03:30 India time): `pg_dump` of the database, encrypted with `age` to the public key in `/etc/svx-backup.pub`, kept as `/var/backups/svx/svx-<time>.dump.age` (newest 14). The private key (`db-backup-age.key`) exists only on the operator's computer, so a stolen server can't read old backups. The dump holds accounts, public keys, file rules and audit logs; it never holds files, file names or private keys.
+- **Copy off the server**: `scripts/pull-backup.sh` on the operator's Mac (weekly, or after anything important) copies the encrypted dumps to `~/.svx-service-backup/db/`. `scripts/pull-backup.sh --drill` also restores the newest into a scratch database and prints row counts. Do this after changes to the database layout.
+- **What the backups don't cover**: the service keys (`/etc/svx/keys`, backed up once to `~/.svx-service-backup/`) and the release keys (`~/.svx-release`). Keep offline copies of both folders and of `db-backup-age.key`.
+- **Health check** ([`svx-check.sh`](svx-check.sh), every 5 minutes): service and PostgreSQL running, the service answering, disk under 85%, memory, a backup less than 30 hours old. One email per problem and one when it clears, to `ALERT_TO` in `/etc/svx/alert.env`, through the service's own Gmail account. It can't tell you when the whole server is down or can't send mail: add an outside monitor for that (a free UptimeRobot or similar check on `https://api.getsvx.me:8443/healthz`).
+- **Restore**: stop the service, `age -d -i db-backup-age.key -o dump svx-….dump.age`, then `pg_restore --clean --if-exists --no-owner -d svx dump` as the postgres user, start the service. Practise on a copy first.

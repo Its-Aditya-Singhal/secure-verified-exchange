@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 # Build, sign and publish a release of the desktop app for the update server.
 #
-#   scripts/release.sh VERSION --update-url URL [--out DIR] [--notes TEXT] [--local] [--build-only]
+#   scripts/release.sh VERSION --update-url URL [--service-url URL --registry-fingerprint HEX]
+#                      [--out DIR] [--notes TEXT] [--local] [--build-only]
 #
 # VERSION      major.minor.patch, e.g. 0.2.0
 # --update-url the update server's base URL, built into the app and used for
 #              download links, e.g. https://svx.example/v1/updates
+# --service-url, --registry-fingerprint
+#              the official service the app signs up with and the registry key
+#              it pins (built in as SVX_OFFICIAL_SERVICE_URL and
+#              SVX_OFFICIAL_REGISTRY_FINGERPRINT). Without them the app has no
+#              built-in service (development builds)
 # --out        where to put manifest.json and the package (svx-server
 #              --updates-dir); default: dist-release/VERSION
 # --local      a test build for a plain-http loopback update server
@@ -23,10 +29,12 @@ set -euo pipefail
 usage() { sed -n '2,20p' "$0"; exit 2; }
 [ $# -ge 1 ] || usage
 VERSION=$1; shift
-URL="" OUT="" NOTES="" LOCAL=0 BUILD_ONLY=0
+URL="" OUT="" NOTES="" LOCAL=0 BUILD_ONLY=0 SERVICE_URL="" REGISTRY_FP=""
 while [ $# -gt 0 ]; do
   case $1 in
     --update-url) URL=$2; shift 2 ;;
+    --service-url) SERVICE_URL=$2; shift 2 ;;
+    --registry-fingerprint) REGISTRY_FP=$2; shift 2 ;;
     --out) OUT=$2; shift 2 ;;
     --notes) NOTES=$2; shift 2 ;;
     --local) LOCAL=1; shift ;;
@@ -37,6 +45,15 @@ done
 [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "VERSION must be major.minor.patch" >&2; exit 2; }
 [ -n "$URL" ] || { echo "--update-url is required" >&2; exit 2; }
 URL=${URL%/}
+if [ -n "$SERVICE_URL" ] || [ -n "$REGISTRY_FP" ]; then
+  [ -n "$SERVICE_URL" ] && [ -n "$REGISTRY_FP" ] || { echo "--service-url and --registry-fingerprint go together" >&2; exit 2; }
+  [[ $REGISTRY_FP =~ ^[0-9a-f]{64}$ ]] || { echo "--registry-fingerprint must be 64 lowercase hex digits" >&2; exit 2; }
+  if [ "$LOCAL" = 0 ] && [[ $SERVICE_URL != https://* ]]; then
+    echo "release builds need an https service URL" >&2; exit 2
+  fi
+  export SVX_OFFICIAL_SERVICE_URL=${SERVICE_URL%/}
+  export SVX_OFFICIAL_REGISTRY_FINGERPRINT=$REGISTRY_FP
+fi
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 KEYS=${SVX_RELEASE_KEYS:-$HOME/.svx-release}
