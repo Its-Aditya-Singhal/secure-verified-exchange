@@ -42,12 +42,15 @@ if curl -fsS -m 120 "$BASE/downloads/SVX-beta-Windows.exe" -o "$tmp/w.exe" 2>/de
 else
   bad "could not fetch the Windows installer or its checksum"
 fi
-curl -fsS -m 30 -L "$BASE/download" | grep -q 'curl -fsSL https://getsvx.me/install.sh | sh' && ok "download page shows the install command" || bad "install command missing from the download page"
-curl -fsS -m 30 "$BASE/install.sh" | head -1 | grep -q '^#!/bin/sh' && ok "install.sh starts with a shell line (not an HTML error page)" || bad "install.sh is not a script"
+dl=$(curl -fsS -m 30 -L "$BASE/download" || true)
+grep -q 'curl -fsSL https://getsvx.me/install.sh | sh' <<<"$dl" && ok "download page shows the install command" || bad "install command missing from the download page"
+inst=$(curl -fsS -m 30 "$BASE/install.sh" || true)
+head -1 <<<"$inst" | grep -q '^#!/bin/sh' && ok "install.sh starts with a shell line (not an HTML error page)" || bad "install.sh is not a script"
 
 cc=$(curl -sSI -m 30 "$BASE/assets/js/boot.js" | tr -d '\r' | grep -i '^cache-control' || true)
 echo "$cc" | grep -qi immutable && bad "boot.js is cached as immutable: $cc" || ok "scripts are not cached as immutable"
-curl -fsS -m 30 "$BASE/assets/js/boot.js" | grep -q "RELEASE='live'" && ok "release switch is live" || bad "release switch is not live (the Download button is hidden)"
+boot=$(curl -fsS -m 30 "$BASE/assets/js/boot.js" || true)
+grep -q "RELEASE='live'" <<<"$boot" && ok "release switch is live" || bad "release switch is not live (the Download button is hidden)"
 
 echo "Link preview"
 # (read the whole page first: grep -q stops early, which pipefail counts as a failure)
@@ -56,9 +59,11 @@ grep -q 'property="og:image" content="https://getsvx.me/assets/brand/share.png"'
 ct=$(curl -sS -m 30 -o /dev/null -w '%{http_code} %{content_type}' "$BASE/assets/brand/share.png" || echo 000)
 [ "$ct" = "200 image/png" ] && ok "preview image is served ($ct)" || bad "preview image: $ct"
 
+grep -q 'assets/css/site.css?v=' <<<"$home" && ok "stylesheet link is fingerprinted (dist-site was uploaded)" || bad "stylesheet link has no ?v= fingerprint: upload dist-site from scripts/package-site.sh"
+
 echo "Contact"
 [ "$(code .well-known/security.txt)" = 200 ] && curl -fsSL -m 30 "$BASE/.well-known/security.txt" | grep -q "^Contact: mailto:security@getsvx.me" && ok "/.well-known/security.txt" || bad "security.txt missing or wrong"
-curl -fsS -m 30 -L "$BASE/" | grep -q 'support@getsvx.me' && ok "support address in the footer" || bad "support address missing"
+grep -q 'support@getsvx.me' <<<"$home" && ok "support address in the footer" || bad "support address missing"
 
 echo "Service"
 c=$(curl -sS -m 30 -o /dev/null -w '%{http_code}' "https://api.getsvx.me:8443/v1/service" 2>/dev/null || echo 000)
