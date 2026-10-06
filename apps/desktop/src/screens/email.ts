@@ -214,7 +214,8 @@ export function emailFlow(opts: {
       : [];
     body.replaceChildren(
       h("p", {}, "We sent a 6-digit code to ", h("strong", {}, addr),
-        ". It expires in 10 minutes. Check your spam folder if you don't see it."),
+        ". It expires in 10 minutes."),
+      note("Can't find it? Check your Spam or Junk folder. If it's there, open it and choose \u201cNot spam\u201d (or \u201cReport not spam\u201d), so future emails from SVX reach your inbox.", "info"),
       field("Code", code),
       ...pwFields,
       h("div", { class: "actions" }, go),

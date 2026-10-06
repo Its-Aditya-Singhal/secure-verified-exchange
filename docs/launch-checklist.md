@@ -35,7 +35,7 @@ No card needed: we skipped Cloudflare Tunnel (Zero Trust wants a card) and use t
 | [x] | ~~A2. Domain shows **Active** in Cloudflare~~ |
 | [x] | ~~A3. Public hostname: `api` A record (proxied) → server, SSL mode Full, service listens on `0.0.0.0:8443`, server firewall (ufw) allows 8443 only from Cloudflare's ranges, Azure inbound rule `cloudflare-8443`~~ |
 | [ ] | A4. SSH (port 22) closed to the internet or limited to your IP (keep a recovery path: Azure serial console). Optional for the beta: key-only login is already enforced |
-| [ ] | A5. A new Gmail account just for SVX, 2-Step Verification on, app password; store `SVX_SMTP_URL` / `SVX_SMTP_FROM` in `/etc/svx/smtp.env` with a command you run yourself (never paste the password in chat). Until then, sign-up codes and approval emails are only written to the server log |
+| [x] | ~~A5. Gmail account `<notification-mailbox>` with an app password in `/etc/svx/smtp.env` (set by a command you ran; never in chat). Test code email arrived (2026-10-06); first mails may land in spam, so the app and the docs say "check Spam, mark Not spam"~~ |
 | [ ] | A6. Optional: Google OAuth client for Google sign-in (`--personal-idp`). Email sign-up works without it |
 | [x] | ~~A7. `https://api.getsvx.me:8443/v1/service` answers `200` from outside the server~~ (optional: open it once on your phone's mobile data) |
 
