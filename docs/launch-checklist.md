@@ -75,6 +75,7 @@ No card needed: we skipped Cloudflare Tunnel (Zero Trust wants a card) and use t
 | | Step |
 |---|---|
 | [x] | ~~E1. Website on `getsvx.me` and `www.getsvx.me` (workers.dev switched off; account subdomain no longer has your name; checked 2026-10-06)~~ |
+| [ ] | E2a. **Upload the site, then run `scripts/check-site.sh`** (tests the pages, `install.sh`, the disk image and its checksum, security.txt and the service as a new user's Mac would). Every line must say ok before anyone is told about the site. After each new app build: `scripts/release.sh …` then `scripts/prepare-download.sh`, upload, check again |
 | [ ] | E2. Add the download link and SHA-256, set `RELEASE = 'live'` in `website/assets/js/boot.js`, show Windows and Linux as "coming soon" |
 | [ ] | E3. Adjust claims to the test results (macOS capture; view-only status wording) |
 | [ ] | E4. Fill in Privacy and Terms (operator name or "individual developer", contact, retention) and have someone qualified review them |
