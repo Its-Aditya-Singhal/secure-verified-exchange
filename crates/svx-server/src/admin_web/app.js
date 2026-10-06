@@ -110,9 +110,10 @@ async function refresh() {
   }
 }
 
-async function openDetail(account) {
-  show($('d-msg'), '');
+async function openDetail(account, keepMessage) {
+  if (!keepMessage) show($('d-msg'), '');
   $('d-reason').value = '';
+  $('d-del-reason').value = '';
   $('d-confirm').value = '';
   $('d-delete-btn').disabled = true;
   try {
@@ -166,18 +167,17 @@ document.addEventListener('DOMContentLoaded', () => {
   $('d-close').addEventListener('click', () => $('detail').close());
 
   $('d-suspend-btn').addEventListener('click', async (e) => {
-    const reason = $('d-reason').value.trim();
-    if (!reason) { show($('d-msg'), 'Give a reason first.', true); return; }
-    if (await act('/api/suspend', { account: current.account, reason }, e.currentTarget)) openDetail(current.account);
+    const reason = $('d-reason').value.trim() || null;
+    if (await act('/api/suspend', { account: current.account, reason }, e.currentTarget)) openDetail(current.account, true);
   });
   $('d-unsuspend-btn').addEventListener('click', async (e) => {
-    if (await act('/api/unsuspend', { account: current.account }, e.currentTarget)) openDetail(current.account);
+    if (await act('/api/unsuspend', { account: current.account }, e.currentTarget)) openDetail(current.account, true);
   });
   $('d-confirm').addEventListener('input', () => {
     $('d-delete-btn').disabled = $('d-confirm').value.trim().toLowerCase() !== (current?.email || '').toLowerCase();
   });
   $('d-delete-btn').addEventListener('click', async (e) => {
-    const ok = await act('/api/delete', { account: current.account, confirm_email: $('d-confirm').value }, e.currentTarget);
+    const ok = await act('/api/delete', { account: current.account, confirm_email: $('d-confirm').value, reason: $('d-del-reason').value.trim() || null }, e.currentTarget);
     if (ok) {
       const msg = $('d-msg').textContent;
       $('detail').close();

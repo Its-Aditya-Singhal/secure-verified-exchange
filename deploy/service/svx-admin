@@ -6,5 +6,7 @@
 set -eu
 set -a
 . /etc/svx/db.env
+# Email settings, to tell account owners about suspensions and deletions.
+[ ! -r /etc/svx/smtp.env ] || . /etc/svx/smtp.env
 set +a
 exec setpriv --reuid=svx --regid=svx --init-groups /usr/local/lib/svx/svx-admin "$@"

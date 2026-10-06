@@ -6,7 +6,10 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
+use std::sync::Arc;
+
 use svx_server::admin_web::AdminWeb;
+use svx_server::notify::MemoryNotifier;
 use svx_testkit::*;
 use tower::ServiceExt;
 
@@ -52,8 +55,11 @@ async fn the_admin_page_logs_in_once_and_refuses_strangers() {
     let Some(w) = World::with_options(&WorldOptions::default()).await else {
         return;
     };
-    assert!(AdminWeb::new(w.db.clone(), "too-short", |_| {}).is_err());
-    let app = AdminWeb::new(w.db.clone(), TOKEN, |_| {}).unwrap().router();
+    assert!(AdminWeb::new(w.db.clone(), "too-short", |_| {}, None).is_err());
+    let mail = Arc::new(MemoryNotifier::default());
+    let app = AdminWeb::new(w.db.clone(), TOKEN, |_| {}, Some(mail.clone()))
+        .unwrap()
+        .router();
 
     // Nothing without a session.
     assert_eq!(send(&app, get("/", None)).await.0, StatusCode::UNAUTHORIZED);
@@ -117,21 +123,41 @@ async fn the_admin_page_logs_in_once_and_refuses_strangers() {
         .headers_mut()
         .insert(header::ORIGIN, "http://evil.example".parse().unwrap());
     assert_eq!(send(&app, cross).await.0, StatusCode::FORBIDDEN);
-    let no_reason = json!({ "account": alice.account, "reason": "  " });
+    let long = json!({ "account": alice.account, "reason": "x".repeat(201) });
     assert_eq!(
-        send(&app, post("/api/suspend", &cookie, no_reason)).await.0,
+        send(&app, post("/api/suspend", &cookie, long)).await.0,
         StatusCode::BAD_REQUEST
     );
+    assert!(mail.sent().is_empty());
 
-    // Suspend and lift it.
+    // Suspend and lift it; Alice is emailed each time, with the reason if given.
     let (status, _, done) = send(&app, post("/api/suspend", &cookie, suspend)).await;
     assert_eq!((status, &done["changed"]), (StatusCode::OK, &json!(true)));
+    assert!(
+        done["message"]
+            .as_str()
+            .unwrap()
+            .contains("They have been emailed")
+    );
+    let sent = mail.sent();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].to, alice.email);
+    assert_eq!(sent[0].subject, "Your SVX account has been suspended");
+    assert!(sent[0].body.contains("Reason: spam reports"));
     let path = format!("/api/user/{}", alice.account);
     let (_, _, detail) = send(&app, get(&path, Some(&cookie))).await;
     assert_eq!(detail["user"]["suspended_reason"], "spam reports");
     let lift = json!({ "account": alice.account });
     let (_, _, done) = send(&app, post("/api/unsuspend", &cookie, lift)).await;
     assert_eq!(done["changed"], json!(true));
+    assert_eq!(mail.sent()[1].subject, "Your SVX account is active again");
+    // Suspending again without a reason: the email has none.
+    let bare = json!({ "account": alice.account, "reason": null });
+    assert_eq!(
+        send(&app, post("/api/suspend", &cookie, bare)).await.0,
+        StatusCode::OK
+    );
+    assert!(!mail.sent()[2].body.contains("Reason"));
     // Accounts are named by ID only: an email in the ID slot finds nothing.
     let by_email = format!("/api/user/{}", alice.email);
     assert_eq!(
@@ -149,9 +175,17 @@ async fn the_admin_page_logs_in_once_and_refuses_strangers() {
         send(&app, get(&path, Some(&cookie))).await.0,
         StatusCode::OK
     );
-    let right = json!({ "account": alice.account, "confirm_email": alice.email.to_uppercase() });
+    assert_eq!(mail.sent().len(), 3);
+    let right = json!({
+        "account": alice.account,
+        "confirm_email": alice.email.to_uppercase(),
+        "reason": "asked to be removed",
+    });
     let (status, _, done) = send(&app, post("/api/delete", &cookie, right)).await;
     assert_eq!((status, &done["changed"]), (StatusCode::OK, &json!(true)));
+    let last = mail.sent().pop().unwrap();
+    assert_eq!(last.subject, "Your SVX account has been deleted");
+    assert!(last.body.contains("Reason: asked to be removed"));
     assert_eq!(
         send(&app, get(&path, Some(&cookie))).await.0,
         StatusCode::NOT_FOUND

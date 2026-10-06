@@ -57,22 +57,23 @@
 
   <div id="d-suspend" class="action" hidden>
     <h4>Suspend</h4>
-    <p class="muted">They can't sign in, nobody can send them files, and files they sent stop opening. You can undo this.</p>
+    <p class="muted">They can't sign in, nobody can send them files, and files they sent stop opening. You can undo this. They get an email (with the reason, if you give one).</p>
     <div class="inline">
-      <input id="d-reason" type="text" maxlength="200" placeholder="Reason (for example: spam reports)">
+      <input id="d-reason" type="text" maxlength="200" placeholder="Reason (optional, goes in the email)">
       <button id="d-suspend-btn" type="button">Suspend</button>
     </div>
   </div>
 
   <div id="d-unsuspend" class="action" hidden>
     <h4>Lift the suspension</h4>
-    <p class="muted">Everything works again for them, including files they sent.</p>
+    <p class="muted">Everything works again for them, including files they sent. They get an email saying so.</p>
     <button id="d-unsuspend-btn" type="button">Unsuspend</button>
   </div>
 
   <div class="action danger-zone">
     <h4>Delete account</h4>
-    <p class="muted">Erases the account, its keys, every file it sent and its own activity log. <strong>This cannot be undone.</strong> Type the email address to confirm.</p>
+    <p class="muted">Erases the account, its keys, every file it sent and its own activity log. <strong>This cannot be undone.</strong> They get an email (with the reason, if you give one). Type the email address to confirm.</p>
+    <input id="d-del-reason" class="full" type="text" maxlength="200" placeholder="Reason (optional, goes in the email)">
     <div class="inline">
       <input id="d-confirm" type="text" autocomplete="off" spellcheck="false" placeholder="email address">
       <button id="d-delete-btn" class="danger" type="button" disabled>Delete for good</button>

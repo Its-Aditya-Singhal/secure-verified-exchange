@@ -27,7 +27,8 @@ use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use svx_core::crypto::random_bytes;
 
-use crate::admin_ops::{self, Activity, Stats, User};
+use crate::admin_ops::{self, Activity, Notice, Stats, User};
+use crate::notify::SendNow;
 
 const COOKIE: &str = "svx_admin";
 const CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; \
@@ -43,6 +44,8 @@ struct Inner {
     session: Mutex<Option<[u8; 32]>>,
     last_seen: Mutex<Instant>,
     log: Arc<dyn Fn(&str) + Send + Sync>,
+    /// Emails the account's owner after each action; `None` without SMTP.
+    mail: Option<Arc<dyn SendNow>>,
 }
 
 /// One admin session: a token that logs in once, then a cookie.
@@ -55,11 +58,13 @@ fn sha(s: &str) -> [u8; 32] {
 
 impl AdminWeb {
     /// `token` must be at least [`MIN_TOKEN_LEN`] hex characters; `log`
-    /// records each action (suspend, unsuspend, delete).
+    /// records each action (suspend, unsuspend, delete); `mail` tells the
+    /// account's owner about it.
     pub fn new(
         db: PgPool,
         token: &str,
         log: impl Fn(&str) + Send + Sync + 'static,
+        mail: Option<Arc<dyn SendNow>>,
     ) -> anyhow::Result<Self> {
         let token = token.trim();
         if token.len() < MIN_TOKEN_LEN || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -71,6 +76,7 @@ impl AdminWeb {
             session: Mutex::new(None),
             last_seen: Mutex::new(Instant::now()),
             log: Arc::new(log),
+            mail,
         })))
     }
 
@@ -325,23 +331,52 @@ struct Done {
     message: String,
 }
 
-async fn suspend(State(app): State<AdminWeb>, Json(a): Json<Action>) -> Result<Json<Done>, Fail> {
-    let u = by_id(&app, &a.account).await?;
-    let reason = a.reason.as_deref().map(str::trim).unwrap_or("");
-    if reason.is_empty() || reason.chars().count() > 200 {
+/// Email the account's owner; returns what to add to the page's message.
+async fn tell(app: &AdminWeb, notice: Notice, u: &User, reason: Option<&str>) -> &'static str {
+    let Some(mail) = &app.0.mail else {
+        return " No email was sent: email isn't set up on the server.";
+    };
+    match mail
+        .send_now(admin_ops::notice_email(notice, u, reason))
+        .await
+    {
+        Ok(()) => " They have been emailed.",
+        Err(e) => {
+            tracing::warn!(error = %e, "admin web: notice email failed");
+            (app.0.log)(&format!("admin web: email to {} failed: {e}", u.org_id));
+            " The email to them couldn't be sent (see the Terminal window)."
+        }
+    }
+}
+
+/// An optional reason: trimmed, empty means none, at most 200 characters.
+fn reason(r: Option<&str>) -> Result<Option<&str>, Fail> {
+    let r = r.map(str::trim).filter(|r| !r.is_empty());
+    if r.is_some_and(|r| r.chars().count() > 200) {
         return Err(fail(
             StatusCode::BAD_REQUEST,
-            "give a reason (up to 200 characters)",
+            "keep the reason under 200 characters",
         ));
     }
+    Ok(r)
+}
+
+async fn suspend(State(app): State<AdminWeb>, Json(a): Json<Action>) -> Result<Json<Done>, Fail> {
+    let u = by_id(&app, &a.account).await?;
+    let reason = reason(a.reason.as_deref())?;
     let changed = admin_ops::suspend(&app.0.db, &u.org_id, reason)
         .await
         .map_err(db_error)?;
     let message = if changed {
-        (app.0.log)(&format!("admin web: suspended {} ({reason})", u.org_id));
-        format!("{} is suspended", u.email)
+        (app.0.log)(&format!(
+            "admin web: suspended {} ({})",
+            u.org_id,
+            reason.unwrap_or("no reason given")
+        ));
+        let told = tell(&app, Notice::Suspended, &u, reason).await;
+        format!("{} is suspended.{told}", u.email)
     } else {
-        format!("{} was already suspended", u.email)
+        format!("{} was already suspended.", u.email)
     };
     Ok(Json(Done { changed, message }))
 }
@@ -353,9 +388,10 @@ async fn unsuspend(State(app): State<AdminWeb>, Json(a): Json<Action>) -> Result
         .map_err(db_error)?;
     let message = if changed {
         (app.0.log)(&format!("admin web: unsuspended {}", u.org_id));
-        format!("{} can use SVX again", u.email)
+        let told = tell(&app, Notice::Unsuspended, &u, None).await;
+        format!("{} can use SVX again.{told}", u.email)
     } else {
-        format!("{} was not suspended", u.email)
+        format!("{} was not suspended.", u.email)
     };
     Ok(Json(Done { changed, message }))
 }
@@ -369,15 +405,21 @@ async fn delete(State(app): State<AdminWeb>, Json(a): Json<Action>) -> Result<Js
             "the email you typed doesn't match this account; nothing was deleted",
         ));
     }
+    let reason = reason(a.reason.as_deref())?;
     let changed = admin_ops::erase(&app.0.db, &u.org_id)
         .await
         .map_err(db_error)?;
     if !changed {
         return Err(fail(StatusCode::NOT_FOUND, "no such account"));
     }
-    (app.0.log)(&format!("admin web: erased {}", u.org_id));
+    (app.0.log)(&format!(
+        "admin web: erased {} ({})",
+        u.org_id,
+        reason.unwrap_or("no reason given")
+    ));
+    let told = tell(&app, Notice::Erased, &u, reason).await;
     Ok(Json(Done {
         changed,
-        message: format!("{} has been erased", u.email),
+        message: format!("{} has been erased.{told}", u.email),
     }))
 }

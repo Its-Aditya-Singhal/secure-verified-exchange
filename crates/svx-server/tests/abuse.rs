@@ -209,12 +209,12 @@ async fn a_suspended_account_is_shut_out_until_lifted() {
     let (file, _) = w.send(&alice, &[&bob], NO_APPROVAL).await.unwrap();
 
     assert!(
-        admin_ops::suspend(&w.db, &alice.account, "test")
+        admin_ops::suspend(&w.db, &alice.account, Some("test"))
             .await
             .unwrap()
     );
     assert!(
-        !admin_ops::suspend(&w.db, &alice.account, "again")
+        !admin_ops::suspend(&w.db, &alice.account, None)
             .await
             .unwrap()
     );

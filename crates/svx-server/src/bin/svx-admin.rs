@@ -4,24 +4,38 @@
 //! svx-admin stats
 //! svx-admin users [--search alice] [--limit 50]
 //! svx-admin user alice@example.com
-//! svx-admin suspend alice@example.com --reason "spam reports"
+//! svx-admin suspend alice@example.com [--reason "spam reports"]
 //! svx-admin unsuspend alice@example.com
-//! svx-admin delete alice@example.com --yes
+//! svx-admin delete alice@example.com --yes [--reason "asked to be removed"]
 //! svx-admin web [--port 9790]   # admin page; started by scripts/admin.sh
 //! ```
 //!
 //! Reads `DATABASE_URL`. Accounts are named by email address or account ID.
+//! Suspend, unsuspend and delete email the account's owner (with the reason,
+//! if one is given) through `SVX_SMTP_URL` / `SVX_SMTP_FROM`, the service's
+//! own email settings.
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use sqlx::PgPool;
-use svx_server::admin_ops::{self, User};
+use svx_server::admin_ops::{self, Notice, User};
+use svx_server::notify::{SendNow, SmtpNotifier};
 
 #[derive(Parser)]
 #[command(name = "svx-admin", version, about = "SVX service operator commands")]
 struct Args {
     #[arg(long, env = "DATABASE_URL", hide_env_values = true)]
     database_url: String,
+    /// SMTP for telling account owners about suspensions and deletions.
+    #[arg(
+        long,
+        env = "SVX_SMTP_URL",
+        hide_env_values = true,
+        requires = "smtp_from"
+    )]
+    smtp_url: Option<String>,
+    #[arg(long, env = "SVX_SMTP_FROM")]
+    smtp_from: Option<String>,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -44,8 +58,9 @@ enum Cmd {
     /// files, and files it sent stop opening.
     Suspend {
         who: String,
+        /// Included in the email to them.
         #[arg(long)]
-        reason: String,
+        reason: Option<String>,
     },
     /// Lift a suspension.
     Unsuspend { who: String },
@@ -55,6 +70,9 @@ enum Cmd {
         /// Confirm the erasure.
         #[arg(long)]
         yes: bool,
+        /// Included in the email to them.
+        #[arg(long)]
+        reason: Option<String>,
     },
     /// Serve the private admin page on 127.0.0.1 for an SSH port forward.
     /// Reads a one-time login token (64+ hex characters) from stdin and
@@ -76,7 +94,28 @@ fn journal(msg: &str) {
         .status();
 }
 
-async fn web(db: PgPool, port: u16) -> Result<()> {
+type Mail = Option<std::sync::Arc<dyn SendNow>>;
+
+/// Email the account's owner and say whether it worked.
+async fn tell(mail: &Mail, notice: Notice, u: &User, reason: Option<&str>) {
+    let Some(mail) = mail else {
+        println!("no email sent: SVX_SMTP_URL and SVX_SMTP_FROM aren't set");
+        return;
+    };
+    match mail
+        .send_now(admin_ops::notice_email(notice, u, reason))
+        .await
+    {
+        Ok(()) => println!("emailed {}", u.email),
+        Err(e) => println!("the email to {} couldn't be sent: {e}", u.email),
+    }
+}
+
+fn given(r: &Option<String>) -> Option<&str> {
+    r.as_deref().map(str::trim).filter(|r| !r.is_empty())
+}
+
+async fn web(db: PgPool, port: u16, mail: Mail) -> Result<()> {
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
     let mut stdin = BufReader::new(tokio::io::stdin());
     let mut token = String::new();
@@ -84,7 +123,7 @@ async fn web(db: PgPool, port: u16) -> Result<()> {
         .read_line(&mut token)
         .await
         .context("reading the login token from stdin")?;
-    let app = svx_server::admin_web::AdminWeb::new(db, &token, journal)?;
+    let app = svx_server::admin_web::AdminWeb::new(db, &token, journal, mail)?;
     token.clear();
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))
         .await
@@ -152,8 +191,12 @@ async fn main() -> Result<()> {
         .connect(&a.database_url)
         .await
         .context("connecting to Postgres")?;
+    let mail: Mail = match (&a.smtp_url, &a.smtp_from) {
+        (Some(url), Some(from)) => Some(std::sync::Arc::new(SmtpNotifier::new(url, from)?)),
+        _ => None,
+    };
     match a.cmd {
-        Cmd::Web { port } => web(db, port).await?,
+        Cmd::Web { port } => web(db, port, mail).await?,
         Cmd::Stats => println!("{}", admin_ops::stats(&db).await?),
         Cmd::Users { search, limit } => {
             let list = admin_ops::users(&db, search.as_deref(), limit).await?;
@@ -204,11 +247,10 @@ async fn main() -> Result<()> {
         }
         Cmd::Suspend { who, reason } => {
             let u = account(&db, &who).await?;
-            if reason.trim().is_empty() {
-                bail!("give a reason (--reason)");
-            }
-            if admin_ops::suspend(&db, &u.org_id, reason.trim()).await? {
+            let reason = given(&reason);
+            if admin_ops::suspend(&db, &u.org_id, reason).await? {
                 println!("suspended {} ({})", u.email, u.org_id);
+                tell(&mail, Notice::Suspended, &u, reason).await;
             } else {
                 println!("{} was already suspended", u.email);
             }
@@ -217,11 +259,12 @@ async fn main() -> Result<()> {
             let u = account(&db, &who).await?;
             if admin_ops::unsuspend(&db, &u.org_id).await? {
                 println!("{} ({}) can use SVX again", u.email, u.org_id);
+                tell(&mail, Notice::Unsuspended, &u, None).await;
             } else {
                 println!("{} was not suspended", u.email);
             }
         }
-        Cmd::Delete { who, yes } => {
+        Cmd::Delete { who, yes, reason } => {
             let u = account(&db, &who).await?;
             if !yes {
                 bail!(
@@ -232,6 +275,7 @@ async fn main() -> Result<()> {
             }
             if admin_ops::erase(&db, &u.org_id).await? {
                 println!("erased {} ({})", u.email, u.org_id);
+                tell(&mail, Notice::Erased, &u, given(&reason)).await;
             } else {
                 bail!("{} disappeared before it could be erased", u.email);
             }

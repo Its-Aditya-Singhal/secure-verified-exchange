@@ -4,6 +4,7 @@
 
 use std::sync::Mutex;
 
+use async_trait::async_trait;
 use lettre::message::Mailbox;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
 
@@ -30,6 +31,13 @@ impl Notifier for LogNotifier {
     }
 }
 
+/// Sends one email and waits for the answer. Used by `svx-admin`, which
+/// tells the operator whether the account's owner was emailed.
+#[async_trait]
+pub trait SendNow: Send + Sync {
+    async fn send_now(&self, email: Email) -> anyhow::Result<()>;
+}
+
 /// Tests and the demo: keep emails in memory.
 #[derive(Default)]
 pub struct MemoryNotifier {
@@ -45,6 +53,14 @@ impl MemoryNotifier {
 impl Notifier for MemoryNotifier {
     fn deliver(&self, email: Email) {
         self.sent.lock().expect("notifier lock").push(email);
+    }
+}
+
+#[async_trait]
+impl SendNow for MemoryNotifier {
+    async fn send_now(&self, email: Email) -> anyhow::Result<()> {
+        self.deliver(email);
+        Ok(())
     }
 }
 
@@ -66,21 +82,32 @@ impl SmtpNotifier {
     }
 }
 
-impl Notifier for SmtpNotifier {
-    fn deliver(&self, email: Email) {
-        let to: Mailbox = match email.to.parse() {
-            Ok(m) => m,
-            Err(e) => {
-                tracing::warn!(error = %e, "not sending to an invalid address");
-                return;
-            }
-        };
-        let message = match Message::builder()
+impl SmtpNotifier {
+    fn message(&self, email: Email) -> anyhow::Result<Message> {
+        let to: Mailbox = email
+            .to
+            .parse()
+            .map_err(|e| anyhow::anyhow!("invalid address: {e}"))?;
+        Ok(Message::builder()
             .from(self.from.clone())
             .to(to)
             .subject(email.subject)
-            .body(email.body)
-        {
+            .body(email.body)?)
+    }
+}
+
+#[async_trait]
+impl SendNow for SmtpNotifier {
+    async fn send_now(&self, email: Email) -> anyhow::Result<()> {
+        let message = self.message(email)?;
+        self.transport.send(message).await?;
+        Ok(())
+    }
+}
+
+impl Notifier for SmtpNotifier {
+    fn deliver(&self, email: Email) {
+        let message = match self.message(email) {
             Ok(m) => m,
             Err(e) => {
                 tracing::warn!(error = %e, "could not build the email");

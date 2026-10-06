@@ -9,6 +9,7 @@ use sqlx::{FromRow, PgPool};
 use svx_protocol::unix_now;
 
 use crate::audit;
+use crate::notify::Email;
 
 /// Service-wide counts.
 #[derive(Debug, Default, serde::Serialize)]
@@ -214,7 +215,7 @@ pub async fn activity(db: &PgPool, org_id: &str) -> sqlx::Result<Activity> {
 
 /// Suspend a personal account: it can't sign in or make requests, nobody
 /// can address new files to it, and files it sent stop opening.
-pub async fn suspend(db: &PgPool, org_id: &str, reason: &str) -> sqlx::Result<bool> {
+pub async fn suspend(db: &PgPool, org_id: &str, reason: Option<&str>) -> sqlx::Result<bool> {
     let changed = sqlx::query(
         "UPDATE orgs SET suspended_at = $2, suspended_reason = $3 \
          WHERE org_id = $1 AND kind = 'personal' AND suspended_at IS NULL",
@@ -232,7 +233,7 @@ pub async fn suspend(db: &PgPool, org_id: &str, reason: &str) -> sqlx::Result<bo
             org_id,
             audit::Record {
                 event: audit::event::ACCOUNT_SUSPENDED,
-                reason: Some(reason.to_owned()),
+                reason: reason.map(str::to_owned),
                 ..Default::default()
             },
         )
@@ -322,4 +323,101 @@ pub async fn erase(db: &PgPool, org_id: &str) -> sqlx::Result<bool> {
         .await?;
     tx.commit().await?;
     Ok(true)
+}
+
+/// What the operator did to an account, for the email to its owner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Notice {
+    Suspended,
+    Unsuspended,
+    Erased,
+}
+
+/// The email telling an account's owner what the operator did. The reason
+/// is included only when one was given. No links, like every SVX email.
+pub fn notice_email(notice: Notice, u: &User, reason: Option<&str>) -> Email {
+    let hello = match u.first_name.as_deref().map(str::trim) {
+        Some(n) if !n.is_empty() => format!("Hello {n},"),
+        _ => "Hello,".to_owned(),
+    };
+    let reason = reason
+        .map(str::trim)
+        .filter(|r| !r.is_empty())
+        .map(|r| format!("Reason: {r}\n\n"))
+        .unwrap_or_default();
+    let (subject, what, more) = match notice {
+        Notice::Suspended => (
+            "Your SVX account has been suspended",
+            "has been suspended",
+            "While it is suspended you can't sign in or send files, nobody can send \
+             you new files, and files you sent can't be opened. Nothing has been \
+             deleted: if the suspension is lifted, everything works again.",
+        ),
+        Notice::Unsuspended => (
+            "Your SVX account is active again",
+            "is active again",
+            "You can sign in and send files as before, and files you sent can be \
+             opened again (unless they have expired or you revoked them).",
+        ),
+        Notice::Erased => (
+            "Your SVX account has been deleted",
+            "has been deleted",
+            "Your account, its keys and every file you sent have been erased. \
+             Files you sent can't be opened by anyone any more, and this can't \
+             be undone. You can sign up again with this address at any time.",
+        ),
+    };
+    Email {
+        to: u.email.clone(),
+        subject: subject.to_owned(),
+        body: format!(
+            "{hello}\n\nYour SVX account ({}) {what}.\n\n{reason}{more}\n\n\
+             If you have a question or think this is a mistake, write to \
+             support@getsvx.me.\n\nSVX\n",
+            u.email
+        ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn alice() -> User {
+        User {
+            org_id: "u.0123456789abcdef".into(),
+            email: "alice@example.com".into(),
+            first_name: Some("Alice".into()),
+            last_name: Some("Example".into()),
+            issuer: "svx:email".into(),
+            created_at: 0,
+            suspended_at: None,
+            suspended_reason: None,
+            last_active: None,
+        }
+    }
+
+    #[test]
+    fn the_reason_is_in_the_email_only_when_given() {
+        let e = notice_email(Notice::Suspended, &alice(), Some(" spam reports "));
+        assert_eq!(e.to, "alice@example.com");
+        assert_eq!(e.subject, "Your SVX account has been suspended");
+        assert!(e.body.starts_with("Hello Alice,"));
+        assert!(e.body.contains("Reason: spam reports\n"));
+        for reason in [None, Some("  ")] {
+            let e = notice_email(Notice::Erased, &alice(), reason);
+            assert!(!e.body.contains("Reason"), "{}", e.body);
+            assert!(e.body.contains("has been deleted"));
+        }
+        let e = notice_email(
+            Notice::Unsuspended,
+            &User {
+                first_name: None,
+                ..alice()
+            },
+            None,
+        );
+        assert!(e.body.starts_with("Hello,\n") && e.body.contains("is active again"));
+        assert!(!e.body.contains("http"));
+    }
 }

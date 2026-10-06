@@ -62,11 +62,16 @@ Over SSH, on the server:
 sudo svx-admin stats                                  # accounts, files, opens, database size
 sudo svx-admin users [--search alice] [--limit 50]    # newest first
 sudo svx-admin user alice@example.com                 # one account in detail
-sudo svx-admin suspend alice@example.com --reason "spam reports"
+sudo svx-admin suspend alice@example.com [--reason "spam reports"]
 sudo svx-admin unsuspend alice@example.com
-sudo svx-admin delete alice@example.com --yes         # erase on request; cannot be undone
+sudo svx-admin delete alice@example.com --yes [--reason "asked to be removed"]   # cannot be undone
 ```
 
+- **Emails:** suspend, unsuspend and delete each email the account's owner
+  (plain text, no links, through the service's Gmail account from
+  `/etc/svx/smtp.env`, which the wrapper loads). The reason is included
+  only when one is given. The command and the admin page say whether the
+  email went out; the action happens either way.
 - **Suspend:** the account can't sign in or make requests, nobody can find
   it or send it new files, and files it sent stop opening. Lifting the
   suspension restores everything.
