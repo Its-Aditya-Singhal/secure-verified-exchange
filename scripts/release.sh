@@ -59,6 +59,7 @@ if [ -n "$SERVICE_URL" ] || [ -n "$REGISTRY_FP" ]; then
 fi
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+"$ROOT/scripts/trim-target.sh"
 KEYS=${SVX_RELEASE_KEYS:-$HOME/.svx-release}
 OUT=${OUT:-$ROOT/dist-release/$VERSION}
 for f in release.sign.key release.sign.pub tauri.key tauri.key.password; do

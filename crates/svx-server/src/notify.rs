@@ -14,7 +14,25 @@ use crate::AppState;
 pub struct Email {
     pub to: String,
     pub subject: String,
+    /// Plain text: the whole email, or the text alternative of `html`.
     pub body: String,
+    /// An HTML version with inline images (the welcome email).
+    pub html: Option<Html>,
+}
+
+/// The HTML part of an email; its images are attached inline and named in
+/// the HTML as `cid:<cid>`, so nothing is fetched from a server.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Html {
+    pub body: String,
+    pub images: Vec<InlineImage>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InlineImage {
+    pub cid: &'static str,
+    pub content_type: &'static str,
+    pub data: &'static [u8],
 }
 
 /// A file attached to an email (announcements).
@@ -126,6 +144,20 @@ impl SmtpNotifier {
             .from(self.from.clone())
             .to(to)
             .subject(email.subject);
+        if let Some(html) = email.html {
+            // text + (HTML with its inline images)
+            let mut related = MultiPart::related().singlepart(SinglePart::html(html.body));
+            for img in html.images {
+                related = related.singlepart(
+                    lettre::message::Attachment::new_inline(img.cid.to_owned())
+                        .body(img.data.to_vec(), ContentType::parse(img.content_type)?),
+                );
+            }
+            let alt = MultiPart::alternative()
+                .singlepart(SinglePart::plain(email.body))
+                .multipart(related);
+            return Ok(builder.multipart(alt)?);
+        }
         if files.is_empty() {
             return Ok(builder.body(email.body)?);
         }

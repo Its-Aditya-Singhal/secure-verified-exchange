@@ -165,6 +165,7 @@ async fn main() -> Result<()> {
         records: Arc::new(RecordCache::default()),
         updates: a.updates_dir.map(Arc::new),
         dev: a.dev,
+        welcome_emails: true,
     };
     let db = state.db.clone();
     let router = app(state).await?;

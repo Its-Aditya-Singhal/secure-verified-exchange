@@ -170,6 +170,8 @@ pub enum MailKind {
     Test,
     /// The server's health check (`svx-check`, writes its own rows).
     Alert,
+    /// The one-time welcome email to a new account.
+    Welcome,
 }
 
 impl MailKind {
@@ -181,6 +183,7 @@ impl MailKind {
             MailKind::Announcement => "announcement",
             MailKind::Test => "test",
             MailKind::Alert => "alert",
+            MailKind::Welcome => "welcome",
         }
     }
 }

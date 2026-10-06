@@ -16,6 +16,8 @@ QUICK=0
 
 step() { printf '\n== %s\n' "$*"; }
 
+step "disk space"; scripts/trim-target.sh
+
 step "format";  cargo fmt --all --check
 step "clippy";  cargo clippy --workspace --all-targets -- -D warnings
 step "tests";   cargo test --workspace

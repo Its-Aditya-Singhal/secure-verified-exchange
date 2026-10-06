@@ -26,6 +26,7 @@ pub mod limits;
 pub mod notify;
 pub mod policy;
 mod routes;
+pub mod welcome;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -66,6 +67,8 @@ pub struct AppState {
     pub updates: Option<Arc<std::path::PathBuf>>,
     /// Allows plain-http loopback IdPs and key agents. Never in production.
     pub dev: bool,
+    /// Email new accounts a welcome ([`welcome`]); off in most tests.
+    pub welcome_emails: bool,
 }
 
 /// Signed registry and service records, reused while their content is

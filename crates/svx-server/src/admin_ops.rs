@@ -390,7 +390,7 @@ pub struct EmailUsage {
     /// Every email of the last 24 hours by kind: `code` (sign-up, sign-in,
     /// new device and password-reset codes), `notice` (approval and copy
     /// requests), `admin` (suspended, restored, deleted), `announcement`,
-    /// `test`, `alert` (server health check).
+    /// `test`, `alert` (server health check), `welcome` (new accounts).
     pub by_kind: std::collections::BTreeMap<String, i64>,
 }
 
@@ -533,6 +533,7 @@ pub fn notice_email(notice: Notice, u: &User, reason: Option<&str>) -> Email {
         ),
     };
     Email {
+        html: None,
         to: u.email.clone(),
         subject: subject.to_owned(),
         body: format!(

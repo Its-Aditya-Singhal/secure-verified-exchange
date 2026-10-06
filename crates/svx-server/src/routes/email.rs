@@ -172,6 +172,7 @@ pub async fn send_code(
         // Not through `notify::queue`: that keeps a copy of every email,
         // and a code must not be stored anywhere in clear.
         st.notifier.deliver(Email {
+            html: None,
             to: email,
             subject: format!("{code} is your Secure Verified Exchange code"),
             body: format!(

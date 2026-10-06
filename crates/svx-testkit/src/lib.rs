@@ -278,6 +278,7 @@ impl World {
             records: Arc::new(RecordCache::default()),
             updates: Some(Arc::new(updates_dir.clone())),
             dev: true,
+            welcome_emails: opts.welcome_emails,
         };
         let service_url = serve_on(service_listener, svx_server::app(state).await.unwrap());
 
@@ -816,6 +817,9 @@ pub struct WorldOptions {
     pub updates_dir: Option<PathBuf>,
     /// Abuse limits (default: production's).
     pub limits: Option<svx_server::limits::Limits>,
+    /// Send new accounts the welcome email (default off, so tests that
+    /// count emails see only their own).
+    pub welcome_emails: bool,
 }
 
 /// The header tests use to act from another network address (the service

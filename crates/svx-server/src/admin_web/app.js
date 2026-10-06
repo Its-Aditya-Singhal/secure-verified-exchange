@@ -57,6 +57,7 @@ const KINDS = [
   ['announcement', 'announcements'],
   ['test', 'test announcements'],
   ['alert', 'server health alerts'],
+  ['welcome', 'welcome emails'],
 ];
 
 /** "12 sign-in… codes · 3 approval…", only kinds sent in the last 24 h. */

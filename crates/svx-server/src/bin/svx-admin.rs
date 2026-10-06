@@ -8,6 +8,7 @@
 //! svx-admin unsuspend alice@example.com
 //! svx-admin delete alice@example.com --yes [--reason "asked to be removed"]
 //! svx-admin web [--port 9790]   # admin page; started by scripts/admin.sh
+//! svx-admin welcome-test you@example.com   # send yourself the welcome email
 //! ```
 //!
 //! Reads `DATABASE_URL`. Accounts are named by email address or account ID.
@@ -81,6 +82,14 @@ enum Cmd {
     Web {
         #[arg(long, default_value_t = 9790)]
         port: u16,
+    },
+    /// Send the welcome email new accounts get to an address, to see how
+    /// it looks (counted as a test email).
+    WelcomeTest {
+        to: String,
+        /// First name to greet (default: none, as for Google accounts).
+        #[arg(long)]
+        name: Option<String>,
     },
 }
 
@@ -209,6 +218,18 @@ async fn main() -> Result<()> {
     };
     match a.cmd {
         Cmd::Web { port } => web(db, port, mail).await?,
+        Cmd::WelcomeTest { to, name } => {
+            use svx_server::limits::{ANNOUNCE_CEILING, MailKind, take_email};
+            let Some(mail) = &mail else {
+                bail!("SVX_SMTP_URL and SVX_SMTP_FROM aren't set");
+            };
+            if !take_email(&db, MailKind::Test, ANNOUNCE_CEILING).await? {
+                bail!("today's email allowance for tests is used up");
+            }
+            let email = svx_server::welcome::welcome_email(to.trim(), name.as_deref());
+            mail.send_now(email).await?;
+            println!("sent the welcome email to {}", to.trim());
+        }
         Cmd::Stats => println!("{}", admin_ops::stats(&db).await?),
         Cmd::Users { search, limit } => {
             let list = admin_ops::users(&db, search.as_deref(), limit).await?;

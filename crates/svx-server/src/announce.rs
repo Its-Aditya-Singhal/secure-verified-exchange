@@ -75,6 +75,7 @@ impl Draft {
 
     fn email_to(&self, to: &str) -> Email {
         Email {
+            html: None,
             to: to.to_owned(),
             subject: self.subject.clone(),
             body: format!("{}{FOOTER}", self.body),

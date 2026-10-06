@@ -416,6 +416,15 @@ pub(crate) async fn bind_device(
         },
     )
     .await?;
+    if event == "account created" && st.welcome_emails {
+        // In the background: sign-up never waits for, or fails on, email.
+        let st = st.clone();
+        let email = who.email.to_owned();
+        let first = who.names.map(|n| n.0.to_owned());
+        tokio::spawn(async move {
+            crate::welcome::send_welcome(&st, &email, first.as_deref()).await;
+        });
+    }
     Ok(account)
 }
 
@@ -1304,6 +1313,7 @@ async fn request_approval(
             st,
             &format!("approval:{aid}:{}:{}", me.org_id, now / 3600),
             Email {
+                html: None,
                 to,
                 subject: format!("{} is asking to open a file you sent", me.email),
                 body: format!(
@@ -1564,6 +1574,7 @@ pub async fn share_request(
             &st,
             &format!("share:{aid}:{}:{}", me.org_id, now / 3600),
             Email {
+                html: None,
                 to,
                 subject: format!("{} is asking to keep a file you sent", me.email),
                 body: format!(
