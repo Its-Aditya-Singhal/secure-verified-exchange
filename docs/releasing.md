@@ -40,16 +40,16 @@ svx-server … --updates-dir /srv/svx/updates
 svx release verify /srv/svx/updates/manifest.json --fingerprint <release key fingerprint>
 ```
 
-**Platforms.** The macOS package is built on the release Mac. Windows is built on GitHub and signed on the Mac:
+**Platforms.** Both are built on the release Mac; Windows by cross-compiling:
 
 ```sh
-git push                                        # GitHub builds the pushed branch
-scripts/fetch-windows-build.sh 0.2.0            # starts .github/workflows/windows.yml, waits, downloads
+scripts/build-windows.sh 0.2.0                  # NSIS installer via cargo-xwin, into dist-release/0.2.0/windows/
 scripts/release.sh 0.2.0 --update-url … --service-url … --registry-fingerprint … \
   --windows-package "dist-release/0.2.0/windows/Secure Verified Exchange_0.2.0_x64-setup.exe"
 ```
 
-- **The Windows workflow** runs only when started by hand (`workflow_dispatch`), never on a push. It holds no secrets: the values it builds in (service URL, registry and release key fingerprints) are public. It uploads the unsigned NSIS installer for 3 days.
+- **`build-windows.sh`** needs, once: `brew install nsis llvm lld`, `cargo install --locked cargo-xwin`, `rustup target add x86_64-pc-windows-msvc`. cargo-xwin downloads Microsoft's Windows SDK files on first use (the script accepts their license). Tauri calls this cross-compilation experimental, so every Windows build is tested on a real Windows PC before it's published. NSIS crashes without a UTF-8 locale; the script sets one.
+- **On GitHub instead:** `scripts/fetch-windows-build.sh 0.2.0` starts `.github/workflows/windows.yml` (only by hand, never on a push), waits and downloads. It needs free Actions minutes on the account. The workflow holds no secrets: the values it builds in (service URL, registry and release key fingerprints) are public.
 - **`--windows-package`** signs that installer with the Tauri key on the Mac, checks the signature names the version, and lists it as `windows-x86_64` in the same manifest. The updater on Windows runs it in passive mode; the install is per user and needs no administrator.
 - **Linux** has no release build yet; on Linux the script makes the AppImage.
 

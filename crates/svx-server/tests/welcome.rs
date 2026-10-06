@@ -2,6 +2,8 @@
 
 use std::time::Duration;
 
+use svx_protocol::Method;
+use svx_protocol::personal::{AccountName, SetNameRequest};
 use svx_server::limits::ANNOUNCE_CEILING;
 use svx_server::notify::Email;
 use svx_testkit::*;
@@ -43,11 +45,22 @@ async fn wait_for(w: &World, n: usize) -> Vec<Email> {
 #[tokio::test]
 async fn each_new_account_gets_one_welcome_and_nobody_else_does() {
     let w = world!();
+    // A Google account has no name yet: its welcome waits for the name.
     let alice = w.sign_up("alice").await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(welcomes(&w).is_empty());
+    let set = SetNameRequest {
+        first_name: "Alice".into(),
+        last_name: "Example".into(),
+    };
+    let _: AccountName = w
+        .call(&alice, Method::PUT, "/v1/me/name", Some(&set))
+        .await
+        .unwrap();
     let mail = wait_for(&w, 1).await;
     assert_eq!(mail.len(), 1);
     assert_eq!(mail[0].to, alice.email);
-    assert!(mail[0].body.starts_with("Hi there, welcome aboard."));
+    assert!(mail[0].body.starts_with("Hi Alice, welcome aboard."));
     let html = mail[0].html.as_ref().expect("an HTML version");
     assert!(html.body.contains("cid:svx-banner"));
     assert_eq!(html.images[0].data[..4], *b"\x89PNG");

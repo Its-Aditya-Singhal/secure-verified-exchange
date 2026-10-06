@@ -17,11 +17,12 @@ use svx_core::crypto::{
 };
 use svx_core::format::EnvelopeRole;
 use svx_oidc::IssuerConfig;
+use svx_protocol::email_account::valid_name;
 use svx_protocol::personal::{
-    Account, ApprovalRequest, FileRules, FileStatus, History, KEYS_ON_ANOTHER_DEVICE,
+    Account, AccountName, ApprovalRequest, FileRules, FileStatus, History, KEYS_ON_ANOTHER_DEVICE,
     OpenedReceipt, PersonalReleaseRequest, PersonalReleaseResponse, ReceivedFile, RecipientState,
     RecipientStatus, RegisterFileRequest, ReleaseMode, RequestAuth, RequestKind, SHARE_TTL_SECS,
-    ShareState, ShareStatus, SignUpRequest, UpdateFileRequest, signup_nonce,
+    SetNameRequest, ShareState, ShareStatus, SignUpRequest, UpdateFileRequest, signup_nonce,
 };
 use svx_protocol::{
     DenyReason, KeyKindWire, KeyStatus, SealedShare, SignedOrgRecord, parse_client_key, unix_now,
@@ -155,7 +156,18 @@ pub(crate) async fn authenticate(
         .execute(&st.db)
         .await
     {
-        Ok(_) => Ok(account),
+        Ok(_) => {
+            // "Last active" for the operator: at most one write per 5 minutes.
+            sqlx::query(
+                "UPDATE personal_accounts SET last_seen_at = $2 \
+                 WHERE org_id = $1 AND (last_seen_at IS NULL OR last_seen_at < $2 - 300)",
+            )
+            .bind(&account.org_id)
+            .bind(now)
+            .execute(&st.db)
+            .await?;
+            Ok(account)
+        }
         Err(e) if is_unique_violation(&e) => {
             audit::note(
                 &st.db,
@@ -336,7 +348,7 @@ pub(crate) async fn bind_device(
             .await?;
             sqlx::query(
                 "INSERT INTO personal_accounts (org_id, issuer, subject, email, created_at, \
-                 first_name, last_name) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                 first_name, last_name, welcome_pending) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
             )
             .bind(&org_id)
             .bind(who.issuer)
@@ -345,6 +357,8 @@ pub(crate) async fn bind_device(
             .bind(now)
             .bind(who.names.map(|n| n.0.trim()))
             .bind(who.names.map(|n| n.1.trim()))
+            // Without a name (Google), the welcome waits for the app to set it.
+            .bind(who.names.is_none() && st.welcome_emails)
             .execute(&mut *tx)
             .await?;
             if let Some(h) = &who.password_hash {
@@ -416,14 +430,12 @@ pub(crate) async fn bind_device(
         },
     )
     .await?;
-    if event == "account created" && st.welcome_emails {
+    if event == "account created"
+        && st.welcome_emails
+        && let Some((first, _)) = who.names
+    {
         // In the background: sign-up never waits for, or fails on, email.
-        let st = st.clone();
-        let email = who.email.to_owned();
-        let first = who.names.map(|n| n.0.to_owned());
-        tokio::spawn(async move {
-            crate::welcome::send_welcome(&st, &email, first.as_deref()).await;
-        });
+        spawn_welcome(st, who.email, first);
     }
     Ok(account)
 }
@@ -471,6 +483,99 @@ pub async fn me(
 ) -> ApiResult<Json<Account>> {
     let me = authenticate(&st, &method, &uri, &headers, b"").await?;
     Ok(Json(me.to_wire()))
+}
+
+/// `GET /v1/me/name`: the account's name, if it has one.
+pub async fn get_name(
+    State(st): State<AppState>,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+) -> ApiResult<Json<AccountName>> {
+    let me = authenticate(&st, &method, &uri, &headers, b"").await?;
+    let (first_name, last_name): (Option<String>, Option<String>) =
+        sqlx::query_as("SELECT first_name, last_name FROM personal_accounts WHERE org_id = $1")
+            .bind(&me.org_id)
+            .fetch_one(&st.db)
+            .await?;
+    Ok(Json(AccountName {
+        first_name,
+        last_name,
+    }))
+}
+
+/// `PUT /v1/me/name`: give an account without a name (Google sign-up) its
+/// name, once. It becomes the account's display name in its signed record,
+/// as for email accounts. A pending welcome email goes out now.
+pub async fn set_name(
+    State(st): State<AppState>,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    body: Bytes,
+) -> ApiResult<Json<AccountName>> {
+    let me = authenticate(&st, &method, &uri, &headers, &body).await?;
+    let req: SetNameRequest =
+        serde_json::from_slice(&body).map_err(|e| bad(&format!("invalid request: {e}")))?;
+    let (first, last) = (req.first_name.trim(), req.last_name.trim());
+    if !valid_name(first) || !valid_name(last) {
+        return Err(bad(
+            "names are 1 to 64 characters, without @, < or > (they are shown next to your email)",
+        ));
+    }
+    let mut tx = st.db.begin().await?;
+    let (has_name, welcome): (bool, bool) = sqlx::query_as(
+        "SELECT first_name IS NOT NULL OR last_name IS NOT NULL, welcome_pending \
+         FROM personal_accounts WHERE org_id = $1 FOR UPDATE",
+    )
+    .bind(&me.org_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if has_name {
+        return Err(ApiError::Conflict("your name is already set".into()));
+    }
+    sqlx::query(
+        "UPDATE personal_accounts SET first_name = $2, last_name = $3, welcome_pending = false \
+         WHERE org_id = $1",
+    )
+    .bind(&me.org_id)
+    .bind(first)
+    .bind(last)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("UPDATE orgs SET display_name = $2 WHERE org_id = $1")
+        .bind(&me.org_id)
+        .bind(format!("{first} {last}"))
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    audit::append(
+        &st.db,
+        &me.org_id,
+        audit::Record {
+            event: audit::event::ORG_CHANGED,
+            reason: Some("name set".into()),
+            ..Default::default()
+        },
+    )
+    .await?;
+    if welcome && st.welcome_emails {
+        spawn_welcome(&st, &me.email, first);
+    }
+    Ok(Json(AccountName {
+        first_name: Some(first.to_owned()),
+        last_name: Some(last.to_owned()),
+    }))
+}
+
+/// Send the welcome email in the background.
+fn spawn_welcome(st: &AppState, email: &str, first: &str) {
+    let st = st.clone();
+    let email = email.to_owned();
+    let first = first.to_owned();
+    tokio::spawn(async move {
+        crate::welcome::send_welcome(&st, &email, Some(&first)).await;
+    });
 }
 
 #[derive(Deserialize)]

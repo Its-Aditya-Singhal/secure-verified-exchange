@@ -12,6 +12,7 @@ import { setPersonalWording } from "./messages";
 import { adminScreen } from "./screens/admin";
 import { fileScreen } from "./screens/file";
 import { historyScreen } from "./screens/history";
+import { nameScreen } from "./screens/name";
 import { openScreen } from "./screens/open";
 import { personalSendScreen } from "./screens/psend";
 import { requestsScreen } from "./screens/requests";
@@ -54,6 +55,9 @@ let updateHidden = false;
 let lastUpdateCheck = 0;
 /** The service said this account is suspended: the whole app is locked. */
 let suspended = false;
+/** Whether the account has a name: "missing" (a new Google account) shows
+ *  only the name screen until it's given. */
+let named: "unknown" | "yes" | "missing" = "unknown";
 
 const ctx: Ctx = {
   state: null as unknown as AppState,
@@ -111,6 +115,18 @@ function render(arg?: unknown) {
     renderSuspended();
     return;
   }
+  if (s.configured && s.personal && named === "missing") {
+    const main = h("main", { class: "main" });
+    app.append(h("div", { class: "shell shell-bare" }, main));
+    nameScreen(main, s.email ?? "", () => {
+      named = "yes";
+      route = "send";
+      render();
+    });
+    return;
+  }
+  if (s.configured && s.personal && named === "unknown") void checkName();
+  if (!s.configured) named = "unknown";
   if (!s.configured && route !== "setup" && route !== "welcome") route = "welcome";
 
   const main = h("main", { class: "main" });
@@ -213,6 +229,23 @@ async function checkAccount() {
     suspended = now;
     if (!suspended) route = "send";
     render();
+  }
+}
+
+/** Ask once whether the account has a name; a missing one takes over the
+ *  window until it's given. Being offline changes nothing. */
+let checkingName = false;
+async function checkName() {
+  if (checkingName || named !== "unknown") return;
+  checkingName = true;
+  try {
+    const n = await api.accountName();
+    named = n.first_name || n.last_name ? "yes" : "missing";
+    if (named === "missing") render();
+  } catch {
+    // Try again on the next render.
+  } finally {
+    checkingName = false;
   }
 }
 

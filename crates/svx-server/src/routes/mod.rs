@@ -49,6 +49,10 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/auth/email/reset", post(email::reset_password))
         .route("/v1/me/password", post(email::change_password))
         .route("/v1/me", get(personal::me))
+        .route(
+            "/v1/me/name",
+            get(personal::get_name).put(personal::set_name),
+        )
         .route("/v1/directory", get(personal::directory))
         .route("/v1/me/files", post(personal::register_file))
         .route(

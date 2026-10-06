@@ -82,6 +82,25 @@ pub struct Account {
     pub created_at: i64,
 }
 
+/// `GET /v1/me/name`: the account's name, absent for an account that hasn't
+/// given one yet (Google accounts are created without a name; the app then
+/// asks for it). Kept out of [`Account`], whose fields are fixed.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AccountName {
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+}
+
+/// `PUT /v1/me/name`: give the account its name, once. Shown next to the
+/// email address, so the rules of [`crate::email_account::valid_name`] apply.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SetNameRequest {
+    pub first_name: String,
+    pub last_name: String,
+}
+
 /// The ID-token nonce that binds a sign-up to these exact keys:
 /// `hex(SHA-256("SVX-1 sign-up\0" ‖ u16 len ‖ signing ‖ u16 len ‖ kem))`.
 pub fn signup_nonce(signing_public: &[u8], kem_public: &[u8]) -> String {

@@ -26,9 +26,9 @@ use svx_protocol::email_account::{
     valid_name,
 };
 use svx_protocol::personal::{
-    Account, ApprovalRequest, FileRules, FileStatus, History, OpenedReceipt, PersonalIdp,
-    PersonalReleaseResponse, RegisterFileRequest, ReleaseMode, ShareStatus, SignUpRequest,
-    UpdateFileRequest, signup_nonce,
+    Account, AccountName, ApprovalRequest, FileRules, FileStatus, History, OpenedReceipt,
+    PersonalIdp, PersonalReleaseResponse, RegisterFileRequest, ReleaseMode, SetNameRequest,
+    ShareStatus, SignUpRequest, UpdateFileRequest, signup_nonce,
 };
 use svx_protocol::{KeyKindWire, KeyStatus, ManagedClient, Method, OrgRecord, ReleaseSession};
 use zeroize::Zeroizing;
@@ -655,6 +655,32 @@ impl Client {
         let a: Account = self.call::<(), _>(Method::GET, "/v1/me", None).await?;
         let provider = provider_name(&a.issuer);
         self.account_info_from(&a, &provider)
+    }
+
+    /// The account's name. Google accounts start without one; the app asks
+    /// for it before anything else.
+    pub async fn account_name(&self) -> Result<AccountName> {
+        self.call::<(), _>(Method::GET, "/v1/me/name", None).await
+    }
+
+    /// Give an account without a name its name (once; it's shown next to
+    /// the email address to the people this account sends files to).
+    pub async fn set_account_name(&self, first: &str, last: &str) -> Result<AccountName> {
+        let (first, last) = (first.trim(), last.trim());
+        if !valid_name(first) || !valid_name(last) {
+            return Err(ClientError::Invalid(
+                "names are 1 to 64 characters, without @, < or >".into(),
+            ));
+        }
+        self.call(
+            Method::PUT,
+            "/v1/me/name",
+            Some(&SetNameRequest {
+                first_name: first.to_owned(),
+                last_name: last.to_owned(),
+            }),
+        )
+        .await
     }
 
     /// Change an email account's password.

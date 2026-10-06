@@ -65,6 +65,8 @@ const COMMANDS: &[&str] = &[
     "password_strength",
     "save_backup",
     "account",
+    "account_name",
+    "set_account_name",
     "lookup",
     "send_personal",
     "requests",

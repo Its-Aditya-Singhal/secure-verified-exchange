@@ -17,7 +17,7 @@ use svx_client::personal::{
 };
 use svx_protocol::email_account::{CodePurpose, PasswordStrength, password_strength};
 use svx_protocol::personal::{
-    ApprovalRequest, FileRules, FileStatus, ReceivedFile, UpdateFileRequest,
+    AccountName, ApprovalRequest, FileRules, FileStatus, ReceivedFile, UpdateFileRequest,
 };
 
 use crate::{App, AppError, Result};
@@ -379,6 +379,15 @@ impl App {
 
     pub async fn account(&self) -> Result<AccountInfo> {
         Ok(self.client()?.account().await?)
+    }
+
+    /// The account's name; both parts absent when it still needs one.
+    pub async fn account_name(&self) -> Result<AccountName> {
+        Ok(self.client()?.account_name().await?)
+    }
+
+    pub async fn set_account_name(&self, first: &str, last: &str) -> Result<AccountName> {
+        Ok(self.client()?.set_account_name(first, last).await?)
     }
 
     pub async fn lookup(&self, email: &str) -> Result<Contact> {

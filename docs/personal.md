@@ -64,7 +64,11 @@ share of every file key, audit and revocation.
    email, and creates the account bound to the provider's `(issuer, sub)`.
    The email goes into the account's **signed** registry record
    (`account_email`), so "this email has these keys" is signed by the
-   registry key every client pins.
+   registry key every client pins. Google gives SVX only the email address
+   (scopes `openid email`), so the account has no name yet: the app asks
+   for it before anything else and sends it once with `PUT /v1/me/name`
+   (signed, same rules as email-account names; it becomes the record's
+   display name). The welcome email waits for the name.
 4. On another device the same sign-in gets `account_exists`: restore the
    backup (same keys, accepted) or reset (new keys; the old ones retire, so
    files sent to them can't be opened any more). A backup's keys can't be

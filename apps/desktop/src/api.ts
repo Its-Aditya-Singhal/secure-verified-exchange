@@ -283,6 +283,12 @@ export interface Providers {
   providers: Provider[];
 }
 
+/** Both absent: a Google account that hasn't given its name yet. */
+export interface AccountName {
+  first_name: string | null;
+  last_name: string | null;
+}
+
 export interface AccountInfo {
   account: string;
   email: string;
@@ -528,6 +534,8 @@ export const api = {
     call<PasswordStrength>("password_strength", { password, inputs }),
   saveBackup: (password: string) => call<string | null>("save_backup", { password }),
   account: () => call<AccountInfo>("account"),
+  accountName: () => call<AccountName>("account_name"),
+  setAccountName: (first: string, last: string) => call<AccountName>("set_account_name", { first, last }),
   lookup: (email: string) => call<Contact>("lookup", { email }),
   sendPersonal: (req: PersonalSendRequest) => call<SendResult>("send_personal", { req }),
   requests: () => call<RequestView[]>("requests"),

@@ -75,7 +75,7 @@
     <h2>The SVX app and service</h2>
     <p>SVX is designed so that the service can't read your files. Files are encrypted on your computer and sent however you choose; the service never receives a file or its name. To make sign-in, approval, one-time limits and revocation work, the SVX service stores:</p>
     <ul>
-      <li><strong>Your account:</strong> your email address and name, and the sign-in provider's account identifier (Google, or your email address for email accounts). For email accounts, a password hash, never the password itself.</li>
+      <li><strong>Your account:</strong> your email address and name (Google accounts give their name in the app after signing up), the sign-in provider's account identifier (Google, or your email address for email accounts), and when the account last used the service. For email accounts, a password hash, never the password itself.</li>
       <li><strong>Public keys</strong> for your devices. Private keys stay in your device's keychain, and your backup is encrypted with a password only you know.</li>
       <li><strong>For each file you send:</strong> a random file ID, a fingerprint of its header, who it was sent to, and the rules you chose (approval, one-time, expiry, view-only).</li>
       <li><strong>Activity:</strong> approval requests and decisions, when a file was opened, revoked or expired, and an audit trail of these events.</li>

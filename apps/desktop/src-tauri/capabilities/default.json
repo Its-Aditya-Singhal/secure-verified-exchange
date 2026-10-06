@@ -40,6 +40,8 @@
     "allow-password-strength",
     "allow-save-backup",
     "allow-account",
+    "allow-account-name",
+    "allow-set-account-name",
     "allow-lookup",
     "allow-send-personal",
     "allow-requests",

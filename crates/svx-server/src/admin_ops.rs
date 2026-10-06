@@ -149,7 +149,8 @@ impl User {
 const USER_SELECT: &str = "SELECT p.org_id, p.email, p.first_name, p.last_name, p.issuer, \
      p.created_at, o.suspended_at, o.suspended_reason, p.announcements_off, \
      GREATEST((SELECT max(registered_at) FROM personal_files WHERE sender = p.org_id), \
-              (SELECT max(last_released_at) FROM opens WHERE recipient = p.org_id)) AS last_active \
+              (SELECT max(last_released_at) FROM opens WHERE recipient = p.org_id), \
+              p.last_seen_at, p.created_at) AS last_active \
      FROM personal_accounts p JOIN orgs o ON o.org_id = p.org_id";
 
 /// Accounts, newest first; `search` matches email, name or account ID.

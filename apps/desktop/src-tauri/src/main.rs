@@ -545,6 +545,20 @@ async fn reset_password(
 }
 
 #[tauri::command]
+async fn account_name(app: State<'_, App>) -> Result<svx_protocol::personal::AccountName> {
+    app.account_name().await
+}
+
+#[tauri::command]
+async fn set_account_name(
+    app: State<'_, App>,
+    first: String,
+    last: String,
+) -> Result<svx_protocol::personal::AccountName> {
+    app.set_account_name(&first, &last).await
+}
+
+#[tauri::command]
 async fn change_password(app: State<'_, App>, current: String, new: String) -> Result<()> {
     app.change_password(&current, &new).await
 }
@@ -984,6 +998,8 @@ fn main() {
             email_restore,
             reset_password,
             change_password,
+            account_name,
+            set_account_name,
             password_strength,
             save_backup,
             account,
