@@ -571,6 +571,8 @@ struct ApprovalRow {
     decided_at: Option<i64>,
     expires_at: i64,
     kind: String,
+    used_at: Option<i64>,
+    final_at: Option<i64>,
 }
 
 impl ApprovalRow {
@@ -593,8 +595,8 @@ async fn latest_request(
     kind: &str,
 ) -> ApiResult<Option<ApprovalRow>> {
     Ok(sqlx::query_as(
-        "SELECT request_id, artifact_id, requester, state, requested_at, decided_at, expires_at, kind \
-         FROM approvals WHERE artifact_id = $1 AND requester = $2 AND kind = $3 \
+        "SELECT request_id, artifact_id, requester, state, requested_at, decided_at, expires_at, kind, \
+         used_at, final_at FROM approvals WHERE artifact_id = $1 AND requester = $2 AND kind = $3 \
          ORDER BY requested_at DESC, request_id DESC LIMIT 1",
     )
     .bind(artifact_id)
@@ -1074,20 +1076,44 @@ pub async fn release(
         )
         .await);
     }
-    // 5. One-time: a short retry window after the first release.
+    // 5. One-time: a short retry window after the first release. A copy the
+    //    sender approved is the exception: saving a view-only file with a
+    //    valid approved share request works once (with the same retry
+    //    window) even after the single view, because the sender could
+    //    equally have switched one-time off.
+    let approved_copy = if req.mode == ReleaseMode::Save && f.view_only {
+        latest_request(&st, &f.artifact_id, &me.org_id, "share")
+            .await?
+            .filter(|a| {
+                a.state == "approved" && a.decided_at.is_some_and(|d| now - d <= SHARE_TTL_SECS)
+            })
+    } else {
+        None
+    };
+    let mut share_grant = false;
     if f.one_time
         && let Some(o) = open_row(&st, &f.artifact_id, &me.org_id).await?
         && used_up(&o, now)
     {
-        return Err(refuse(
-            &st,
-            &me,
-            &aid,
-            audit::event::AUTHZ_FAILURE,
-            "one-time file already opened",
-            DenyReason::AlreadyOpened,
-        )
-        .await);
+        // Unspent: no save yet, or a save still in its retry window
+        // without a receipt.
+        let unspent = approved_copy.as_ref().is_some_and(|a| match a.used_at {
+            None => true,
+            Some(u) => a.final_at.is_none() && now - u <= ONE_TIME_RETRY_SECS,
+        });
+        if unspent {
+            share_grant = true;
+        } else {
+            return Err(refuse(
+                &st,
+                &me,
+                &aid,
+                audit::event::AUTHZ_FAILURE,
+                "one-time file already opened",
+                DenyReason::AlreadyOpened,
+            )
+            .await);
+        }
     }
     // 6. A view-only file can be shown in the app, but saved only with the
     //    sender's permission. Refused before anything is used up.
@@ -1155,6 +1181,15 @@ pub async fn release(
         }
         Err(e) => return Err(e.into()),
     }
+    // A save while a copy is approved uses that approval (whichever rule
+    // allowed it); the first one starts its retry window.
+    if let Some(a) = &approved_copy {
+        sqlx::query("UPDATE approvals SET used_at = $2 WHERE request_id = $1 AND used_at IS NULL")
+            .bind(&a.request_id)
+            .bind(now)
+            .execute(&st.db)
+            .await?;
+    }
     // 9. Release the service half, sealed to the one-time key.
     let share = st.keys.unwrap_service_share(&head).map_err(|e| {
         tracing::error!(error = %e, artifact = %aid, "service share unwrap failed");
@@ -1192,9 +1227,10 @@ pub async fn release(
             reason: Some(format!(
                 "from {}; {}",
                 f.sender,
-                match req.mode {
-                    ReleaseMode::Save => "to save",
-                    ReleaseMode::View => "to view",
+                match (req.mode, share_grant) {
+                    (ReleaseMode::Save, true) => "to save, with the sender's approved copy",
+                    (ReleaseMode::Save, false) => "to save",
+                    (ReleaseMode::View, _) => "to view",
                 }
             )),
             ..Default::default()
@@ -1301,6 +1337,17 @@ pub async fn opened(
     .bind(unix_now())
     .execute(&st.db)
     .await?;
+    // A save under an approved copy is now done: the approval is spent.
+    sqlx::query(
+        "UPDATE approvals SET final_at = COALESCE(final_at, $3) \
+         WHERE artifact_id = $1 AND requester = $2 AND kind = 'share' AND state = 'approved' \
+         AND used_at IS NOT NULL",
+    )
+    .bind(&r.artifact_id[..])
+    .bind(&me.org_id)
+    .bind(unix_now())
+    .execute(&st.db)
+    .await?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -1331,7 +1378,8 @@ pub async fn requests(
 ) -> ApiResult<Json<Vec<ApprovalRequest>>> {
     let me = authenticate(&st, &method, &uri, &headers, b"").await?;
     let rows: Vec<ApprovalRow> = sqlx::query_as(
-        "SELECT a.request_id, a.artifact_id, a.requester, a.state, a.requested_at, a.decided_at, a.expires_at, a.kind \
+        "SELECT a.request_id, a.artifact_id, a.requester, a.state, a.requested_at, a.decided_at, a.expires_at, a.kind, \
+         a.used_at, a.final_at \
          FROM approvals a JOIN personal_files f ON f.artifact_id = a.artifact_id \
          WHERE f.sender = $1 AND a.state = 'pending' AND a.expires_at > $2 \
          ORDER BY a.requested_at DESC LIMIT 200",
@@ -1368,7 +1416,8 @@ pub async fn decide(
         "UPDATE approvals a SET state = $3, decided_at = $4 FROM personal_files f \
          WHERE a.request_id = $1 AND f.artifact_id = a.artifact_id AND f.sender = $2 \
            AND a.state = 'pending' AND a.expires_at > $4 \
-         RETURNING a.request_id, a.artifact_id, a.requester, a.state, a.requested_at, a.decided_at, a.expires_at, a.kind",
+         RETURNING a.request_id, a.artifact_id, a.requester, a.state, a.requested_at, a.decided_at, a.expires_at, a.kind, \
+         a.used_at, a.final_at",
     )
     .bind(&id[..])
     .bind(&me.org_id)

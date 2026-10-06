@@ -596,6 +596,100 @@ async fn a_view_only_file_can_be_saved_only_with_the_senders_permission() {
 }
 
 #[tokio::test]
+async fn an_approved_copy_works_once_even_after_a_one_time_view() {
+    let w = world!();
+    let alice = w.sign_up("alice").await;
+    let bob = w.sign_up("bob").await;
+    let one_time_view = FileRules {
+        one_time: true,
+        ..VIEW_ONLY
+    };
+    let (file, status) = w.send(&alice, &[&bob], one_time_view).await.unwrap();
+
+    // Bob views it once: the one-time open is used up.
+    let view = ReleaseSession::new();
+    let released = w
+        .ask_for(&bob, &file, &view, ReleaseMode::View)
+        .await
+        .unwrap();
+    assert_eq!(w.finish_open(&bob, &file, &view, released).await, SECRET);
+    let again = ReleaseSession::new();
+    assert_eq!(
+        denied(w.ask_for(&bob, &file, &again, ReleaseMode::View).await),
+        DenyReason::AlreadyOpened
+    );
+    // Without the sender's permission, saving is still refused.
+    assert_eq!(
+        denied(w.ask(&bob, &file, &ReleaseSession::new()).await),
+        DenyReason::AlreadyOpened
+    );
+
+    // Bob asks for a copy and Alice approves: that alone is enough.
+    share(&w, &bob, &status, true).await.unwrap();
+    let pending = requests(&w, &alice).await;
+    decide(&w, &alice, &pending[0], "approve").await.unwrap();
+    let save = ReleaseSession::new();
+    let released = w.ask(&bob, &file, &save).await.unwrap();
+    assert_eq!(w.finish_open(&bob, &file, &save, released).await, SECRET);
+    // Once saved (the app sent its receipt), the approval is spent.
+    assert_eq!(
+        denied(w.ask(&bob, &file, &ReleaseSession::new()).await),
+        DenyReason::AlreadyOpened
+    );
+
+    // The approval is for saving, not for viewing again.
+    assert_eq!(
+        denied(
+            w.ask_for(&bob, &file, &ReleaseSession::new(), ReleaseMode::View)
+                .await
+        ),
+        DenyReason::AlreadyOpened
+    );
+    // A save that never finished (no receipt) may be retried for 10
+    // minutes, then the approval is spent too.
+    sqlx::query("UPDATE approvals SET final_at = NULL WHERE kind = 'share'")
+        .execute(&w.db)
+        .await
+        .unwrap();
+    let retry = ReleaseSession::new();
+    assert!(w.ask(&bob, &file, &retry).await.is_ok());
+    sqlx::query("UPDATE approvals SET used_at = used_at - 601 WHERE kind = 'share'")
+        .execute(&w.db)
+        .await
+        .unwrap();
+    assert_eq!(
+        denied(w.ask(&bob, &file, &ReleaseSession::new()).await),
+        DenyReason::AlreadyOpened
+    );
+
+    // An approval for another file doesn't help, and revocation wins.
+    let (file2, status2) = w.send(&alice, &[&bob], one_time_view).await.unwrap();
+    let view = ReleaseSession::new();
+    let released = w
+        .ask_for(&bob, &file2, &view, ReleaseMode::View)
+        .await
+        .unwrap();
+    w.finish_open(&bob, &file2, &view, released).await;
+    assert_eq!(
+        denied(w.ask(&bob, &file2, &ReleaseSession::new()).await),
+        DenyReason::AlreadyOpened
+    );
+    share(&w, &bob, &status2, true).await.unwrap();
+    let pending = requests(&w, &alice).await;
+    decide(&w, &alice, &pending[0], "approve").await.unwrap();
+    let revoke = UpdateFileRequest {
+        revoke: true,
+        ..Default::default()
+    };
+    update(&w, &alice, &status2, &revoke).await.unwrap();
+    assert_eq!(
+        denied(w.ask(&bob, &file2, &ReleaseSession::new()).await),
+        DenyReason::ExpiredOrRevoked
+    );
+    w.cleanup().await.unwrap();
+}
+
+#[tokio::test]
 async fn view_only_rules_are_the_senders_to_change() {
     let w = world!();
     let alice = w.sign_up("alice").await;
