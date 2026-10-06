@@ -52,7 +52,15 @@ struct Args {
     dev: bool,
     /// A sign-in provider for personal accounts (repeatable), as
     /// `issuer=https://accounts.google.com,client_id=…[,name=Google][,client_secret=…]`.
-    #[arg(long = "personal-idp", value_parser = parse_personal_idp)]
+    /// Also read from `SVX_PERSONAL_IDP` (several separated by `;`), so the
+    /// client secret needn't be on the command line.
+    #[arg(
+        long = "personal-idp",
+        env = "SVX_PERSONAL_IDP",
+        hide_env_values = true,
+        value_delimiter = ';',
+        value_parser = parse_personal_idp
+    )]
     personal_idps: Vec<PersonalIdp>,
     /// SMTP server for approval emails, e.g. `smtps://user:pass@smtp.example.com`.
     /// Without it, emails are only logged.

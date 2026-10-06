@@ -9,6 +9,8 @@ User=svx
 Group=svx
 EnvironmentFile=/etc/svx/db.env
 EnvironmentFile=-/etc/svx/smtp.env
+# Optional: Google sign-in (SVX_PERSONAL_IDP=issuer=…,client_id=…,client_secret=…).
+EnvironmentFile=-/etc/svx/google.env
 Environment=RUST_LOG=info
 ExecStart=/usr/local/bin/svx-server \
   --service-id svx \
