@@ -19,10 +19,13 @@ secrets are in this folder: they are created on the server.
    `svx keygen --kind kem --owner svx --out service-kem`. Back them up offline:
    losing the KEM key makes every file ever sent unreadable; the registry
    key's fingerprint is built into every app.
-5. **TLS and the proxy:** a self-signed P-256 certificate in `/etc/svx/tls`; the
-   service listens on `0.0.0.0:8443`. Public HTTPS goes through the Cloudflare
-   proxy (`api.getsvx.me:8443`, SSL mode Full, which accepts the self-signed
-   certificate). ufw allows 8443 only from Cloudflare's published ranges
+5. **TLS and the proxy:** a Cloudflare Origin CA certificate for
+   `api.getsvx.me` in `/etc/svx/tls` (`cert.pem`, valid to 2041; `key.pem`,
+   a P-256 key made on the server, never copied off it; `origin.csr` is the
+   request it was signed from; the earlier self-signed pair is kept as
+   `*.selfsigned.pem`). The service listens on `0.0.0.0:8443`. Public HTTPS
+   goes through the Cloudflare proxy (`api.getsvx.me:8443`, SSL mode
+   **Full (strict)**, so Cloudflare checks the server's certificate too). ufw allows 8443 only from Cloudflare's published ranges
    (`cloudflare.com/ips-v4`, `ips-v6`), and an Azure inbound rule allows 8443.
    Direct access to the IP is blocked. (A Cloudflare Tunnel would expose no
    port, but Zero Trust asks for a card.) Because only Cloudflare can connect,
