@@ -118,7 +118,16 @@ code,kbd,pre{font-family:var(--mono);font-size:.88em}
 .hero__copy .h1{max-width:7.6em;font-size:clamp(2.6rem,5.4vw,6.4rem)}
 @media (min-width:901px){.hero__copy>*{max-width:min(100%,46vw)}}
 .hero__copy .lead{margin-top:1.6rem;max-width:30em}
-.hero__copy .btn-row{margin-top:2.2rem}
+.hero__copy .btn-row{margin-top:2rem}
+/* the four promises: on the first screen, before anything else is read */
+.promises{list-style:none;margin:2rem 0 0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.promises li{display:flex;gap:14px;align-items:flex-start;padding:14px 16px;border:1px solid var(--line2);border-radius:var(--r);background:color-mix(in srgb,var(--bg2) 82%,transparent);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.promises svg{flex:none;width:26px;height:26px;color:var(--acc)}
+.promises b{display:block;font:600 1rem/1.3 var(--sans);color:var(--fg)}
+.promises span{display:block;margin-top:2px;font-size:.84rem;line-height:1.4;color:var(--mut)}
+.promises--wide{grid-template-columns:repeat(4,minmax(0,1fr));margin:0 0 28px}
+@media (max-width:1100px){.promises--wide{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:520px){.promises,.promises--wide{grid-template-columns:1fr;gap:8px}.promises li{padding:12px 14px}}
 .hero__meta{display:flex;flex-wrap:wrap;gap:8px 28px;margin-top:2.4rem;font:400 .78rem/1.4 var(--mono);color:var(--mut);letter-spacing:.04em}
 .hero__scroll{position:absolute;right:var(--pad);bottom:clamp(48px,9vh,120px);z-index:2;display:flex;align-items:center;gap:12px;font:400 .72rem/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--mut)}
 .hero__scroll i{width:1px;height:56px;background:var(--line2);position:relative;overflow:hidden}
