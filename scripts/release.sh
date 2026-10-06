@@ -24,6 +24,9 @@
 #                             (svx keygen --kind sign --owner svx-release --out ~/.svx-release/release)
 #   tauri.key, tauri.key.password   Tauri updater key (npx tauri signer generate);
 #                             its public half is plugins.updater.pubkey in tauri.conf.json
+#   macos-signing.p12, macos-signing.password   (macOS) the self-made code-signing
+#                             certificate every build is signed with, so updates keep
+#                             the app's keychain access (scripts/make-signing-cert.sh)
 set -euo pipefail
 
 usage() { sed -n '2,20p' "$0"; exit 2; }
@@ -88,7 +91,22 @@ OVERLAY=tauri.release.conf.json
 [ "$LOCAL" = 1 ] && OVERLAY=tauri.localtest.conf.json
 VERSION_CFG=$(mktemp -t svx-version).json
 printf '{"version":"%s"}\n' "$VERSION" > "$VERSION_CFG"
-trap 'rm -f "$VERSION_CFG"' EXIT
+SIGN_KC=
+trap 'rm -f "$VERSION_CFG"; [ -z "$SIGN_KC" ] || security delete-keychain "$SIGN_KC" 2>/dev/null || true' EXIT
+
+# macOS: every build is re-signed with the same certificate (below). Ad-hoc
+# signatures change with every build, and macOS then asks for the keychain
+# password after each update before the app may read its own keys.
+CERT_NAME="SVX Release Signing"
+MAC_SIGN=0
+if [ "$(uname -s)" = Darwin ]; then
+  if [ -f "$KEYS/macos-signing.p12" ] && [ -f "$KEYS/macos-signing.password" ]; then
+    MAC_SIGN=1
+  elif [ "$LOCAL" = 0 ]; then
+    echo "missing $KEYS/macos-signing.p12: run scripts/make-signing-cert.sh once" >&2
+    exit 1
+  fi
+fi
 
 (cd "$ROOT/apps/desktop" && npm run tauri -- build --bundles "$BUNDLES" \
   --config "src-tauri/$OVERLAY" --config "$VERSION_CFG")
@@ -97,6 +115,32 @@ BUNDLE_DIR=$ROOT/target/release/bundle
 # shellcheck disable=SC2086
 PKG=$(ls -t $BUNDLE_DIR/$PKG_GLOB | head -1)
 echo "Built $PKG"
+if [ "$MAC_SIGN" = 1 ]; then
+  # Re-sign the app with the certificate, from a private temporary keychain
+  # (never added to the search list; macOS needn't trust the certificate),
+  # with the same options Tauri uses, then rebuild and re-sign the update
+  # package from the re-signed app.
+  APP=$(ls -dt "$BUNDLE_DIR"/macos/*.app | head -1)
+  SIGN_KC=$(mktemp -d)/svx-signing.keychain-db
+  KC_PW=$(openssl rand -hex 16)
+  security create-keychain -p "$KC_PW" "$SIGN_KC"
+  security set-keychain-settings "$SIGN_KC"
+  security unlock-keychain -p "$KC_PW" "$SIGN_KC"
+  security import "$KEYS/macos-signing.p12" -k "$SIGN_KC" \
+    -P "$(cat "$KEYS/macos-signing.password")" -T /usr/bin/codesign >/dev/null
+  security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KC_PW" "$SIGN_KC" >/dev/null
+  codesign --force --options runtime --timestamp=none -i org.svx.desktop \
+    --keychain "$SIGN_KC" -s "$CERT_NAME" "$APP"
+  security delete-keychain "$SIGN_KC"
+  SIGN_KC=
+  codesign --verify --strict "$APP"
+  echo "Signed: $(codesign -dr - "$APP" 2>&1 | sed -n 's/^designated => //p')"
+  rm -f "$PKG" "$PKG.sig"
+  (cd "$(dirname "$APP")" && COPYFILE_DISABLE=1 tar -czf "$PKG" "$(basename "$APP")")
+  (cd "$ROOT/apps/desktop" && env -u TAURI_SIGNING_PRIVATE_KEY -u TAURI_SIGNING_PRIVATE_KEY_PASSWORD \
+    npx tauri signer sign -f "$KEYS/tauri.key" -p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$PKG" >/dev/null)
+  [ -s "$PKG.sig" ] || { echo "the update package wasn't signed" >&2; exit 1; }
+fi
 if [ "$BUILD_ONLY" = 1 ]; then
   echo "Build only: install $(dirname "$PKG") and run it; it checks $URL for updates."
   exit 0

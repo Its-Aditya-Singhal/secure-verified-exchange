@@ -82,3 +82,21 @@ On macOS the updater only works when the app's own path has no symbolic link in 
 
 - **Freeze attacks.** A malicious update server can keep serving an old manifest, so the app never learns about a newer version. It can't install anything old: the app only ever moves forward.
 - **Unsigned first install.** The first download comes from the website or a direct link. Its integrity depends on that channel (https) until the app is installed. From then on, updates are verified as above.
+
+## macOS signing and the keychain
+
+Every macOS build is re-signed with one self-made certificate
+(`~/.svx-release/macos-signing.p12`, made once by
+`scripts/make-signing-cert.sh`, valid 20 years). The app's identity is then
+`identifier "org.svx.desktop" and certificate root = H"2734d30f…"` for every
+version, so the keychain items it created stay readable after an update.
+With ad-hoc signing (before 0.1.3) each build had a different identity, and
+macOS asked for the login keychain password after every update.
+
+`scripts/release.sh` builds with Tauri (ad-hoc), re-signs the app from a
+private temporary keychain with the same options (hardened runtime, no
+entitlements), and rebuilds and re-signs the update package. The certificate
+isn't from Apple: Gatekeeper still treats the app as from an unidentified
+developer, and macOS doesn't need to trust it. Keep the `.p12` and its
+password with the other release keys (offline backup). If it's lost, make a
+new one: users get one more keychain prompt after that update.
