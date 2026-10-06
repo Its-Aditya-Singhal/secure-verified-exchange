@@ -920,10 +920,9 @@ fn open_document(handle: AppHandle, app: State<'_, App>, path: PathBuf) -> Resul
         .map_err(|e| AppError::other(e.to_string()))
 }
 
-/// The system prompt, announced to the window. Windows Hello opens its
-/// prompt behind the app (bringing it to the front needs an `unsafe` COM
-/// call, which this project doesn't allow), so the window says where to look
-/// while event `presence` is `true`.
+/// The system prompt, announced to the window. On Windows the prompt (Windows
+/// Hello, or the account password without it) can still open behind the app,
+/// so the window says where to look while event `presence` is `true`.
 struct AnnouncedPresence(Arc<OnceLock<AppHandle>>);
 
 impl UserPresence for AnnouncedPresence {

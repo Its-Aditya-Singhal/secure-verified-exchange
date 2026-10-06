@@ -123,7 +123,7 @@ File names of personal files are kept only in `history.json` next to the configu
 
 ## Confirm it's you (Touch ID)
 
-Before the keys are used, the app asks for **Touch ID or the Mac's password** (Windows: **Windows Hello** face, fingerprint or PIN; Linux: not available). The `svx-client` library enforces it, not the UI:
+Before the keys are used, the app asks for **Touch ID or the Mac's password** (Windows: **Windows Hello** face, fingerprint or PIN, or the Windows account password when Hello isn't set up; Linux: not available). The `svx-client` library enforces it, not the UI:
 
 | Asks | For |
 |------|-----|

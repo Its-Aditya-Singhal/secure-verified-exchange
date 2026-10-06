@@ -321,11 +321,11 @@ async function start() {
     void checkAccount();
   });
   await listen("open-file", () => void pickUpPending());
-  // Windows Hello opens its prompt behind the app: say where to find it.
+  // The Windows Security prompt can open behind the app: say where to find it.
   if (navigator.userAgent.includes("Windows")) {
     const hint = h("div", { class: "presence-hint", role: "status", hidden: true },
       icon("info"),
-      h("span", {}, "Windows Hello is waiting for you. If you don't see it, click ",
+      h("span", {}, "Windows is asking you to confirm it's you (PIN, fingerprint or password). If you don't see it, click ",
         h("strong", {}, "Windows Security"), " in the taskbar."));
     document.body.appendChild(hint);
     await listen<boolean>("presence", (e) => {
