@@ -47,7 +47,7 @@ No card needed: we skipped Cloudflare Tunnel (Zero Trust wants a card) and use t
 | [x] | ~~B2. `svx-admin` on the server: `stats`, `users --search`, `user`, `suspend`, `unsuspend`, `delete --yes` (see `deploy/service/README.md`)~~ |
 | [x] | ~~B3. Nightly encrypted database dump (age, 14 kept, 03:30 IST); `scripts/pull-backup.sh [--drill]` copies it to your Mac; restore drill passed 2026-10-06. Your part: run `scripts/pull-backup.sh` weekly and keep `db-backup-age.key` offline with the other backups~~ |
 | [~] | B4. On-server health check every 5 minutes (service, database, disk, memory, backup age) emails `<notification-mailbox>` per problem and when cleared: installed and tested. **Still to do (you): an outside monitor** for when the whole server is down (free UptimeRobot on `https://api.getsvx.me:8443/healthz`, alert to your email) |
-| [~] | B2b. Private admin page: `scripts/admin.sh` opens `svx-admin web` through an SSH forward (installed 2026-10-06). **You:** allow that one forward on the server (`deploy/service/README.md`, "Admin page"), then run the script |
+| [x] | ~~B2b. Private admin page: `scripts/admin.sh` opens `svx-admin web` through an SSH forward (installed 2026-10-06). **You:** allow that one forward on the server (`deploy/service/README.md`, "Admin page"), then run the script~~ Working (2026-10-06), with Logs and Announcements tabs |
 | [ ] | B5. Copy **both** backups to a second, offline place (USB or encrypted cloud folder): `~/.svx-service-backup/` (service keys, `db-backup-age.key` and the database backups) and `~/.svx-release/` (release and updater keys). **Without the service KEM key, every file ever sent is unreadable; without the release keys, installed apps can't be updated.** Practise restoring once |
 | [x] | ~~B6. Security re-check (2026-10-05): open ports (22 key-only, 8443 Cloudflare-only, Postgres local), key and config permissions, SCRAM, unattended upgrades, service sandbox tightened (systemd exposure 4.3 → 1.4), SSH forwarding off and 3 auth tries, abuse limits live behind `CF-Connecting-IP`~~ |
 | [ ] | B7. Follow-ups from B6: (a) Cloudflare **Full (strict)** with a free Cloudflare Origin certificate (make a CSR on the server, paste it in SSL/TLS → Origin Server, install the certificate; the private key never leaves the server), so the Cloudflare → server hop is authenticated too; (b) once SMTP works, clear the old journal (it holds the sign-up codes logged while email was off): `sudo journalctl --rotate && sudo journalctl --vacuum-time=1s`; (c) re-sync ufw with Cloudflare's IP list every few months |
@@ -59,7 +59,7 @@ No card needed: we skipped Cloudflare Tunnel (Zero Trust wants a card) and use t
 | [x] | ~~C1. Release key and Tauri updater key: already in `~/.svx-release` (made 2026-10-04, never left the Mac); the updater public key matches `tauri.conf.json`; fingerprint above. Offline backup is part of B5~~ |
 | [x] | ~~C2. Version 0.1.0 built for Apple silicon with the official service (`https://api.getsvx.me:8443`), registry fingerprint, release key and update address built in (`scripts/release.sh 0.1.0 --update-url … --service-url … --registry-fingerprint …`); signed manifest verified. Files in `dist-release/` (not in git): `download/SVX-beta-macOS.dmg` (SHA-256 `63b881a20a07e52d2236ddb0ec6b9f25a163ad8b5a756f98b71da2fbbd702302`, local build; a different build gets a different checksum) and `0.1.0/` (update package + manifest, for the server's updates folder)~~ |
 | [ ] | C3. First-run check on a clean Mac user account |
-| [ ] | C4. Update test: install 0.1.0, publish 0.1.1 to the server's updates folder, the app updates itself |
+| [x] | ~~C4. Update test: the installed app updated itself through 0.1.1 → 0.1.5 (2026-10-06); releases are signed with one certificate (`scripts/make-signing-cert.sh`) so updates keep keychain access~~ |
 
 ## D. Your manual tests
 
@@ -77,7 +77,7 @@ No card needed: we skipped Cloudflare Tunnel (Zero Trust wants a card) and use t
 |---|---|
 | [x] | ~~E1. Website on `getsvx.me` and `www.getsvx.me` (workers.dev switched off; account subdomain no longer has your name; checked 2026-10-06)~~ |
 | [ ] | E2a. **Upload the site, then run `scripts/check-site.sh`** (tests the pages, `install.sh`, the disk image and its checksum, security.txt and the service as a new user's Mac would). Every line must say ok before anyone is told about the site. After each new app build: `scripts/release.sh …` then `scripts/prepare-download.sh`, upload, check again |
-| [ ] | E2. Add the download link and SHA-256, set `RELEASE = 'live'` in `website/assets/js/boot.js`, show Windows and Linux as "coming soon" |
+| [x] | ~~E2. Add the download link and SHA-256, set `RELEASE = 'live'` in `website/assets/js/boot.js`, show Windows and Linux as "coming soon"~~ |
 | [ ] | E3. Adjust claims to the test results (macOS capture; view-only status wording) |
 | [ ] | E4. Fill in Privacy and Terms (operator name or "individual developer", contact, retention) and have someone qualified review them |
 | [x] | ~~E5. Email Routing: `support@getsvx.me` and `security@getsvx.me` forward to `<notification-mailbox>`; catch-all off; tested, arrives in the inbox (2026-10-06)~~ |
