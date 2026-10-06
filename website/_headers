@@ -4,6 +4,7 @@
   Referrer-Policy: no-referrer
   Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=()
   Cross-Origin-Opener-Policy: same-origin
+  Strict-Transport-Security: max-age=31536000
 
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
@@ -12,4 +13,8 @@
   Cache-Control: public, max-age=3600
 
 /assets/css/*
+  Cache-Control: public, max-age=3600
+
+/.well-known/security.txt
+  Content-Type: text/plain; charset=utf-8
   Cache-Control: public, max-age=3600

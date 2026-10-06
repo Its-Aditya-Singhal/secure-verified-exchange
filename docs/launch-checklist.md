@@ -78,8 +78,8 @@ No card needed: we skipped Cloudflare Tunnel (Zero Trust wants a card) and use t
 | [ ] | E2. Add the download link and SHA-256, set `RELEASE = 'live'` in `website/assets/js/boot.js`, show Windows and Linux as "coming soon" |
 | [ ] | E3. Adjust claims to the test results (macOS capture; view-only status wording) |
 | [ ] | E4. Fill in Privacy and Terms (operator name or "individual developer", contact, retention) and have someone qualified review them |
-| [ ] | E5. Cloudflare Email Routing is on (Namecheap's old mail records removed, Cloudflare's MX, SPF and DKIM in place). Still to do: create `support@` and `security@` routes to `<notification-mailbox>`, verify the destination, send a test from another account |
-| [ ] | E5b. **Put the contact addresses on the website**: `support@getsvx.me` and `security@getsvx.me` in the footer of every page, a Contact line on the download and docs pages, "Report a vulnerability" on the security page, the Contact sections of privacy and terms, and a `/.well-known/security.txt` (`Contact: mailto:security@getsvx.me`). Mention them in the app (Settings → About) and in the sign-up emails' footer if wanted |
+| [x] | ~~E5. Email Routing: `support@getsvx.me` and `security@getsvx.me` forward to `<notification-mailbox>`; catch-all off; tested, arrives in the inbox (2026-10-06)~~ |
+| [~] | E5b (done in the files, **upload the site to publish it**). **Put the contact addresses on the website**: `support@getsvx.me` and `security@getsvx.me` in the footer of every page, a Contact line on the download and docs pages, "Report a vulnerability" on the security page, the Contact sections of privacy and terms, and a `/.well-known/security.txt` (`Contact: mailto:security@getsvx.me`). Mention them in the app (Settings → About) and in the sign-up emails' footer if wanted |
 | [ ] | E6. Delete the temporary `resources/` folder; commit `website/`, `deploy/service/` and the docs |
 | [ ] | E7. Decide the licence and whether the GitHub repository is public. The code is Apache-2.0 today, so anyone may run their own service |
 | [x] | ~~E8. `workers.dev` address switched off; the account subdomain is now `getsvx`~~ |

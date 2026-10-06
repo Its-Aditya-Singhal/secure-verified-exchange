@@ -1,0 +1,5 @@
+Contact: mailto:security@getsvx.me
+Expires: 2027-10-06T00:00:00.000Z
+Preferred-Languages: en
+Canonical: https://getsvx.me/.well-known/security.txt
+Policy: https://getsvx.me/security#report
