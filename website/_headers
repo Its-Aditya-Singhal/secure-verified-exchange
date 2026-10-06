@@ -18,3 +18,10 @@
 /.well-known/security.txt
   Content-Type: text/plain; charset=utf-8
   Cache-Control: public, max-age=3600
+
+/install.sh
+  Content-Type: text/plain; charset=utf-8
+  Cache-Control: no-cache
+
+/downloads/*
+  Cache-Control: no-cache
