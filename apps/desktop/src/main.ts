@@ -49,6 +49,8 @@ const app = document.getElementById("app")!;
 let route: Route = "open";
 let pendingRequests = 0;
 let update: AvailableUpdate | null = null;
+/** The service said this account is suspended: the whole app is locked. */
+let suspended = false;
 
 const ctx: Ctx = {
   state: null as unknown as AppState,
@@ -102,6 +104,10 @@ function render(arg?: unknown) {
   clear(app);
   ctx.onFiles = null;
   const s = ctx.state;
+  if (suspended && s.configured) {
+    renderSuspended();
+    return;
+  }
   if (!s.configured && route !== "setup" && route !== "welcome") route = "welcome";
 
   const main = h("main", { class: "main" });
@@ -161,6 +167,46 @@ function render(arg?: unknown) {
   }
 }
 
+/** The locked app of a suspended account. The service refuses everything
+ *  the account asks for anyway; this says so instead of a usable-looking app. */
+function renderSuspended() {
+  const main = h("main", { class: "main" });
+  app.append(h("div", { class: "shell shell-bare" }, main));
+  if (update) main.appendChild(updateBanner(update));
+  const status = h("p", { class: "muted small" });
+  const again = button("Check again", () => void busy(again, "Checking…", async () => {
+    await checkAccount();
+    if (suspended) status.textContent = "Still suspended.";
+  }));
+  main.append(
+    h("div", { class: "brand center-brand" }, brandLockup()),
+    errorPanel(
+      { kind: "suspended", message: "", deny_reason: null, exit_code: 1, path: null },
+      [again],
+    ),
+    status,
+    h("p", { class: "muted small" }, `Signed in as ${ctx.state.email ?? ""}.`),
+  );
+}
+
+/** Ask the service whether this account may be used; lock or unlock the app.
+ *  Being offline changes nothing. */
+async function checkAccount() {
+  if (!ctx.state.configured || !ctx.state.personal) return;
+  let now = false;
+  try {
+    await api.account();
+  } catch (e) {
+    if (asAppError(e).kind !== "suspended") return;
+    now = true;
+  }
+  if (now !== suspended) {
+    suspended = now;
+    if (!suspended) route = "send";
+    render();
+  }
+}
+
 /** A newer, verified release: install and restart. */
 function updateBanner(u: AvailableUpdate): HTMLElement {
   const out = h("div", {});
@@ -197,8 +243,8 @@ async function checkForUpdate(show = false): Promise<AvailableUpdate | null> {
 
 /** .svx files handed to the app by the OS always go to the Open screen. */
 async function pickUpPending() {
-  // Leave files queued until setup is done.
-  if (!ctx.state.configured) return;
+  // Leave files queued until setup is done (or the suspension is lifted).
+  if (!ctx.state.configured || suspended) return;
   const paths = await api.takePending().catch(() => [] as string[]);
   if (paths.length) ctx.go("open", paths[paths.length - 1]);
 }
@@ -206,7 +252,10 @@ async function pickUpPending() {
 /** Update the Requests badge without re-rendering the screen. */
 async function refreshRequests() {
   if (!ctx.state.configured || !ctx.state.personal) return;
-  const n = await api.requests().then((r) => r.length).catch(() => pendingRequests);
+  const n = await api.requests().then((r) => r.length).catch((e) => {
+    if (asAppError(e).kind === "suspended") void checkAccount();
+    return pendingRequests;
+  });
   if (n === pendingRequests) return;
   pendingRequests = n;
   const btn = app.querySelector<HTMLElement>('.nav-item[data-route="requests"]');
@@ -217,6 +266,9 @@ async function start() {
   await ctx.refreshState();
   route = ctx.state.configured ? (ctx.state.personal ? "send" : "open") : "welcome";
   render();
+  await checkAccount();
+  window.setInterval(() => void checkAccount(), 60_000);
+  window.addEventListener("focus", () => void checkAccount());
   await listen("open-file", () => void pickUpPending());
   await pickUpPending();
   void refreshRequests();
@@ -224,7 +276,7 @@ async function start() {
   void checkForUpdate();
   window.setInterval(() => void checkForUpdate(), 24 * 3600_000);
   await getCurrentWebview().onDragDropEvent((ev) => {
-    if (ev.payload.type !== "drop" || !ctx.state.configured) return;
+    if (ev.payload.type !== "drop" || !ctx.state.configured || suspended) return;
     const paths = ev.payload.paths;
     if (route === "send" && ctx.onFiles) {
       ctx.onFiles(paths);
