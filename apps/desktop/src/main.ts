@@ -49,6 +49,9 @@ const app = document.getElementById("app")!;
 let route: Route = "open";
 let pendingRequests = 0;
 let update: AvailableUpdate | null = null;
+/** "Later" hides the banner; the sidebar keeps an Update button. */
+let updateHidden = false;
+let lastUpdateCheck = 0;
 /** The service said this account is suspended: the whole app is locked. */
 let suspended = false;
 
@@ -118,6 +121,12 @@ function render(arg?: unknown) {
     const side = h("aside", { class: "sidebar" },
       h("div", { class: "brand" }, brandLockup(), h("span", { class: "brand-name" }, "Secure Verified Exchange")),
       h("nav", { class: "nav", "aria-label": "Main" }, ...items),
+      update && updateHidden
+        ? h("button", {
+          type: "button", class: "nav-update",
+          onclick: () => { updateHidden = false; render(arg); },
+        }, icon("info"), h("span", {}, `Update to ${update.version}`))
+        : null,
       h("div", { class: "who" },
         h("span", { class: "who-name" }, s.personal ? (s.email ?? "") : (s.org_id ?? "")),
         s.dev ? h("span", { class: "badge badge-warn" }, "dev") : null),
@@ -125,7 +134,7 @@ function render(arg?: unknown) {
     app.append(h("div", { class: "shell" }, side, main));
   }
 
-  if (update) main.appendChild(updateBanner(update));
+  if (update && !updateHidden) main.appendChild(updateBanner(update));
   if (s.config_error && route === "setup") {
     main.appendChild(errorPanel({
       kind: "config",
@@ -221,17 +230,19 @@ function updateBanner(u: AvailableUpdate): HTMLElement {
     h("div", { class: "panel-head" }, icon("info"), h("h3", {}, `Version ${u.version} is available`)),
     u.notes ? h("p", {}, u.notes) : null,
     h("p", { class: "muted small" }, "Signed by the SVX release key built into this app; the download is checked before it's installed."),
-    h("div", { class: "actions" }, install, button("Later", () => { update = null; render(); })),
+    h("div", { class: "actions" }, install, button("Later", () => { updateHidden = true; render(); })),
     out);
 }
 
 /** Look for a verified update now and then; errors are ignored (offline). */
 async function checkForUpdate(show = false): Promise<AvailableUpdate | null> {
   if (!ctx.state.updates_available) return null;
+  lastUpdateCheck = Date.now();
   try {
     const u = await api.checkUpdate();
-    if (u && (!update || update.version !== u.version)) {
+    if (u && (!update || update.version !== u.version || (show && updateHidden))) {
       update = u;
+      updateHidden = false;
       if (!show) render();
     }
     return u;
@@ -273,8 +284,13 @@ async function start() {
   await pickUpPending();
   void refreshRequests();
   window.setInterval(() => void refreshRequests(), 20_000);
+  // Updates: at start, every 3 hours, and when the window comes to the
+  // front if the last look was over an hour ago.
   void checkForUpdate();
-  window.setInterval(() => void checkForUpdate(), 24 * 3600_000);
+  window.setInterval(() => void checkForUpdate(), 3 * 3600_000);
+  window.addEventListener("focus", () => {
+    if (Date.now() - lastUpdateCheck > 3600_000) void checkForUpdate();
+  });
   await getCurrentWebview().onDragDropEvent((ev) => {
     if (ev.payload.type !== "drop" || !ctx.state.configured || suspended) return;
     const paths = ev.payload.paths;
