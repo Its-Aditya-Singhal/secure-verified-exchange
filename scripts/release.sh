@@ -138,8 +138,11 @@ if [ "$MAC_SIGN" = 1 ]; then
   rm -f "$PKG" "$PKG.sig"
   (cd "$(dirname "$APP")" && COPYFILE_DISABLE=1 tar -czf "$PKG" "$(basename "$APP")")
   (cd "$ROOT/apps/desktop" && env -u TAURI_SIGNING_PRIVATE_KEY -u TAURI_SIGNING_PRIVATE_KEY_PASSWORD \
-    npx tauri signer sign -f "$KEYS/tauri.key" -p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$PKG" >/dev/null)
-  [ -s "$PKG.sig" ] || { echo "the update package wasn't signed" >&2; exit 1; }
+    npx tauri signer sign -f "$KEYS/tauri.key" -p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" \
+      --app-version "$VERSION" "$PKG" >/dev/null)
+  # The app's updater (requireSignedVersion) refuses a signature without it.
+  base64 -d < "$PKG.sig" | grep -q "version:$VERSION\$" \
+    || { echo "the update signature doesn't name version $VERSION" >&2; exit 1; }
 fi
 if [ "$BUILD_ONLY" = 1 ]; then
   echo "Build only: install $(dirname "$PKG") and run it; it checks $URL for updates."
