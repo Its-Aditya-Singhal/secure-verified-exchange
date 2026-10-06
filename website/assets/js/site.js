@@ -200,6 +200,15 @@ $$('[data-copy]').forEach(b => b.addEventListener('click', async () => {
   setTimeout(() => { b.textContent = 'Copy'; }, 1600);
 }));
 
+/* download page: when the file download starts, say how to avoid the macOS warning */
+const dlNotice = document.getElementById('dl-notice');
+if (dlNotice) {
+  const close = () => { dlNotice.hidden = true; };
+  $$('a[download][href$=".dmg"]').forEach(a => a.addEventListener('click', () => { dlNotice.hidden = false; dlNotice.focus(); }));
+  $('.dl-notice__close', dlNotice)?.addEventListener('click', close);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !dlNotice.hidden) close(); });
+}
+
 /* OS detection (download page) + tabs */
 const ua = navigator.userAgent, plat = (navigator.userAgentData?.platform || navigator.platform || '').toLowerCase();
 const os = /mac/.test(plat) || /Mac OS X/.test(ua) ? 'mac' : /win/.test(plat) || /Windows/.test(ua) ? 'win' : /linux/.test(plat) || /Linux/.test(ua) ? 'linux' : '';
