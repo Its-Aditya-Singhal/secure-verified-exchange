@@ -56,7 +56,7 @@ No card needed: we skipped Cloudflare Tunnel (Zero Trust wants a card) and use t
 | | Step |
 |---|---|
 | [x] | ~~C1. Release key and Tauri updater key: already in `~/.svx-release` (made 2026-10-04, never left the Mac); the updater public key matches `tauri.conf.json`; fingerprint above. Offline backup is part of B5~~ |
-| [ ] | C2. Build the macOS app (Apple silicon) with `SVX_OFFICIAL_SERVICE_URL=https://api.getsvx.me:8443`, `SVX_OFFICIAL_REGISTRY_FINGERPRINT`, `SVX_RELEASE_KEY`, `SVX_UPDATE_URL` |
+| [x] | ~~C2. Version 0.1.0 built for Apple silicon with the official service (`https://api.getsvx.me:8443`), registry fingerprint, release key and update address built in (`scripts/release.sh 0.1.0 --update-url … --service-url … --registry-fingerprint …`); signed manifest verified. Files in `dist-release/` (not in git): `download/SVX-beta-macOS.dmg` (SHA-256 `63b881a20a07e52d2236ddb0ec6b9f25a163ad8b5a756f98b71da2fbbd702302`, local build; a different build gets a different checksum) and `0.1.0/` (update package + manifest, for the server's updates folder)~~ |
 | [ ] | C3. First-run check on a clean Mac user account |
 | [ ] | C4. Update test: install 0.1.0, publish 0.1.1 to the server's updates folder, the app updates itself |
 
