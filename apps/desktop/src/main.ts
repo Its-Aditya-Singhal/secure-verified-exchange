@@ -279,7 +279,14 @@ async function start() {
   render();
   await checkAccount();
   window.setInterval(() => void checkAccount(), 60_000);
-  window.addEventListener("focus", () => void checkAccount());
+  // At most every 30 s: a system dialog (Touch ID, keychain) takes the
+  // focus away and gives it back, which mustn't start another check.
+  let lastAccountCheck = Date.now();
+  window.addEventListener("focus", () => {
+    if (Date.now() - lastAccountCheck < 30_000) return;
+    lastAccountCheck = Date.now();
+    void checkAccount();
+  });
   await listen("open-file", () => void pickUpPending());
   await pickUpPending();
   void refreshRequests();

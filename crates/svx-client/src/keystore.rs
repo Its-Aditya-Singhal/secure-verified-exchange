@@ -8,9 +8,11 @@
 //!
 //! A [`KeyRef`] is written as a path, or as `keychain:<org>/<key_id>`.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use svx_core::crypto::{KemSecretKey, KeyKind, SigningKey, os_rng};
 use svx_core::format::Identifier;
@@ -78,9 +80,90 @@ pub trait SecretStore: Send + Sync {
     fn delete(&self, name: &str) -> Result<()>;
 }
 
-/// The operating system keychain (needs the `keychain` feature).
+/// The operating system keychain (needs the `keychain` feature), shared by
+/// the whole process and read through [`CachedStore`]: each entry is read
+/// from the keychain once, so macOS asks at most once per entry per launch
+/// (it asks whenever an app it doesn't yet trust reads an entry).
 pub fn os_keychain() -> Arc<dyn SecretStore> {
-    Arc::new(OsKeychain)
+    static STORE: OnceLock<Arc<dyn SecretStore>> = OnceLock::new();
+    STORE
+        .get_or_init(|| Arc::new(CachedStore::new(OsKeychain, KEYCHAIN_RETRY)))
+        .clone()
+}
+
+/// After a failed or refused keychain read, how long to wait before asking
+/// the keychain (and so the user) again.
+const KEYCHAIN_RETRY: Duration = Duration::from_secs(60);
+
+/// A [`SecretStore`] that remembers what it read, for the life of the
+/// process. Writes and deletions go through it, so it stays current. Reads
+/// are one at a time, so concurrent requests never stack keychain prompts,
+/// and after a failed read (for example the user chose Deny) the same entry
+/// isn't asked for again until `retry_after` has passed.
+pub struct CachedStore<S> {
+    inner: S,
+    retry_after: Duration,
+    state: Mutex<CacheState>,
+}
+
+#[derive(Default)]
+struct CacheState {
+    values: BTreeMap<String, Option<Zeroizing<Vec<u8>>>>,
+    failed: BTreeMap<String, (Instant, String)>,
+}
+
+impl<S: SecretStore> CachedStore<S> {
+    pub fn new(inner: S, retry_after: Duration) -> Self {
+        CachedStore {
+            inner,
+            retry_after,
+            state: Mutex::new(CacheState::default()),
+        }
+    }
+}
+
+impl<S: SecretStore> SecretStore for CachedStore<S> {
+    fn get(&self, name: &str) -> Result<Option<Zeroizing<Vec<u8>>>> {
+        // Held across the read: one keychain prompt at a time.
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(v) = st.values.get(name) {
+            return Ok(v.clone());
+        }
+        if let Some((at, msg)) = st.failed.get(name)
+            && at.elapsed() < self.retry_after
+        {
+            return Err(ClientError::Other(msg.clone()));
+        }
+        match self.inner.get(name) {
+            Ok(v) => {
+                st.failed.remove(name);
+                st.values.insert(name.to_owned(), v.clone());
+                Ok(v)
+            }
+            Err(e) => {
+                st.failed
+                    .insert(name.to_owned(), (Instant::now(), e.to_string()));
+                Err(e)
+            }
+        }
+    }
+
+    fn set(&self, name: &str, secret: &[u8]) -> Result<()> {
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        self.inner.set(name, secret)?;
+        st.failed.remove(name);
+        st.values
+            .insert(name.to_owned(), Some(Zeroizing::new(secret.to_vec())));
+        Ok(())
+    }
+
+    fn delete(&self, name: &str) -> Result<()> {
+        let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        self.inner.delete(name)?;
+        st.failed.remove(name);
+        st.values.insert(name.to_owned(), None);
+        Ok(())
+    }
 }
 
 struct OsKeychain;
@@ -301,6 +384,59 @@ pub fn delete(store: &dyn SecretStore, r: &KeyRef) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+
+    /// Counts reads and can be told to fail, like a keychain whose user
+    /// chose Deny.
+    #[derive(Default)]
+    struct Counting {
+        inner: MemoryStore,
+        reads: std::sync::atomic::AtomicUsize,
+        deny: std::sync::atomic::AtomicBool,
+    }
+
+    impl SecretStore for Counting {
+        fn get(&self, name: &str) -> Result<Option<Zeroizing<Vec<u8>>>> {
+            self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if self.deny.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(ClientError::Other("reading the keychain: denied".into()));
+            }
+            self.inner.get(name)
+        }
+        fn set(&self, name: &str, secret: &[u8]) -> Result<()> {
+            self.inner.set(name, secret)
+        }
+        fn delete(&self, name: &str) -> Result<()> {
+            self.inner.delete(name)
+        }
+    }
+
+    #[test]
+    fn the_keychain_is_read_once_and_not_pestered_after_a_refusal() {
+        use std::sync::atomic::Ordering::SeqCst;
+        let c = CachedStore::new(Counting::default(), Duration::from_millis(200));
+        c.inner.inner.set("a", b"one").unwrap();
+        for _ in 0..5 {
+            assert_eq!(c.get("a").unwrap().unwrap().as_slice(), b"one");
+        }
+        assert_eq!(c.inner.reads.load(SeqCst), 1);
+        // Writes and deletions keep it current without reading again.
+        c.set("a", b"two").unwrap();
+        assert_eq!(c.get("a").unwrap().unwrap().as_slice(), b"two");
+        c.delete("a").unwrap();
+        assert!(c.get("a").unwrap().is_none());
+        assert_eq!(c.inner.reads.load(SeqCst), 1);
+
+        // A refused read isn't asked again until the wait is over.
+        c.inner.deny.store(true, SeqCst);
+        assert!(c.get("b").is_err());
+        assert!(c.get("b").is_err());
+        assert_eq!(c.inner.reads.load(SeqCst), 2);
+        c.inner.deny.store(false, SeqCst);
+        std::thread::sleep(Duration::from_millis(250));
+        assert!(c.get("b").unwrap().is_none());
+        assert_eq!(c.inner.reads.load(SeqCst), 3);
+    }
+
     use super::*;
 
     #[test]
