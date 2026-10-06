@@ -281,16 +281,26 @@ pub(crate) async fn bind_device(
         }
         None => {
             check_ip(st, ip, "accounts", st.limits.accounts_per_ip_per_day, DAY)?;
-            let taken: bool = sqlx::query_scalar(
-                "SELECT EXISTS (SELECT 1 FROM personal_accounts WHERE lower(email) = lower($1))",
+            // One account per email address. The caller has just proved it
+            // owns this address (verified by the provider, or an emailed
+            // code), so saying how that account signs in reveals nothing.
+            let taken: Option<String> = sqlx::query_scalar(
+                "SELECT issuer FROM personal_accounts WHERE lower(email) = lower($1)",
             )
             .bind(who.email)
-            .fetch_one(&mut *tx)
+            .fetch_optional(&mut *tx)
             .await?;
-            if taken {
-                return Err(ApiError::Conflict(
-                    "this email already has an account with another sign-in provider".into(),
-                ));
+            if let Some(issuer) = taken {
+                let how = if issuer == svx_protocol::email_account::EMAIL_ISSUER {
+                    "with an email address and password: choose \"Sign in with email\""
+                } else if issuer == "https://accounts.google.com" {
+                    "with Google: choose \"Continue with Google\""
+                } else {
+                    "with another sign-in method"
+                };
+                return Err(ApiError::Conflict(format!(
+                    "this email already has an account with another sign-in provider; it signs in {how}"
+                )));
             }
             // A backup's keys belong to the account it was made for.
             let reused: bool = sqlx::query_scalar(

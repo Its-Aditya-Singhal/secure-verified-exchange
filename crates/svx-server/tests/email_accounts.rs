@@ -358,6 +358,11 @@ async fn weak_passwords_bad_names_and_taken_emails_are_refused() {
         .await,
     );
     assert!(e.contains("another sign-in provider"), "{e}");
+    // Bob signed up through the test provider (neither Google nor email).
+    assert!(
+        e.ends_with("it signs in with another sign-in method"),
+        "{e}"
+    );
     w.cleanup().await.unwrap();
 }
 
