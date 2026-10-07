@@ -418,3 +418,14 @@ body.is-leaving{opacity:0}
   .scene-cap{bottom:14px}
 }
 @media (max-width:900px){.seal-mark{inset:0 0 40%}.seal-mark svg{width:42%}.file b{font-size:.72rem}}
+
+/* learn how to use */
+.learn{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,380px);gap:clamp(20px,3vw,48px);align-items:start;margin-top:clamp(28px,4vw,56px)}
+.learn__bar{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px;margin-top:14px;font-size:.82rem;color:var(--mut)}
+.learn__list{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.learn__item{display:grid;grid-template-columns:2.2rem minmax(0,1fr) auto;align-items:center;gap:14px;width:100%;padding:14px 16px;text-align:left;background:var(--bg2);color:var(--fg);border:1px solid var(--line);border-radius:var(--r);cursor:pointer;font:500 .95rem/1.3 var(--sans);transition:border-color .25s,background-color .25s}
+.learn__item:hover{border-color:var(--line2)}
+.learn__item.is-current{border-color:var(--acc);background:var(--bg3)}
+.learn__n{font:400 .8rem/1 var(--mono);color:var(--acc-text);letter-spacing:.08em}
+.learn__d{font-size:.76rem;color:var(--mut)}
+@media (max-width:900px){.learn{grid-template-columns:minmax(0,1fr)}}

@@ -8,7 +8,7 @@ Legend: `[ ]` open, `[x]` done.
 ## Where things stand
 
 - [x] Website built (`website/`) and live on a Cloudflare `workers.dev` address
-- [x] Azure server created (Ubuntu 24.04, B2ats_v2, Central India's allowed region), <server-ip>
+- [x] Azure server created (Ubuntu 24.04, B2ats_v2, Central India's allowed region); its address is kept out of the repository (`~/.svx-server`, see `scripts/admin.sh`)
 - [x] Server hardened: key-only SSH, no root login, firewall (SSH only), swap, updates, rebooted
 - [x] PostgreSQL 16 on the server (local only), role and database `svx`
 - [x] `svx-server` and `svx` built for Linux and installed; keys created on the server

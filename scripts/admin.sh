@@ -14,7 +14,9 @@
 #   SVX_ADMIN_PRINT_URL=1 scripts/admin.sh   # print the login link instead of opening it
 set -eu
 
-HOST=${SVX_ADMIN_HOST:-azureuser@<server-ip>}
+# The server address is not kept in the repository: SVX_ADMIN_HOST, or the one line in ~/.svx-server (user@host).
+HOST=${SVX_ADMIN_HOST:-$(cat "$HOME/.svx-server" 2>/dev/null || true)}
+[ -n "$HOST" ] || { echo "Set SVX_ADMIN_HOST=user@host, or put user@host in ~/.svx-server" >&2; exit 1; }
 KEY=${SVX_ADMIN_KEY:-$HOME/.ssh/svx_azure}
 REMOTE_PORT=9790
 

@@ -1,0 +1,172 @@
+{
+ "about": "Narration for the Learn how to use SVX videos. Each chapter is a list of spoken lines; {\"pause\": s} adds silence. Fictional people only (Alice, Bob).",
+ "chapters": [
+  {
+   "id": "0-intro",
+   "title": "What SVX is",
+   "lines": [
+    "This is SVX.",
+    "It lets you send a file that only the person you choose can open.",
+    {"pause": 0.7},
+    "Your file is locked right here, on your own computer, before it goes anywhere.",
+    "We never receive it.",
+    {"pause": 0.5},
+    "The key that unlocks it is split in two.",
+    "We hold only one half, so even we can't open your file.",
+    {"pause": 0.7},
+    "You can send it any way you like.",
+    "WhatsApp, email, or a USB stick.",
+    "Every copy stays locked.",
+    {"pause": 0.6},
+    "And it's free.",
+    {"pause": 0.5},
+    "Let's see how it works."
+   ]
+  },
+  {
+   "id": "1-install",
+   "title": "Install SVX",
+   "lines": [
+    "First, get the app from getsvx dot me.",
+    "It works on Windows, and on Macs with an Apple chip.",
+    {"pause": 0.7},
+    "SVX is a free beta, so it isn't signed by Apple or Microsoft yet.",
+    "That's why your computer asks you to confirm, just the first time.",
+    {"pause": 0.7},
+    "On Windows, open the installer.",
+    "When you see, Windows protected your PC, click More info.",
+    "Then, Run anyway.",
+    {"pause": 0.7},
+    "On a Mac, open the download and drag SVX into Applications.",
+    "Open it. If macOS can't verify it, go to System Settings, Privacy and Security,",
+    "and click Open Anyway.",
+    {"pause": 0.6},
+    "You only do this once.",
+    "After that, SVX updates itself."
+   ]
+  },
+  {
+   "id": "2-account",
+   "title": "Create your account",
+   "lines": [
+    "Now, create your account.",
+    "Continue with Google, or use your email address and a password.",
+    {"pause": 0.7},
+    "With email, SVX sends you a six digit code.",
+    "If it doesn't arrive, check your spam folder.",
+    {"pause": 0.6},
+    "Next, enter your name.",
+    "People you send files to see it, next to your email, so they know it's really you.",
+    {"pause": 0.7},
+    "SVX now makes your keys, on this computer.",
+    "They never leave it.",
+    {"pause": 0.5},
+    "Save a backup of your keys when it asks.",
+    "We'll come back to why that matters."
+   ]
+  },
+  {
+   "id": "3-send",
+   "title": "Send a file",
+   "lines": [
+    "Let's send a file.",
+    "Alice wants to send a project plan to Bob.",
+    {"pause": 0.6},
+    "She drops the file into SVX,",
+    "and types Bob's email address.",
+    "The green tick means Bob has an SVX account, and it's really his.",
+    {"pause": 0.7},
+    "Next, her controls.",
+    "Ask me before each open, means Bob has to wait for her approval.",
+    "One time, means he can open it only once.",
+    "And she can choose when it stops opening.",
+    {"pause": 0.7},
+    "She clicks, Encrypt and send.",
+    "SVX asks her to confirm it's her, with Touch ID, Windows Hello, or her password.",
+    {"pause": 0.6},
+    "Her file is now locked, in a new file ending in dot S V X.",
+    "She sends it to Bob any way she likes.",
+    "WhatsApp, email, or a USB stick."
+   ]
+  },
+  {
+   "id": "4-open",
+   "title": "Open a file you received",
+   "lines": [
+    "Bob got the file.",
+    "He double-clicks it, and SVX opens it.",
+    {"pause": 0.6},
+    "First, SVX checks the file.",
+    "It's really from Alice, and nobody changed it on the way.",
+    {"pause": 0.6},
+    "Bob confirms it's him.",
+    "Then SVX checks Alice's rules, to see if Bob may open it now.",
+    {"pause": 0.7},
+    "When it's allowed, the file is unlocked, right on Bob's computer,",
+    "and saved where only he can read it.",
+    {"pause": 0.5},
+    "If anyone else gets a copy, it simply won't open for them."
+   ]
+  },
+  {
+   "id": "5-control",
+   "title": "Stay in control",
+   "lines": [
+    "Alice asked to approve each open.",
+    "So when Bob tries, she gets an email, and a request in the app.",
+    {"pause": 0.6},
+    "She checks it's really Bob, by phone, or in person,",
+    "and clicks Approve.",
+    "Bob's file opens a moment later.",
+    {"pause": 0.8},
+    "In History, Alice sees every file she sent,",
+    "who opened it, and when.",
+    {"pause": 0.5},
+    "She can make a file stop opening sooner,",
+    "or revoke it for everyone, at any time.",
+    {"pause": 0.6},
+    "Revoking stops future opens.",
+    "It can't take back a copy someone already saved."
+   ]
+  },
+  {
+   "id": "6-view-only",
+   "title": "View-only files",
+   "lines": [
+    "Some files should be read, but not kept.",
+    "For those, tick View only before sending.",
+    {"pause": 0.6},
+    "Bob can read the file inside SVX.",
+    "But he can't save it, copy it, or print it.",
+    "And if he takes a screenshot, the window comes out black.",
+    {"pause": 0.7},
+    "It works for PDFs, images, and Word, Excel, and PowerPoint files.",
+    {"pause": 0.6},
+    "One honest note.",
+    "Nothing can stop someone taking a photo of their screen with a phone.",
+    "So only send view-only to people you trust that much."
+   ]
+  },
+  {
+   "id": "7-backup",
+   "title": "Keep your keys safe",
+   "lines": [
+    "Last, and important.",
+    "Your keys live only on your computer.",
+    "If you lose it, files sent to you can't be opened, unless you saved a backup.",
+    {"pause": 0.7},
+    "In Settings, click, Save a backup of your keys.",
+    "Choose a recovery password, and keep the backup file somewhere safe.",
+    "Nobody can recover that password. Not even us.",
+    {"pause": 0.7},
+    "On a new computer, sign in, choose Restore from your backup,",
+    "and pick your file.",
+    "Everything opens again, just like before.",
+    {"pause": 0.8},
+    "That's it.",
+    "Send it, and stay in control.",
+    "Welcome to SVX."
+   ]
+  }
+ ]
+}

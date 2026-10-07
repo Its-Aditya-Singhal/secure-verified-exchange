@@ -61,6 +61,14 @@ ct=$(curl -sS -m 30 -o /dev/null -w '%{http_code} %{content_type}' "$BASE/assets
 
 grep -q 'assets/css/site.css?v=' <<<"$home" && ok "stylesheet link is fingerprinted (dist-site was uploaded)" || bad "stylesheet link has no ?v= fingerprint: upload dist-site from scripts/package-site.sh"
 
+echo "Learn how to use"
+grep -q 'id="learn"' <<<"$home" && ok "home page has the Learn how to use section" || bad "Learn section missing from the home page"
+for ch in 0-intro 1-install 2-account 3-send 4-open 5-control 6-view-only 7-backup; do
+  m=$(curl -sS -m 60 -o /dev/null -w '%{http_code} %{content_type}' -I "$BASE/assets/media/learn/svx-learn-$ch.mp4" || echo 000)
+  case "$m" in "200 video/mp4"*) ;; *) bad "video $ch: $m"; continue;; esac
+  [ "$(code assets/media/learn/svx-learn-$ch.vtt)" = 200 ] && [ "$(code assets/media/learn/svx-learn-$ch.jpg)" = 200 ] && ok "$ch: video, subtitles and poster" || bad "$ch: subtitles or poster missing"
+done
+
 echo "Contact"
 [ "$(code .well-known/security.txt)" = 200 ] && curl -fsSL -m 30 "$BASE/.well-known/security.txt" | grep -q "^Contact: mailto:security@getsvx.me" && ok "/.well-known/security.txt" || bad "security.txt missing or wrong"
 grep -q 'support@getsvx.me' <<<"$home" && ok "support address in the footer" || bad "support address missing"

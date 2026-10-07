@@ -193,6 +193,32 @@ $$('.film').forEach(f => {
   b?.addEventListener('click', () => { f.classList.add('is-playing'); v.controls = true; v.play().catch(() => {}); v.focus(); });
 });
 
+/* learn how to use: one player, a chapter list, "Play all", subtitles */
+const learn = $('[data-learn]');
+if (learn) {
+  const v = $('video', learn), film = $('.film', learn), items = $$('[data-ch]', learn);
+  const now = $('[data-learn-now]', learn), all = $('[data-learn-all]', learn);
+  const base = 'assets/media/learn/svx-learn-';
+  let cur = 0, auto = false;
+  const load = (i, play) => {
+    cur = i;
+    const id = items[i].dataset.ch;
+    v.poster = `${base}${id}.jpg`;
+    v.src = `${base}${id}.mp4`;
+    $$('track', v).forEach(t => t.remove());
+    const tr = document.createElement('track');
+    Object.assign(tr, { kind: 'subtitles', srclang: 'en', label: 'English', src: `${base}${id}.vtt`, default: true });
+    v.appendChild(tr);
+    setTimeout(() => { if (v.textTracks[0]) v.textTracks[0].mode = 'showing'; }, 50);
+    items.forEach((x, k) => { x.classList.toggle('is-current', k === i); if (k === i) x.setAttribute('aria-current', 'true'); else x.removeAttribute('aria-current'); });
+    now.textContent = `${i + 1} of ${items.length} · ${items[i].dataset.title}`;
+    if (play) { film.classList.add('is-playing'); v.controls = true; v.play().catch(() => {}); }
+  };
+  items.forEach((it, i) => it.addEventListener('click', () => { auto = false; all.setAttribute('aria-pressed', 'false'); load(i, true); }));
+  all.addEventListener('click', () => { auto = true; all.setAttribute('aria-pressed', 'true'); load(0, true); });
+  v.addEventListener('ended', () => { if (auto && cur < items.length - 1) load(cur + 1, true); else if (auto) { auto = false; all.setAttribute('aria-pressed', 'false'); } });
+}
+
 /* copy-to-clipboard */
 $$('[data-copy]').forEach(b => b.addEventListener('click', async () => {
   const t = document.getElementById(b.dataset.copy)?.textContent.trim(); if (!t) return;

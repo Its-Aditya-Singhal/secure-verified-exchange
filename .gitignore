@@ -29,3 +29,14 @@ sdk/node/native.js
 
 # Original brand videos (large; the website uses its own encode in website/assets/media)
 /brand/video/
+
+# Tutorial videos: the voice engine, its models and everything generated
+/brand/tutorial/.venv
+/brand/tutorial/models
+/brand/tutorial/out
+/brand/tutorial/node_modules
+
+# The tutorial videos on the website (rebuilt by brand/tutorial/build.sh; the posters and subtitles are kept)
+/website/assets/media/learn/*.mp4
+
+# Local tools: the code knowledge graph and preview settings

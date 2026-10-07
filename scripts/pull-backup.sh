@@ -11,7 +11,9 @@
 # for --drill, a local PostgreSQL role that may create databases.
 set -euo pipefail
 
-SERVER=${SVX_SERVER:-azureuser@<server-ip>}
+# The server address is not kept in the repository: SVX_SERVER, or the one line in ~/.svx-server (user@host).
+SERVER=${SVX_SERVER:-$(cat "$HOME/.svx-server" 2>/dev/null || true)}
+[ -n "$SERVER" ] || { echo "Set SVX_SERVER=user@host, or put user@host in ~/.svx-server" >&2; exit 1; }
 SSH_KEY=${SVX_SSH_KEY:-$HOME/.ssh/svx_azure}
 DEST=${SVX_BACKUP_DIR:-$HOME/.svx-service-backup/db}
 IDENTITY=${SVX_BACKUP_KEY:-$HOME/.svx-service-backup/db-backup-age.key}

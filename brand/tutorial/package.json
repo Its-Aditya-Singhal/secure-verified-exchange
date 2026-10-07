@@ -1,0 +1,9 @@
+{
+  "name": "svx-tutorial",
+  "private": true,
+  "type": "module",
+  "description": "Renders the Learn how to use SVX videos (see build.sh)",
+  "dependencies": {
+    "puppeteer-core": "^25.12.0"
+  }
+}

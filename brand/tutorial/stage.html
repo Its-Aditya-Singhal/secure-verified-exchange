@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>SVX tutorial stage</title>
+<style>
+@font-face{font-family:"Unbounded";src:url(/website/assets/fonts/unbounded-700.woff2) format("woff2");font-weight:700}
+@font-face{font-family:"IBM Plex Sans";src:url(/website/assets/fonts/plex-sans-400.woff2) format("woff2");font-weight:400}
+@font-face{font-family:"IBM Plex Sans";src:url(/website/assets/fonts/plex-sans-500.woff2) format("woff2");font-weight:500}
+@font-face{font-family:"IBM Plex Sans";src:url(/website/assets/fonts/plex-sans-600.woff2) format("woff2");font-weight:600}
+@font-face{font-family:"IBM Plex Mono";src:url(/website/assets/fonts/plex-mono-400.woff2) format("woff2");font-weight:400}
+:root{--bg:#16171B;--bg2:#1D1F24;--bone:#F3F1EC;--sig:#FF6A3D;--mut:#A8A59E;--line:#2F3138;--line2:#3D4048;--ok:#4cc584}
+*{box-sizing:border-box}
+html,body{margin:0;width:1920px;height:1080px;overflow:hidden;background:var(--bg);color:var(--bone);font-family:"IBM Plex Sans",sans-serif}
+#bg{position:absolute;inset:0;background:radial-gradient(ellipse 80% 70% at 50% 42%,#262932 0%,#1b1d23 50%,#101114 100%)}
+#gridwrap{position:absolute;inset:-25%;overflow:hidden}
+#grid{position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:80px 80px;mask-image:radial-gradient(ellipse at 50% 45%,#000 20%,transparent 70%);-webkit-mask-image:radial-gradient(ellipse at 50% 45%,#000 20%,transparent 70%)}
+#stage{position:absolute;inset:0;overflow:hidden}
+#world{position:absolute;left:0;top:0;width:1920px;height:1080px;transform-origin:0 0}
+#hud{position:absolute;inset:0;pointer-events:none;z-index:50}
+#vignette{position:absolute;inset:0;z-index:60;pointer-events:none;background:radial-gradient(ellipse 75% 70% at 50% 50%,transparent 55%,rgba(0,0,0,.42) 100%)}
+#grain{position:absolute;inset:0;width:1920px;height:1080px;z-index:61;pointer-events:none;opacity:.045;mix-blend-mode:overlay}
+
+.sym{display:inline-block;vertical-align:middle}.sym svg{width:100%;height:100%;display:block}
+
+/* app windows */
+.appwin{position:absolute;border-radius:14px;overflow:hidden;background:#16171b;box-shadow:0 0 0 1px rgba(255,255,255,.07),0 50px 120px rgba(0,0,0,.6),0 12px 30px rgba(0,0,0,.35)}
+.appwin iframe{display:block;width:100%;border:0;background:#16171b}
+.tb{height:38px;display:flex;align-items:center;gap:8px;padding:0 14px;background:#1f2127;border-bottom:1px solid #2b2d33;font:500 14px "IBM Plex Sans";color:#a09f9a}
+.tb-mac i{width:12px;height:12px;border-radius:50%;display:block}
+.tb-mac i:nth-child(1){background:#ff5f57}.tb-mac i:nth-child(2){background:#febc2e}.tb-mac i:nth-child(3){background:#28c840}
+.tb-mac span{position:absolute;left:0;right:0;text-align:center;pointer-events:none}
+.tb-win{padding-right:0}.tb-win span{flex:1}.tb-win .wico{flex:none;display:flex}
+.tb-win b{width:46px;height:38px;display:flex;align-items:center;justify-content:center;font-weight:400;font-size:13px;color:#c9c7c1}
+
+/* cursor */
+.cursor{position:absolute;left:0;top:0;z-index:40;transform-origin:3px 2px;filter:drop-shadow(0 3px 6px rgba(0,0,0,.45))}
+.cursor svg{display:block;transform:translate(-3px,-2px)}
+.click-ring{position:absolute;left:0;top:0;width:70px;height:70px;border-radius:50%;border:3px solid var(--sig);z-index:39}
+
+/* spotlight */
+.spot{position:absolute;inset:0;z-index:30;pointer-events:none}
+.spot-hole{position:absolute}
+.spot-label{position:absolute;display:flex;align-items:center;gap:12px;white-space:nowrap;font:600 30px "IBM Plex Sans";color:var(--bone);background:rgba(22,23,27,.92);border:1px solid rgba(255,106,61,.6);padding:12px 20px;border-radius:12px;box-shadow:0 18px 40px rgba(0,0,0,.45)}
+.spot-label i{width:10px;height:10px;border-radius:50%;background:var(--sig);box-shadow:0 0 12px var(--sig)}
+
+/* kinetic text */
+.w{display:inline-block;overflow:hidden;vertical-align:bottom;padding-bottom:.08em}.w>span{display:inline-block}
+.cap{position:absolute;left:0;right:0;text-align:center;font-family:"Unbounded";font-weight:700;letter-spacing:.005em;line-height:1.15;text-shadow:0 4px 30px rgba(8,9,12,.9),0 1px 3px rgba(8,9,12,.8)}
+.cap .hl,.titlecard .hl{color:var(--sig)}
+.capband{position:absolute;left:0;right:0;bottom:0;height:300px;background:linear-gradient(to top,rgba(10,11,14,.88),rgba(10,11,14,.55) 45%,transparent);pointer-events:none}
+.capband.top{top:0;bottom:auto;background:linear-gradient(to bottom,rgba(10,11,14,.88),rgba(10,11,14,.55) 45%,transparent)}
+.titlecard{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:transparent}
+.tc-num{font:400 34px "IBM Plex Mono";letter-spacing:.3em;color:var(--sig);margin-bottom:26px}
+.tc-title{font:700 112px/1.05 "Unbounded";letter-spacing:-.01em;text-align:center;max-width:1500px}
+.tc-line{width:220px;height:4px;background:var(--sig);margin-top:40px;transform-origin:0 50%}
+.wipe{position:absolute;inset:0;overflow:hidden;z-index:80}
+.wipe-a,.wipe-b{position:absolute;top:-10%;bottom:-10%;left:0;width:120%}
+.wipe-a{background:var(--sig)}.wipe-b{background:#16171b}
+
+/* reusable pieces for scenes */
+.fileicon{position:absolute;width:150px;text-align:center;font:500 22px "IBM Plex Sans";color:var(--bone)}
+.fileicon .doc{width:118px;height:150px;margin:0 auto 14px;position:relative;border-radius:10px;background:#f3f1ec;box-shadow:0 18px 40px rgba(0,0,0,.45)}
+.fileicon .doc::after{content:"";position:absolute;right:0;top:0;width:34px;height:34px;background:linear-gradient(225deg,#16171b 50%,#d6d2c8 50%);border-bottom-left-radius:8px}
+.fileicon .doc em{position:absolute;left:12px;bottom:14px;font:700 18px "IBM Plex Sans";font-style:normal;color:#fff;background:#e5484d;padding:3px 8px;border-radius:5px}
+.fileicon .doc.svx{background:#1f2127;border:2px solid #3d4048}
+.fileicon .doc.svx::after{background:linear-gradient(225deg,#16171b 50%,#3d4048 50%)}
+.fileicon .doc .lockmark{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+.person{position:absolute;display:flex;align-items:center;gap:16px;font:600 30px "IBM Plex Sans"}
+.person .av{width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:700 28px "Unbounded";color:#16171b}
+.badge{display:inline-flex;align-items:center;gap:10px;padding:8px 16px;border-radius:999px;border:1px solid var(--line2);background:rgba(29,31,36,.9);font:500 22px "IBM Plex Sans";color:var(--bone)}
+.sysdlg{position:absolute;width:520px;border-radius:18px;background:rgba(40,42,48,.97);border:1px solid rgba(255,255,255,.1);box-shadow:0 40px 90px rgba(0,0,0,.6);padding:30px;text-align:center;font:400 20px/1.4 "IBM Plex Sans";color:#e8e6e1}
+.sysdlg h4{margin:14px 0 8px;font:600 24px "IBM Plex Sans";color:#fff}
+.sysdlg .btns{display:flex;gap:12px;justify-content:center;margin-top:22px}
+.sysdlg .btns span{padding:9px 22px;border-radius:9px;background:#3a3c43;font-weight:500}
+.sysdlg .btns span.pri{background:#0a84ff;color:#fff}
+.dest{position:absolute;width:300px;height:220px;border-radius:22px;background:rgba(29,31,36,.95);border:1px solid var(--line2);box-shadow:0 30px 70px rgba(0,0,0,.5);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;font:600 28px "IBM Plex Sans"}
+.dest svg{width:64px;height:64px}
+.vbody{background:#26282d;height:calc(100% - 38px);display:flex;justify-content:center;padding:26px 0 0;overflow:hidden}
+.vpage{position:relative;width:560px;height:100%;background:#f7f5f0;border-radius:4px 4px 0 0;color:#23242a;padding:48px 54px;overflow:hidden;font-family:"IBM Plex Sans";box-shadow:0 20px 50px rgba(0,0,0,.5)}
+.vpage h1{font:700 34px "Unbounded";margin:0 0 6px;color:#16171b}.vpage .sub{font:500 17px "IBM Plex Sans";color:#777;margin-bottom:30px}
+.vpage h2{font:700 20px "IBM Plex Sans";margin:24px 0 8px}.vpage li{font:400 18px/1.55 "IBM Plex Sans";margin-left:20px}
+.vpage .bar{height:12px;border-radius:6px;background:#dcd8ce;margin:10px 0}
+.vwm{position:absolute;inset:-60%;display:flex;flex-wrap:wrap;gap:70px 34px;transform:rotate(-28deg);align-content:center;justify-content:center;font:600 19px "IBM Plex Sans";color:rgba(30,30,40,.17);pointer-events:none}
+.vtag{position:absolute;top:44px;right:18px;font:500 15px "IBM Plex Sans";color:#d8d6d0;background:rgba(255,255,255,.08);padding:6px 12px;border-radius:999px;border:1px solid rgba(255,255,255,.14)}
+.key{display:inline-block;min-width:66px;padding:14px 20px;border-radius:14px;background:#2c2e35;border:1px solid #4a4d57;border-bottom-width:5px;font:600 30px "IBM Plex Sans";color:#fff;text-align:center}
+.chip-x{display:inline-flex;align-items:center;gap:12px;padding:14px 24px;border-radius:14px;background:rgba(29,31,36,.95);border:1px solid var(--line2);font:600 28px "IBM Plex Sans";position:absolute}
+.ftile{position:absolute;width:210px;height:210px;border-radius:28px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;font:700 56px "Unbounded";color:#fff;box-shadow:0 26px 60px rgba(0,0,0,.5)}
+.ftile small{font:600 24px "IBM Plex Sans";opacity:.92}
+.mailtoast{position:absolute;width:440px;padding:16px 20px;border-radius:16px;background:rgba(40,42,48,.97);border:1px solid rgba(255,255,255,.12);box-shadow:0 30px 70px rgba(0,0,0,.55);font:400 18px/1.35 "IBM Plex Sans";color:#d8d6d0}
+.mailtoast .mt-h{display:flex;align-items:center;gap:10px;font:500 15px "IBM Plex Sans";color:#9a9892;margin-bottom:8px}
+.mailtoast .mt-h svg{width:22px;height:22px}
+.mailtoast b{display:block;font:600 21px "IBM Plex Sans";color:#fff;margin-bottom:4px}
+</style></head>
+<body>
+<div id="bg"></div><div id="gridwrap"><div id="grid"></div></div>
+<div id="stage"></div>
+<div id="vignette"></div><canvas id="grain" width="960" height="540"></canvas>
+<script type="module">
+import { Engine } from "./engine.js";
+const ch = new URLSearchParams(location.search).get("ch") || "3-send";
+const timing = (await (await fetch("out/timing.json", { cache: "no-store" })).json())[ch];
+await document.fonts.load('700 40px "Unbounded"'); await document.fonts.load('500 20px "IBM Plex Sans"'); await document.fonts.load('600 20px "IBM Plex Sans"'); await document.fonts.load('400 20px "IBM Plex Mono"');
+const E = new Engine(timing, ch);
+const scene = (await import(`./scenes/${ch}.js?v=${Date.now()}`)).default;
+await scene(E);
+window.E = E;
+window.DURATION = E.duration;
+window.CUES = E.cues.sort((a, b) => a[0] - b[0]);
+window.renderAt = (t) => E.renderAt(t);
+await E.renderAt(0);
+window.ready = true;
+</script>
+</body></html>
