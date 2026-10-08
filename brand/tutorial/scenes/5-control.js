@@ -73,14 +73,14 @@ export default async function scene(E) {
   E.camOn(L(1, 0.0), L(1, 0.9), () => bob.rect("ol.timeline"), 1.2, { dy: 30 });
   E.camTo(L(1, 1.5), L(1, 2.5), AX, Y, 0.95, ease.inOutExpo);
   E.camOn(L(2, 1.1), L(2, 2.0), () => alice.rectFinal("section.card"), 1.3, { dy: 50 });
-  E.camOn(L(3, -0.2), L(3, 0.6), () => alice.rectFinal(approveBtn), 1.6, { dy: -10, dx: -90 });
+  E.camOn(L(3, -0.2), L(3, 0.6), () => alice.rectFinal(approveBtn), 1.3, { dy: -10, dx: 0 });
   E.camTo(L(3, 1.2), L(4, 0.45), BX, Y, 0.95, ease.inOutExpo);
   E.camOn(L(4, 0.6), L(4, 1.2), () => bob.rect(".panel-ok"), 1.2, { dy: 30 });
   E.camTo(L(5, -0.3), L(5, 0.8), AX, Y, 0.95, ease.inOutExpo);
   E.camOn(L(5, 1.5), L(5, 2.2), () => alice.rectFinal("ul.list"), 1.5, { dy: 40 });
   E.camOn(L(6, 0.4), L(6, 1.1), () => alice.rectFinal(card(0)), 1.4, { dy: 40 });
   E.camOn(L(7, 0.15), L(7, 0.9), () => alice.rectFinal(".row"), 1.5, { dy: 50 });
-  E.camOn(L(8, 0.0), L(8, 0.8), () => alice.rectFinal(lastCard), 1.4, { dy: 30 });
+  E.camOn(L(8, 0.0), L(8, 0.8), () => alice.rectFinal(lastCard), 1.4, { dy: 30, dx: -250 });
   E.camOn(End(8, 1.3), L(9, 0.8), () => alice.rectFinal(".panel-info, .note"), 1.3, { dy: 40 });
   E.camTo(L(10, -0.3), L(10, 0.8), BX, Y, 0.95, ease.inOutExpo);
   E.camOn(L(10, 0.9), L(10, 1.6), () => bob.rect(".panel-ok"), 1.2, { dy: 30 });

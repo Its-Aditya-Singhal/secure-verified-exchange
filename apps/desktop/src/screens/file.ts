@@ -81,10 +81,15 @@ export function fileScreen(ctx: Ctx, root: HTMLElement, artifactId: string): voi
     const keepCopy = h("input", { type: "checkbox", checked: f.rules.allow_share_requests, disabled: ended || !f.rules.view_only });
     keepCopy.addEventListener("change", () => void change({ allow_share_requests: keepCopy.checked }));
 
-    const sooner = h("select", {}, ...SOONER
-      .filter(([, s]) => effective === null || Date.now() / 1000 + s < effective)
-      .map(([label, s]) => h("option", { value: String(s) }, label)));
+    // Only the options that would bring the date forward. Start on a
+    // placeholder so the list never shows a choice nobody made.
+    const shorter = SOONER.filter(([, s]) => effective === null || Date.now() / 1000 + s < effective);
+    const sooner = h("select", {},
+      h("option", { value: "", disabled: true, selected: true }, "Choose…"),
+      ...shorter.map(([label, s]) => h("option", { value: String(s) }, label)));
     const setExpiry = button("Set", () => void change({ expires_at: Math.floor(Date.now() / 1000) + Number(sooner.value) }, setExpiry));
+    setExpiry.disabled = true;
+    sooner.addEventListener("change", () => { setExpiry.disabled = sooner.value === ""; });
 
     const confirm = h("input", { type: "checkbox" });
     const revokeAll = button("Revoke for everyone", () => {
@@ -133,7 +138,7 @@ export function fileScreen(ctx: Ctx, root: HTMLElement, artifactId: string): voi
                 h("span", { class: "muted small" }, "Requests appear under Requests. Approving lets that person save the file, and that can't be taken back.")))
           : null,
         facts([["Stops opening", effective ? fmtTime(effective) : "Never"]]),
-        !ended && sooner.options.length
+        !ended && shorter.length
           ? h("div", { class: "row" }, field("Stop opening sooner", sooner), setExpiry)
           : null),
       ended ? null : card("Revoke",
